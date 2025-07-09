@@ -98,7 +98,7 @@ class Generator(ABC):
         self._state = state
 
     @abstractmethod
-    def write_batch(self, batch: Any, file_name: str, overwrite: bool = False) -> None:
+    def save_batch(self, batch: Any, file_name: str, overwrite: bool = False) -> None:
         pass
 
     def generate_and_save_batch(
@@ -111,7 +111,7 @@ class Generator(ABC):
         batch = self.next()
 
         # Write batch to disk
-        self.write_batch(batch=batch, file_name=file_name, overwrite=overwrite)
+        self.save_batch(batch=batch, file_name=file_name, overwrite=overwrite)
 
         # Update state only after successful write
         self._state["current_sample"] += self.batch_size

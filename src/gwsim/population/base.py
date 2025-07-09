@@ -20,5 +20,5 @@ class BasePopulation(Generator):
     def update_state(self):
         raise NotImplementedError("Not implemented.")
 
-    def write_batch(self, batch: Any, file_name: str, overwrite: bool = False) -> None:
+    def save_batch(self, batch: Any, file_name: str, overwrite: bool = False) -> None:
         raise NotImplementedError("Not implemented.")
