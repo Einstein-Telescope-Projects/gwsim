@@ -4,6 +4,7 @@ import json
 import pickle
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any, Optional
 
 
 class Generator(ABC):
@@ -95,3 +96,27 @@ class Generator(ABC):
 
         # Restore state
         self._state = state
+
+    @abstractmethod
+    def write_batch(self, batch: Any, file_name: str, overwrite: bool = False) -> None:
+        pass
+
+    def generate_and_save_batch(
+        self, file_name: str, overwrite: bool = False, state_file_name: str | None = None
+    ) -> None:
+        if self.max_samples is not None and self._state["current_sample"] >= self.max_samples:
+            raise StopIteration
+
+        # Generate and store batch temporarily
+        batch = self.next()
+
+        # Write batch to disk
+        self.write_batch(batch=batch, file_name=file_name, overwrite=overwrite)
+
+        # Update state only after successful write
+        self._state["current_sample"] += self.batch_size
+
+        self.update_state()
+
+        if state_file_name:
+            self.save_state(file_name=state_file_name, overwrite=True)
