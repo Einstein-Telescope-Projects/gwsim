@@ -4,7 +4,6 @@ import json
 import pickle
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional
 
 
 class Generator(ABC):
@@ -27,6 +26,10 @@ class Generator(ABC):
 
     @abstractmethod
     def next(self):
+        pass
+
+    @abstractmethod
+    def update_state(self):
         pass
 
     @property
