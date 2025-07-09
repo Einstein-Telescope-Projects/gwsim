@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from ..generator.base import Generator
 
 
@@ -21,3 +23,6 @@ class BaseNoise(Generator):
 
     def update_state(self):
         raise NotImplementedError("Not Implemented.")
+
+    def write_batch(self, batch: Any, file_name: str, overwrite: bool = False) -> None:
+        raise NotImplementedError("Not implemented.")

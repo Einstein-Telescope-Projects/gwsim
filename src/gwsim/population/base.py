@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from ..generator.base import Generator
 
 
@@ -16,4 +18,7 @@ class BasePopulation(Generator):
         raise NotImplementedError("Not implemented.")
 
     def update_state(self):
+        raise NotImplementedError("Not implemented.")
+
+    def write_batch(self, batch: Any, file_name: str, overwrite: bool = False) -> None:
         raise NotImplementedError("Not implemented.")
