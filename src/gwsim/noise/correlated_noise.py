@@ -10,6 +10,7 @@ from scipy.interpolate import interp1d
 from scipy.linalg import cholesky
 from scipy.sparse import block_diag, coo_matrix
 
+from ..utils.random import get_state
 from .noise.base import BaseNoise
 
 
@@ -75,6 +76,8 @@ class CorrelatedNoise(BaseNoise):
         self._initialize_frequency_properties()
         self._initialize_psd_csd(psd, csd)
         self.spectral_matrix = self.spectral_matrix_cholesky_decomposition()
+
+        self.register_state_attribute("gps_epoch")
 
     def _initialize_window_properties(self) -> None:
         """
@@ -154,7 +157,9 @@ class CorrelatedNoise(BaseNoise):
         """
         freq_series = np.zeros((self.N_det, self.frequency.size), dtype=np.complex128)
         # generate white noise and color it with the spectral matrix
-        white_strain = np.random.randn(self.N_freq * self.N_det) + 1j * np.random.randn(self.N_freq * self.N_det)
+        white_strain = self.rng.standard_normal(self.N_freq * self.N_det) + 1j * self.rng.standard_normal(
+            self.N_freq * self.N_det
+        )
         colored_strain = spectral_matrix.dot(white_strain)
 
         # Split the frequency strain for each detector
@@ -173,10 +178,6 @@ class CorrelatedNoise(BaseNoise):
             np.ndarray: time series for each detector
         """
         N_frame = int(self.duration * self.sampling_frequency)
-        if self.seed is not None:
-            np.random.seed(int(self.seed))
-        else:
-            np.random.seed()
 
         # Generate the initial single noise realisation and apply the final part of the window
         strain_buffer = self.single_noise_realization(self.spectral_matrix)
@@ -184,7 +185,6 @@ class CorrelatedNoise(BaseNoise):
 
         # Extend the strain buffer until it has more valid data than a single frame
         while strain_buffer.shape[-1] - self.N_overlap < N_frame:
-            np.random.seed(np.random.randint(low=1, high=1e6))
             new_strain = self.single_noise_realization(self.spectral_matrix)
             new_strain[:, : self.N_overlap] *= self.w1
             new_strain[:, -self.N_overlap :] *= self.w0
@@ -232,7 +232,7 @@ class CorrelatedNoise(BaseNoise):
 
     def update_state(self) -> None:
         """Update the internal state for the next batch."""
-        if self.seed is not None:
-            self.seed += 1
-        if self.gps_epoch is not None:
-            self.gps_epoch += self.duration
+        self._current_samples += self.batch_size
+        self.gps_epoch += self.duration
+        if self.rng is not None:
+            self._rng_state = get_state()
