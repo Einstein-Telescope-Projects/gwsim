@@ -1,9 +1,8 @@
-"""A package to simulate a population of gravitational waves.
-"""
-from . import distribution
-from . import utils
+"""A package to simulate a population of gravitational waves."""
 
-__version__ = "1.0.0"
-__all__ = ['__version__',
-           'distribution',
-           'utils']
+from __future__ import annotations
+
+from . import distribution, utils
+from .version import __version__
+
+__all__ = ["__version__", "distribution", "utils"]
