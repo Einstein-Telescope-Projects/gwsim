@@ -4,7 +4,7 @@ import json
 import pickle
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 class Generator(ABC):
