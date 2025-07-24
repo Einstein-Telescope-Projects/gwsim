@@ -30,6 +30,7 @@
         "gwsim",
         "ndarray",
         "pycbc",
+        "pytest",
         "venv",
         "virtualenv"
     ],
