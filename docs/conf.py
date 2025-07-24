@@ -1,11 +1,15 @@
+"""Configuration file for the Sphinx documentation builder."""
+
+# pylint: disable=redefined-builtin,invalid-name
 # Configuration file for the Sphinx documentation builder.
 #
 # This file only contains a selection of the most common options. For a full
 # list see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-# -- Path setup --------------------------------------------------------------
+from __future__ import annotations
 
+# -- Path setup --------------------------------------------------------------
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
@@ -18,9 +22,9 @@ sys.path.insert(0, os.path.abspath("../src/"))
 
 # -- Project information -----------------------------------------------------
 
-project = "ai-python docs"
-copyright = "2022, Daniel Ciborowski"
-author = "Daniel Ciborowski"
+project = "gwsim"
+copyright = "2025, Isaac C. F. Wong"
+author = "Isaac C. F. Wong"
 
 # The full version, including alpha/beta/rc tags
 release = "0.1.0"
@@ -33,16 +37,23 @@ release = "0.1.0"
 # ones.
 extensions = [
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
     "sphinx.ext.doctest",
     "sphinx.ext.intersphinx",
     "sphinx.ext.ifconfig",
     "sphinx.ext.viewcode",  # Add links to highlighted source code
     "sphinx.ext.napoleon",  # to render Google format docstrings
     "sphinx.ext.githubpages",
+    "sphinx_tabs.tabs",
+    "sphinx_copybutton",
 ]
 
+autosummary_generate = True
+copybutton_prompt_text = r"^\$ "
+copybutton_prompt_is_regexp = True
+
 # Add any paths that contain templates here, relative to this directory.
-templates_path = ["_templates"]
+templates_path = ["templates"]
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
