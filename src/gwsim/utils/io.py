@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from functools import wraps
 from pathlib import Path
+
+logger = logging.getLogger("gwsim")
 
 
 def check_file_overwrite():
@@ -13,8 +16,11 @@ def check_file_overwrite():
         @wraps(func)
         def wrapper(*args, file_name: str | Path, overwrite: bool = False, **kwargs):
             file_name = Path(file_name)
-            if not overwrite and file_name.is_file():
-                raise FileExistsError(f"{file_name} already exists.")
+            if file_name.is_file():
+                if not overwrite:
+                    raise FileExistsError(f"{file_name} already exists.")
+                else:
+                    logger.warning("%s already exists. Overwriting it.", file_name)
             return func(*args, file_name=file_name, overwrite=overwrite, **kwargs)
 
         return wrapper
