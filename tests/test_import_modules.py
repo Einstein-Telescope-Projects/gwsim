@@ -19,6 +19,7 @@ modules_to_test = [
     "gwsim.tools",
     "gwsim.tools.config",
     "gwsim.tools.default_config",
+    "gwsim.tools.generate",
     "gwsim.tools.main",
     "gwsim.tools.utils",
     "gwsim.utils",

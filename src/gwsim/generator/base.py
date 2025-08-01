@@ -61,7 +61,7 @@ class Generator(ABC):
                 )
 
         else:
-            self.number_of_batches = None
+            self.number_of_batches = np.inf
 
         # Set the seed
 
@@ -116,7 +116,7 @@ class Generator(ABC):
         if self.rng is not None:
             self.rng_state = get_state()
 
-    def __len__(self) -> int | None:
+    def __len__(self) -> int | float:
         """Get the number of batches.
 
         Returns:
