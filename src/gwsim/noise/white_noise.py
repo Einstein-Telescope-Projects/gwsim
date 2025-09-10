@@ -17,7 +17,6 @@ class WhiteNoise(BaseNoise):
         sampling_frequency: float,
         duration: float,
         start_time: float = 0,
-        batch_size: int = 1,
         max_samples: int | None = None,
         seed: int | None = None,
     ):
@@ -25,7 +24,6 @@ class WhiteNoise(BaseNoise):
             sampling_frequency=sampling_frequency,
             duration=duration,
             start_time=start_time,
-            batch_size=batch_size,
             max_samples=max_samples,
             seed=seed,
         )

@@ -23,11 +23,10 @@ class BaseNoise(Generator):
         sampling_frequency: float,
         duration: float,
         start_time: float = 0,
-        batch_size: int = 1,
         max_samples: int | None = None,
         seed: int | None = None,
     ) -> None:
-        super().__init__(batch_size=batch_size, max_samples=max_samples, seed=seed)
+        super().__init__(max_samples=max_samples, seed=seed)
         self.sampling_frequency = sampling_frequency
         self.duration = duration
         self.start_time = start_time
@@ -41,7 +40,6 @@ class BaseNoise(Generator):
             dict: A dictionary of metadata.
         """
         return {
-            "batch_size": self.batch_size,
             "max_samples": self.max_samples,
             "rng_state": self.rng_state,
             "sampling_frequency": self.sampling_frequency,
@@ -54,8 +52,8 @@ class BaseNoise(Generator):
         raise NotImplementedError("Not implemented.")
 
     def update_state(self) -> None:
-        self.batch_counter += 1
-        self.start_time += self.duration * self.batch_size
+        self.sample_counter += 1
+        self.start_time += self.duration
         if self.rng is not None:
             self.rng_state = get_state()
 
@@ -88,7 +86,8 @@ class BaseNoise(Generator):
         self, batch: np.ndarray, file_name: str | Path, overwrite: bool = False, channel: str = "strain"
     ) -> None:
         # Create a pycbc TimeSeries instance.
-        time_series = TimeSeries(initial_array=batch, delta_t=1 / self.sampling_frequency, epoch=self.start_time)
+        time_series = TimeSeries(initial_array=batch, delta_t=1 /
+                                 self.sampling_frequency, epoch=self.start_time)
 
         # Write to frame file.
         write_frame(location=str(file_name), channels=channel, timeseries=time_series)

@@ -56,7 +56,6 @@ Below is an example ``config.yaml`` file used for generating white noise data:
     generator:
       class: gwsim.noise.white_noise.WhiteNoise
       arguments:
-        batch_size: 1
         duration: 4
         loc: 0.0
         max_samples: 10

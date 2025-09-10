@@ -33,7 +33,8 @@ def get_generator(config: dict) -> Generator:
         Generator: An instance of a generator.
     """
     if "generator" not in config:
-        raise KeyError("Failed to initialize a generator. 'generator' is not found in the configuration file.")
+        raise KeyError(
+            "Failed to initialize a generator. 'generator' is not found in the configuration file.")
 
     if "class" not in config["generator"]:
         raise KeyError(
@@ -59,7 +60,8 @@ def clean_up_generate(checkpoint_file: Path, checkpoint_file_backup: Path):
 
     # Check whether a backup checkpoint file exists.
     if checkpoint_file_backup.is_file():
-        logger.warning("Interrupted while creating a checkpoint file. Restoring the checkpoint file from a backup.")
+        logger.warning(
+            "Interrupted while creating a checkpoint file. Restoring the checkpoint file from a backup.")
 
         try:
             checkpoint_file_backup.rename(checkpoint_file)
@@ -78,7 +80,8 @@ def generate(config_file_name: str, overwrite: bool, metadata: bool) -> None:
     config = load_config(file_name=Path(config_file_name))
 
     # Working directory.
-    working_directory = Path(get_config_value(config=config, key="working-directory", default_value="."))
+    working_directory = Path(get_config_value(
+        config=config, key="working-directory", default_value="."))
 
     # Checkpoint file
     checkpoint_file = working_directory / "checkpoint.json"
@@ -118,7 +121,7 @@ def generate(config_file_name: str, overwrite: bool, metadata: bool) -> None:
     if checkpoint_file.is_file():
         generator.load_state(file_name=checkpoint_file)
 
-    for batch in tqdm(generator, initial=generator.batch_counter, total=len(generator), desc="Generating data"):
+    for batch in tqdm(generator, initial=generator.sample_counter, total=len(generator), desc="Generating data"):
         # Get the file name from template
         file_name = Path(get_file_name_from_template(file_name_template, generator))
 

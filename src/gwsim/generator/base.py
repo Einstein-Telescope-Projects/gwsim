@@ -27,41 +27,27 @@ class Generator(ABC):
     # A list of state attributes.
     _state_attributes = []
 
-    # It counts the number of batches of data has been generated.
-    batch_counter = StateAttribute(0)
+    # It counts the number of samples of data has been generated.
+    sample_counter = StateAttribute(0)
 
     # It records the state of the random number generator.
     # The post set hook is used to reinitialize the random number generator when the state is set.
     rng_state = StateAttribute(get_state(), post_set_hook=lambda self, state: self._init_rng(state))
 
-    def __init__(self, batch_size: int = 1, max_samples: int | None = None, seed: int | None = None):
+    def __init__(self, max_samples: int | None = None, seed: int | None = None):
         """Generator.
 
         Args:
-            batch_size (int, optional): Number of samples in each batch. Defaults to 1.
             max_samples (int | None, optional): Maximum number of samples.
                 None implies that this is an infinite iterator. Defaults to None.
             seed (int | None, optional): Seed to initialize the random number generator. Defaults to None.
         """
         # Save the attributes
-        self.batch_size = batch_size
         self.max_samples = max_samples
 
-        # Calculate the number of batches
-        if self.max_samples is not None:
-            self.number_of_batches = int(np.ceil(self.max_samples / self.batch_size))
-
-            # Print a warning if the max_samples is not divisible by batch_size.
-            if self.max_samples % self.batch_size != 0:
-                logger.warning(
-                    "max_sample = %s is not divisible by batch_size = %s. The size of the last batch is %s.",
-                    self.max_samples,
-                    self.batch_size,
-                    self.max_samples % self.batch_size,
-                )
-
-        else:
-            self.number_of_batches = np.inf
+        # Calculate the number of samples
+        if self.max_samples is None:
+            self.max_samples = np.inf
 
         # Set the seed
 
@@ -90,13 +76,12 @@ class Generator(ABC):
         """Generate one batch of data.
 
         Raises:
-            StopIteration: If number_of_batches is not None, and batch_counter is
-                greater or equal to number_of_batches, raise StopIteration.
+            StopIteration: If sample_counter is greater or equal to max_samples, raise StopIteration.
 
         Returns:
             Any: One batch of data.
         """
-        if self.number_of_batches is not None and self.batch_counter >= self.number_of_batches:
+        if self.sample_counter >= self.max_samples:
             raise StopIteration
         result = self.next()
         return result
@@ -112,17 +97,17 @@ class Generator(ABC):
 
     def update_state(self) -> None:
         """Update the current state."""
-        self.batch_counter += 1
+        self.sample_counter += 1
         if self.rng is not None:
             self.rng_state = get_state()
 
     def __len__(self) -> int | float:
-        """Get the number of batches.
+        """Get the number of samples.
 
         Returns:
-            int | None: Number of batches. None implies that this is an infinite iterator.
+            int | None: Number of samples. None implies that this is an infinite iterator.
         """
-        return self.number_of_batches
+        return self.max_samples
 
     @property
     def state(self) -> dict:
@@ -172,30 +157,8 @@ class Generator(ABC):
             set_state(state)
             self.rng = get_rng()
         else:
-            logger.debug("_init_rng(self, state) is called but state is %s and self.rng is %s.", state, self.rng)
-
-    @property
-    def batch_size(self) -> int:
-        """Get the number of samples in one batch.
-
-        Returns:
-            int: Number of samples in one batch.
-        """
-        return self._batch_size
-
-    @batch_size.setter
-    def batch_size(self, value: int) -> None:
-        """Set the number of samples in one batch.
-
-        Args:
-            value (int): Number of samples in one batch.
-
-        Raises:
-            ValueError: If value is smaller than 1, raise ValueError.
-        """
-        if value < 1:
-            raise ValueError("Batch size must be at least 1.")
-        self._batch_size = value
+            logger.debug(
+                "_init_rng(self, state) is called but state is %s and self.rng is %s.", state, self.rng)
 
     @property
     def max_samples(self) -> int | None:
@@ -229,7 +192,6 @@ class Generator(ABC):
             dict: A dictionary of metadata.
         """
         return {
-            "batch_size": self.batch_size,
             "max_samples": self.max_samples,
             "seed": self.seed,
             "version": __version__,
@@ -256,7 +218,8 @@ class Generator(ABC):
             with file_name.open("w") as f:
                 json.dump(state, f)
         else:
-            raise ValueError(f"Unsupported file format: {file_extension}. Supported file format: .json.")
+            raise ValueError(
+                f"Unsupported file format: {file_extension}. Supported file format: .json.")
 
     @check_file_exist()
     def load_state(self, file_name: Path) -> None:
@@ -276,7 +239,8 @@ class Generator(ABC):
             with file_name.open("r") as f:
                 state = json.load(f)
         else:
-            raise ValueError(f"Unsupported file format: {file_extension}. Supported file format: .json.")
+            raise ValueError(
+                f"Unsupported file format: {file_extension}. Supported file format: .json.")
 
         # Restore state
         self.state = state

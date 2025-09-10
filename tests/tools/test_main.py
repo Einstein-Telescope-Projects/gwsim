@@ -39,7 +39,6 @@ def mock_config(temp_dir):
                 "sampling_frequency": 16,
                 "duration": 4,
                 "start_time": 123,
-                "batch_size": 1,
                 "max_samples": 10,
                 "seed": 0,
             },
@@ -74,11 +73,13 @@ def test_generate_white_noise(
     # Count the number of generated files.
     output_files = list((temp_dir / "output").glob("*.gwf"))
     expected_files = mock_config["generator"]["arguments"]["max_samples"]
-    assert len(output_files) == expected_files, f"Expected {expected_files} .gwf files, got {len(output_files)}"
+    assert len(
+        output_files) == expected_files, f"Expected {expected_files} .gwf files, got {len(output_files)}"
 
     metadata_files = list((temp_dir / "metadata").glob("*.json"))
     expected_files = mock_config["generator"]["arguments"]["max_samples"]
-    assert len(metadata_files) == expected_files, f"Expected {expected_files} .gwf files, got {len(metadata_files)}"
+    assert len(
+        metadata_files) == expected_files, f"Expected {expected_files} .gwf files, got {len(metadata_files)}"
 
     # Check whether a checkpoint file exists.
     assert (temp_dir / "checkpoint.json").exists()
