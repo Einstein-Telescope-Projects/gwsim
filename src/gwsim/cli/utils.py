@@ -63,8 +63,8 @@ def handle_signal(cleanup_fn: Callable) -> Callable:
         Callable: A signal handler.
     """
 
-    def handler(sig_num, frame):
-        logger.error(f"Received signal {sig_num}, exiting...")
+    def handler(sig_num, _frame):
+        logger.error("Received signal %s, exiting...", sig_num)
         cleanup_fn()
         sys.exit(1)
 
@@ -100,10 +100,13 @@ def save_file_safely(file_name: str | Path, backup_file_name: str | Path, save_f
         if backup_file_name.is_file():
             backup_file_name.unlink()
             logger.debug("Backup file deleted after successful save.")
-    except Exception as e:
+    except (OSError, PermissionError, ValueError) as e:
         logger.error("Failed to save file: %s", e)
 
         if backup_file_name.is_file():
-            backup_file_name.rename(file_name)
-            logger.warning("Restored file from backup due to a failure.")
+            try:
+                backup_file_name.rename(file_name)
+                logger.warning("Restored file from backup due to a failure.")
+            except (OSError, PermissionError) as restore_error:
+                logger.error("Failed to restore backup file: %s", restore_error)
         raise

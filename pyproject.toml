@@ -7,7 +7,7 @@ name =  "gwsim"
 authors = [
     {name = "Isaac C. F. Wong", email = "chunfung.wong@kuleuven.be"},
 ]
-description = "A Python package for simulating gravitational wave detector data including noise, signals, and glitches"
+description = "A Python package for simulating gravitational wave detector data for mock data challenges."
 readme = "README.md"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -60,7 +60,7 @@ dev = [
 ]
 
 [project.scripts]
-gwsim = "gwsim.tools.main:main"
+gwsim = "gwsim.cli.main:main"
 
 [project.urls]
 Documentation = "https://gitlab.et-gw.eu/eluminat/software/gwsim/-/blob/main/README.md"
@@ -312,7 +312,7 @@ valid-metaclass-classmethod-first-arg="cls"
 
 [tool.pylint.'DESIGN']
 max-args=5
-max-attributes=7
+max-attributes=10  # Increased for configuration classes
 max-bool-expr=5
 max-branches=12
 max-locals=15

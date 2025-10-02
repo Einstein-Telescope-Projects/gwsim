@@ -16,6 +16,8 @@ logger = logging.getLogger("gwsim")
 
 
 class LoggingLevel(enum.Enum):
+    """Logging levels for the CLI."""
+
     NOTSET = logging.NOTSET
     DEBUG = logging.DEBUG
     INFO = logging.INFO
@@ -32,6 +34,7 @@ class LoggingLevel(enum.Enum):
     help="Logging level.",
 )
 def main(logging_level: LoggingLevel):
+    """Main command line tool."""
     logger.setLevel(logging_level.value)
 
 

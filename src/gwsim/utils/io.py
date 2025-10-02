@@ -1,3 +1,5 @@
+"""Utility functions for file input/output operations with safety checks."""
+
 from __future__ import annotations
 
 import logging
@@ -10,17 +12,27 @@ logger = logging.getLogger("gwsim")
 def check_file_overwrite():
     """A decorator to check the existence of the file,
     and avoid overwriting it unintentionally.
+
+    Provides safe file handling with clear error messages and logging.
     """
 
     def decorator(func):
         @wraps(func)
         def wrapper(*args, file_name: str | Path, overwrite: bool = False, **kwargs):
             file_name = Path(file_name)
-            if file_name.is_file():
+
+            # Create parent directories if they don't exist
+            file_name.parent.mkdir(parents=True, exist_ok=True)
+
+            if file_name.exists():
                 if not overwrite:
-                    raise FileExistsError(f"{file_name} already exists.")
-                else:
-                    logger.warning("%s already exists. Overwriting it.", file_name)
+                    raise FileExistsError(
+                        f"File '{file_name}' already exists. "
+                        f"Use overwrite=True or --overwrite flag to overwrite it."
+                    )
+                file_size = file_name.stat().st_size
+                logger.warning("File '%s' already exists (size: %d bytes). Overwriting...", file_name, file_size)
+
             return func(*args, file_name=file_name, overwrite=overwrite, **kwargs)
 
         return wrapper
