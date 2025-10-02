@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import click
+import typer
 
 from .config import save_config
 
@@ -17,10 +17,10 @@ _DEFAULT_CONFIG = {
 }
 
 
-@click.command("default-config", help="Write a default configuration file to disk.")
-@click.option("--output", type=str, help="File name of the output", default="config.yaml")
-@click.option("--overwrite", is_flag=True, help="If flagged, the existing file will be overwritten.")
-def default_config(output: str, overwrite: bool) -> None:
+def default_config_command(
+    output: str = typer.Option("config.yaml", "--output", help="File name of the output"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite the existing file"),
+) -> None:
     """Write the default configuration file to disk.
 
     Args:

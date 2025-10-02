@@ -24,7 +24,7 @@ classifiers = [
 requires-python = ">=3.9"
 dynamic = ["version"]
 dependencies = [
-    "click",
+    "typer",
     "tqdm",
     "numpy",
     "h5py",
@@ -60,7 +60,7 @@ dev = [
 ]
 
 [project.scripts]
-gwsim = "gwsim.cli.main:main"
+gwsim = "gwsim.cli.main:app"
 
 [project.urls]
 Documentation = "https://gitlab.et-gw.eu/eluminat/software/gwsim/-/blob/main/README.md"

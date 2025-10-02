@@ -12,7 +12,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-import click
+import typer
 from tqdm import tqdm
 
 from ..generator.base import Generator
@@ -184,11 +184,11 @@ def process_batch(generator: Generator, batch: object, config: BatchProcessingCo
     )
 
 
-@click.command("generate", help="Generate mock data.")
-@click.argument("config_file_name", type=str)
-@click.option("--overwrite", is_flag=True, help="If flagged, overwrite the existing file.")
-@click.option("--metadata", is_flag=True, help="If flagged, write the metadata to file.")
-def generate(config_file_name: str, overwrite: bool, metadata: bool) -> None:
+def generate_command(
+    config_file_name: str = typer.Argument(..., help="Configuration file path"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite existing files"),
+    metadata: bool = typer.Option(False, "--metadata", help="Generate metadata files"),
+) -> None:
     """Generate mock data based on the configuration file.
 
     Args:
