@@ -16,7 +16,7 @@ import typer
 from tqdm import tqdm
 
 from ..simulator.base import Simulator
-from .config import get_config_value, load_config, process_config, resolve_class_path
+from .utils.config import get_config_value, load_config, process_config, resolve_class_path
 from .utils.retry import RetryManager
 from .utils.template import TemplateValidator
 from .utils.utils import get_file_name_from_template, handle_signal, import_attribute, save_file_safely

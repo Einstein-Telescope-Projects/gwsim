@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -189,36 +190,7 @@ def merge_parameters(globals_config: dict, simulator_config: dict) -> dict:
     """
     # Start with all global parameters
     merged = globals_config.copy() if globals_config else {}
-
-    # Simulator-specific arguments take precedence over global parameters
-    if "arguments" in simulator_config:
-        merged.update(simulator_config["arguments"])
-
-    return merged
-
-
-def merge_output_parameters(globals_config: dict, simulator_config: dict) -> dict:
-    """Merge global and simulator-specific output parameters.
-
-    Args:
-        globals_config: Global configuration parameters
-        simulator_config: Simulator-specific configuration
-
-    Returns:
-        Merged output parameters with simulator config taking precedence
-
-    Note:
-        All global parameters are passed to output functions. Simulator-specific
-        output arguments override global parameters when the same key exists.
-        Output functions should ignore irrelevant parameters gracefully.
-    """
-    # Start with all global parameters
-    merged = globals_config.copy() if globals_config else {}
-
-    # Merge simulator-specific output arguments if they exist
-    if "output" in simulator_config and "arguments" in simulator_config["output"]:
-        merged.update(simulator_config["output"]["arguments"])
-
+    merged.update(simulator_config)
     return merged
 
 
@@ -314,15 +286,18 @@ def normalize_config(config: dict) -> dict:
     if "simulators" not in config:
         raise ValueError("Configuration must contain 'simulators' section")
 
-    # Ensure we have a globals section (can be empty)
-    if "globals" not in config:
-        config["globals"] = {}
+    # Make a copy to avoid modifying the input
+    normalized = deepcopy(config)
 
-    return config
+    # Ensure we have a globals section (can be empty)
+    if "globals" not in normalized:
+        normalized["globals"] = {}
+
+    return normalized
 
 
 def process_config(config: dict) -> dict:
-    """Process configuration with template expansion and parameter inheritance.
+    """Process configuration with parameter inheritance but preserve runtime templates.
 
     Args:
         config: Raw configuration dictionary
@@ -336,23 +311,24 @@ def process_config(config: dict) -> dict:
     # Extract globals
     globals_config = normalized.get("globals", {})
 
-    # Create template context
-    context = {"globals": globals_config, **globals_config}  # Also make globals available at root level
-
     # Process each simulator
     processed_simulators = {}
     for name, simulator_config in normalized["simulators"].items():
+        # Get existing arguments or empty dict
+        existing_args = simulator_config.get("arguments", {})
+
+        # Get existing output arguments or empty dict
+        existing_output = simulator_config.get("output", {})
+        existing_output_args = existing_output.get("arguments", {})
+
         # Merge parameters for simulator arguments
-        merged_args = merge_parameters(globals_config, simulator_config)
+        merged_args = merge_parameters(globals_config, existing_args)
 
         # Merge parameters for output arguments
-        merged_output_args = merge_output_parameters(globals_config, simulator_config)
+        merged_output_args = merge_parameters(globals_config, existing_output_args)
 
-        # Add simulator name to context
-        simulator_context = {**context, "simulator_name": name, **merged_args}  # Make arguments available for templates
-
-        # Expand templates in the simulator config
-        processed_config = expand_config_templates(simulator_config, simulator_context)
+        # Keep the original simulator config structure but update arguments
+        processed_config = simulator_config.copy()
 
         # Update arguments with merged parameters
         processed_config["arguments"] = merged_args
@@ -364,4 +340,4 @@ def process_config(config: dict) -> dict:
 
         processed_simulators[name] = processed_config
 
-    return {"globals": expand_config_templates(globals_config, context), "simulators": processed_simulators}
+    return {"globals": globals_config, "simulators": processed_simulators}
