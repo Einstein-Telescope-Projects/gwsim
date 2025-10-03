@@ -253,26 +253,31 @@ def validate_configuration_phase(processed_config: dict) -> None:
     logger.info("Configuration validation completed successfully")
 
 
-def setup_generation_directories(globals_config: dict, metadata: bool) -> GenerationSetup:
+def setup_simulation_directories(simulator_name: str, simulator_config: dict, metadata: bool) -> GenerationSetup:
     """Setup directories and paths for generation.
 
     Args:
-        globals_config: Global configuration dictionary
+        simulator_name: Name of the simulator
+        processed_config: Global configuration dictionary
         metadata: Whether metadata generation is enabled
 
     Returns:
         GenerationSetup with configured paths
     """
-    working_directory = Path(globals_config.get("working-directory", "."))
+
+    working_directory = Path(simulator_config.get("working-directory", "."))
 
     # Setup base directories
-    checkpoint_file = working_directory / "checkpoint.json"
-    checkpoint_file_backup = working_directory / "checkpoint.json.bak"
+    checkpoint_directory = working_directory / "checkpoints"
+    checkpoint_directory.mkdir(exist_ok=True)
 
-    output_directory = working_directory / globals_config.get("output-directory", "output")
+    checkpoint_file = checkpoint_directory / f"{simulator_name}_checkpoint.json"
+    checkpoint_file_backup = checkpoint_directory / f"{simulator_name}_checkpoint.json.bak"
+
+    output_directory = working_directory / simulator_config.get("output-directory", "output")
     output_directory.mkdir(exist_ok=True)
 
-    metadata_directory = working_directory / globals_config.get("metadata-directory", "metadata")
+    metadata_directory = working_directory / simulator_config.get("metadata-directory", "metadata")
     if metadata:
         metadata_directory.mkdir(exist_ok=True)
 
@@ -504,14 +509,14 @@ def simulate_command(
     # Validation phase - fail fast on configuration errors
     validate_configuration_phase(processed_config)
 
-    # Setup directories and paths
-    setup = setup_generation_directories(globals_config, metadata)
-
-    # Set up signal handlers
-    setup_signal_handlers(setup.checkpoint_file, setup.checkpoint_file_backup)
-
     # Process each simulator sequentially
     for simulator_name, simulator_config in processed_config["simulators"].items():
+        # Setup directories and paths
+        setup = setup_simulation_directories(simulator_name, simulator_config, metadata)
+
+        # Set up signal handlers
+        setup_signal_handlers(setup.checkpoint_file, setup.checkpoint_file_backup)
+
         process_single_simulator(
             simulator_name=simulator_name,
             simulator_config=simulator_config,
