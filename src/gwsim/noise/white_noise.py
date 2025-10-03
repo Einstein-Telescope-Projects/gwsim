@@ -1,15 +1,15 @@
+""" "White noise simulator implementation."""
+
 from __future__ import annotations
 
-from multiprocessing import Value
-from pathlib import Path
-
-import h5py
 import numpy as np
 
-from .base import BaseNoise
+from .base import NoiseSimulator
 
 
-class WhiteNoise(BaseNoise):
+class WhiteNoiseSimulator(NoiseSimulator):
+    """White noise simulator."""
+
     def __init__(
         self,
         loc: float,
@@ -19,6 +19,7 @@ class WhiteNoise(BaseNoise):
         start_time: float = 0,
         max_samples: int | None = None,
         seed: int | None = None,
+        **kwargs,
     ):
         super().__init__(
             sampling_frequency=sampling_frequency,
@@ -26,9 +27,12 @@ class WhiteNoise(BaseNoise):
             start_time=start_time,
             max_samples=max_samples,
             seed=seed,
+            **kwargs,
         )
         self.loc = loc
         self.scale = scale
 
     def next(self) -> np.ndarray:
+        if self.rng is None:
+            raise RuntimeError("Random number generator not initialized. Set seed in constructor.")
         return self.rng.normal(loc=self.loc, scale=self.scale, size=int(self.duration * self.sampling_frequency))

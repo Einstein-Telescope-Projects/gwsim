@@ -63,7 +63,7 @@ class RandomManager:
 
 # Alias for easy  access
 get_rng = RandomManager.get_rng
-seed = RandomManager.seed
+set_seed = RandomManager.seed
 generate_seeds = RandomManager.generate_seeds
 get_state = RandomManager.get_state
 set_state = RandomManager.set_state

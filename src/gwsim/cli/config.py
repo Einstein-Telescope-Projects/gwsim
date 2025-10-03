@@ -26,39 +26,39 @@ def validate_config(config: dict) -> None:
         ValueError: If configuration is invalid with detailed error message
     """
     # Check for required top-level structure
-    if "generators" not in config:
-        raise ValueError("Invalid configuration: Must contain 'generators' section with generator definitions")
+    if "simulators" not in config:
+        raise ValueError("Invalid configuration: Must contain 'simulators' section with simulator definitions")
 
-    generators = config["generators"]
+    simulators = config["simulators"]
 
-    if not isinstance(generators, dict):
-        raise ValueError("'generators' must be a dictionary")
+    if not isinstance(simulators, dict):
+        raise ValueError("'simulators' must be a dictionary")
 
-    if not generators:
-        raise ValueError("'generators' section cannot be empty")
+    if not simulators:
+        raise ValueError("'simulators' section cannot be empty")
 
-    for name, gen_config in generators.items():
-        if not isinstance(gen_config, dict):
-            raise ValueError(f"Generator '{name}' configuration must be a dictionary")
+    for name, sim_config in simulators.items():
+        if not isinstance(sim_config, dict):
+            raise ValueError(f"Simulator '{name}' configuration must be a dictionary")
 
         # Check required fields
-        if "class" not in gen_config:
-            raise ValueError(f"Generator '{name}' missing required 'class' field")
+        if "class" not in sim_config:
+            raise ValueError(f"Simulator '{name}' missing required 'class' field")
 
         # Validate class specification
-        class_spec = gen_config["class"]
+        class_spec = sim_config["class"]
         if not isinstance(class_spec, str) or not class_spec.strip():
-            raise ValueError(f"Generator '{name}' 'class' must be a non-empty string")
+            raise ValueError(f"Simulator '{name}' 'class' must be a non-empty string")
 
         # Validate arguments if present
-        if "arguments" in gen_config and not isinstance(gen_config["arguments"], dict):
-            raise ValueError(f"Generator '{name}' 'arguments' must be a dictionary")
+        if "arguments" in sim_config and not isinstance(sim_config["arguments"], dict):
+            raise ValueError(f"Simulator '{name}' 'arguments' must be a dictionary")
 
         # Validate output configuration if present
-        if "output" in gen_config:
-            output_config = gen_config["output"]
+        if "output" in sim_config:
+            output_config = sim_config["output"]
             if not isinstance(output_config, dict):
-                raise ValueError(f"Generator '{name}' 'output' must be a dictionary")
+                raise ValueError(f"Simulator '{name}' 'output' must be a dictionary")
 
     # Validate globals section if present
     if "globals" in config:
@@ -173,29 +173,51 @@ def resolve_class_path(class_spec: str, section_name: str) -> str:
     return class_spec
 
 
-def merge_parameters(globals_config: dict, generator_config: dict) -> dict:
-    """Merge global and generator-specific parameters.
+def merge_parameters(globals_config: dict, simulator_config: dict) -> dict:
+    """Merge global and simulator-specific parameters.
 
     Args:
         globals_config: Global configuration parameters
-        generator_config: Generator-specific configuration
+        simulator_config: Simulator-specific configuration
 
     Returns:
-        Merged parameters with generator config taking precedence
+        Merged parameters with simulator config taking precedence
 
     Note:
-        Some global parameters (like 'detectors') are used by the configuration
-        system itself and not passed to generators unless explicitly needed.
+        All global parameters are passed to simulators. Simulator-specific
+        arguments override global parameters when the same key exists.
     """
-    # Start with global config but exclude system-level parameters
-    system_parameters = {"detectors", "output-directory", "metadata-directory"}
-    filtered_globals = {key: value for key, value in globals_config.items() if key not in system_parameters}
+    # Start with all global parameters
+    merged = globals_config.copy() if globals_config else {}
 
-    merged = filtered_globals.copy() if filtered_globals else {}
+    # Simulator-specific arguments take precedence over global parameters
+    if "arguments" in simulator_config:
+        merged.update(simulator_config["arguments"])
 
-    # Generator-specific arguments take precedence
-    if "arguments" in generator_config:
-        merged.update(generator_config["arguments"])
+    return merged
+
+
+def merge_output_parameters(globals_config: dict, simulator_config: dict) -> dict:
+    """Merge global and simulator-specific output parameters.
+
+    Args:
+        globals_config: Global configuration parameters
+        simulator_config: Simulator-specific configuration
+
+    Returns:
+        Merged output parameters with simulator config taking precedence
+
+    Note:
+        All global parameters are passed to output functions. Simulator-specific
+        output arguments override global parameters when the same key exists.
+        Output functions should ignore irrelevant parameters gracefully.
+    """
+    # Start with all global parameters
+    merged = globals_config.copy() if globals_config else {}
+
+    # Merge simulator-specific output arguments if they exist
+    if "output" in simulator_config and "arguments" in simulator_config["output"]:
+        merged.update(simulator_config["output"]["arguments"])
 
     return merged
 
@@ -286,11 +308,11 @@ def normalize_config(config: dict) -> dict:
         config: Raw configuration dictionary
 
     Returns:
-        Normalized configuration with 'globals' and 'generators' sections
+        Normalized configuration with 'globals' and 'simulators' sections
     """
     # Ensure we have the required structure
-    if "generators" not in config:
-        raise ValueError("Configuration must contain 'generators' section")
+    if "simulators" not in config:
+        raise ValueError("Configuration must contain 'simulators' section")
 
     # Ensure we have a globals section (can be empty)
     if "globals" not in config:
@@ -317,21 +339,29 @@ def process_config(config: dict) -> dict:
     # Create template context
     context = {"globals": globals_config, **globals_config}  # Also make globals available at root level
 
-    # Process each generator
-    processed_generators = {}
-    for name, generator_config in normalized["generators"].items():
-        # Merge parameters
-        merged_args = merge_parameters(globals_config, generator_config)
+    # Process each simulator
+    processed_simulators = {}
+    for name, simulator_config in normalized["simulators"].items():
+        # Merge parameters for simulator arguments
+        merged_args = merge_parameters(globals_config, simulator_config)
 
-        # Add generator name to context
-        generator_context = {**context, "generator_name": name, **merged_args}  # Make arguments available for templates
+        # Merge parameters for output arguments
+        merged_output_args = merge_output_parameters(globals_config, simulator_config)
 
-        # Expand templates in the generator config
-        processed_config = expand_config_templates(generator_config, generator_context)
+        # Add simulator name to context
+        simulator_context = {**context, "simulator_name": name, **merged_args}  # Make arguments available for templates
+
+        # Expand templates in the simulator config
+        processed_config = expand_config_templates(simulator_config, simulator_context)
 
         # Update arguments with merged parameters
         processed_config["arguments"] = merged_args
 
-        processed_generators[name] = processed_config
+        # Update output arguments with merged parameters
+        if "output" not in processed_config:
+            processed_config["output"] = {}
+        processed_config["output"]["arguments"] = merged_output_args
 
-    return {"globals": expand_config_templates(globals_config, context), "generators": processed_generators}
+        processed_simulators[name] = processed_config
+
+    return {"globals": expand_config_templates(globals_config, context), "simulators": processed_simulators}

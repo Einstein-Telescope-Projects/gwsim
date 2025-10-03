@@ -1,1 +1,3 @@
 gwsim
+pycbc
+retryable

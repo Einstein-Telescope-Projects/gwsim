@@ -4,12 +4,14 @@ A descriptor class to handle a state attribute.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Generic, TypeVar, Union
+from typing import Any, Callable, Generic, TypeVar
 
 T = TypeVar("T")
 
 
 class StateAttribute(Generic[T]):
+    """A state attribute."""
+
     def __init__(
         self,
         default: T | None = None,

@@ -19,7 +19,7 @@ _DEFAULT_CONFIG = {
         "output-directory": "output",
         "metadata-directory": "metadata",
     },
-    "generators": {
+    "simulators": {
         "example": {
             "class": "WhiteNoise",  # Resolves to gwsim.noise.WhiteNoise
             "arguments": {

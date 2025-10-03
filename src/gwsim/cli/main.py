@@ -6,13 +6,14 @@ from __future__ import annotations
 
 import enum
 import logging
+from typing import Annotated
 
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
 
 from .default_config import default_config_command
-from .generate import generate_command
+from .simulate import simulate_command
 
 logger = logging.getLogger("gwsim")
 console = Console()
@@ -32,7 +33,7 @@ class LoggingLevel(str, enum.Enum):
 # Create the main Typer app
 app = typer.Typer(
     name="gwsim",
-    help="Gravitational Wave Simulation Data Generator",
+    help="Gravitational Wave Simulation Data Simulator",
     rich_markup_mode="rich",
 )
 
@@ -49,21 +50,24 @@ def setup_logging(level: LoggingLevel = LoggingLevel.INFO) -> None:
 
 @app.callback()
 def main(
-    logging_level: LoggingLevel = LoggingLevel.INFO,
+    verbose: Annotated[
+        LoggingLevel,
+        typer.Option("--verbose", "-v", help="Set verbosity level"),
+    ] = LoggingLevel.INFO,
 ) -> None:
-    """Gravitational Wave Simulation Data Generator.
+    """Gravitational Wave Simulation Data Simulator.
 
-    Generate synthetic gravitational wave detector data including noise, signals, and glitches.
+    This command-line tool provides functionality for generating
+    gravitational wave detector simulation data.
     """
-    setup_logging(logging_level)
-    logger.info("Starting gwsim with logging level: %s", logging_level.value)
+    setup_logging(verbose)
 
 
 # Import and register commands after app is created
 def register_commands() -> None:
     """Register all CLI commands."""
 
-    app.command("generate")(generate_command)
+    app.command("simulate")(simulate_command)
     app.command("default-config")(default_config_command)
 
 

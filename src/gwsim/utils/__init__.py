@@ -1,10 +1,11 @@
-"""Utility functions.
-"""
-from .random import (get_rng,
-                     seed,
-                     generate_seeds)
+"""Utility functions."""
 
+from __future__ import annotations
 
-__all__ = ["get_rng",
-           "seed",
-           "generate_seeds"]
+from .random import generate_seeds, get_rng, set_seed
+
+__all__ = [
+    "generate_seeds",
+    "get_rng",
+    "set_seed",
+]
