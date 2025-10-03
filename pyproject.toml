@@ -26,6 +26,7 @@ dependencies = [
     "numpy",
     "h5py",
     "pycbc",
+    "gengli"
 ]
 
 [project.optional-dependencies]
