@@ -137,22 +137,6 @@ def save_config(
         raise
 
 
-def get_config_value(config: dict, key: str, default_value: Any | None = None) -> Any:
-    """Get the argument
-
-    Args:
-        config (dict): A dictionary of configuration.
-        key (str): Key of the entry.
-        default_value (Any | None, optional): Default value if key is not present. Defaults to None.
-
-    Returns:
-        Any: Value of the corresponding key in config.
-    """
-    if key in config:
-        return config[key]
-    return default_value
-
-
 def resolve_class_path(class_spec: str, section_name: str) -> str:
     """Resolve class specification to full module path.
 

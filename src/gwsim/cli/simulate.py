@@ -16,7 +16,7 @@ import typer
 from tqdm import tqdm
 
 from ..simulator.base import Simulator
-from .utils.config import get_config_value, load_config, process_config, resolve_class_path
+from .utils.config import load_config, process_config, resolve_class_path
 from .utils.retry import RetryManager
 from .utils.template import TemplateValidator
 from .utils.utils import get_file_name_from_template, handle_signal, import_attribute, save_file_safely
@@ -263,16 +263,16 @@ def setup_generation_directories(globals_config: dict, metadata: bool) -> Genera
     Returns:
         GenerationSetup with configured paths
     """
-    working_directory = Path(get_config_value(globals_config, "working-directory", "."))
+    working_directory = Path(globals_config.get("working-directory", "."))
 
     # Setup base directories
     checkpoint_file = working_directory / "checkpoint.json"
     checkpoint_file_backup = working_directory / "checkpoint.json.bak"
 
-    output_directory = working_directory / get_config_value(globals_config, "output-directory", "output")
+    output_directory = working_directory / globals_config.get("output-directory", "output")
     output_directory.mkdir(exist_ok=True)
 
-    metadata_directory = working_directory / get_config_value(globals_config, "metadata-directory", "metadata")
+    metadata_directory = working_directory / globals_config.get("metadata-directory", "metadata")
     if metadata:
         metadata_directory.mkdir(exist_ok=True)
 
