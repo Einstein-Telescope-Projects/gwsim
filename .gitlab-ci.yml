@@ -1,0 +1,113 @@
+stages:
+  - initial
+  - test
+
+# ------------- Initial Stage -------------
+
+.list-env: &list-env
+  - PREFIX="$(dirname $(which python))/.."
+  - if [ -d "${PREFIX}/conda-meta" ]; then
+    conda list --prefix "${PREFIX}" --show-channel-urls;
+    else
+    python -m pip list installed;
+    fi
+
+.test-python: &test-python
+  stage: initial
+  image: python
+  script:
+    - python -m pip install --upgrade pip setuptools wheel
+    - python -m pip install -e .
+    - *list-env
+    - for script in $(pip show -f package_name | grep "bin\/" | xargs -I {} basename {}); do
+      ${script} --help;
+      done
+
+basic-3.10:
+  <<: *test-python
+  image: python:3.10
+  only:
+    - merge_requests
+    - main
+
+basic-3.11:
+  <<: *test-python
+  image: python:3.11
+  only:
+    - merge_requests
+    - main
+
+basic-3.12:
+  <<: *test-python
+  image: python:3.12
+  only:
+    - merge_requests
+    - main
+
+# ------------- Test Stage -------------
+.unit-tests: &unit-test
+  stage: test
+  script:
+    - python -m pip install .[test]
+    - *list-env
+    - export COVERAGE_FILE=.coverage.$CI_JOB_NAME
+    - pytest --cov-config=.coveragerc --junitxml=test-results.xml --cov=package_name --cov-report=xml --cov-report=html
+  artifacts:
+    when: always
+    paths:
+      - .coverage.*
+      - test-results.xml
+      - htmlcov/
+      - coverage.xml
+    reports:
+      junit: test-results.xml
+
+python-3.10:
+  <<: *unit-test
+  needs: ["basic-3.10"]
+  image: python:3.10
+  only:
+    - merge_requests
+    - main
+
+python-3.11:
+  <<: *unit-test
+  needs: ["basic-3.11"]
+  image: python:3.11
+  only:
+    - merge_requests
+    - main
+
+python-3.12:
+  <<: *unit-test
+  needs: ["basic-3.12"]
+  image: python:3.12
+  only:
+    - merge_requests
+    - main
+
+# ------------- Coverage Report Summary -------------
+
+coverage-summary:
+  stage: test
+  image: python:3.12
+  script:
+    - echo "Merging coverage reports"
+    - python -m pip install --upgrade pip setuptools wheel
+    - python -m pip install coverage
+    # Combine multiple coverage reports if applicable
+    - coverage combine
+    - coverage report
+    - coverage html
+  artifacts:
+    when: always
+    paths:
+      - htmlcov/
+      - coverage.xml
+  needs:
+    - job: python-3.10
+    - job: python-3.11
+    - job: python-3.12
+  only:
+    - merge_requests
+    - main
