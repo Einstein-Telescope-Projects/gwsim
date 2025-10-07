@@ -1,8 +1,7 @@
-"""Distribution classes.
-"""
-from .univariate import (PowerLaw,
-                         Uniform)
+"""Distribution classes."""
 
+from __future__ import annotations
 
-__all__ = ['PowerLaw',
-           'Uniform']
+from .univariate import PowerLaw, Uniform
+
+__all__ = ["PowerLaw", "Uniform"]

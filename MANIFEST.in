@@ -1,0 +1,43 @@
+# Include important files
+include README.md
+include LICENSE
+include MANIFEST.in
+include pyproject.toml
+include uv.lock
+
+# Include source code
+recursive-include src *.py
+recursive-include src *.pyx
+recursive-include src *.pxd
+
+# Include tests
+recursive-include tests *.py
+
+# Include examples and configuration
+recursive-include examples *.yaml *.yml *.json *.py
+
+# Include documentation source (but not generated API docs)
+include docs/*.rst
+include docs/Makefile
+include docs/make.bat
+include docs/conf.py
+include docs/requirements.txt
+recursive-include docs/_static *
+recursive-include docs/_templates *
+
+# Exclude generated documentation
+prune docs/api
+prune docs/_build
+
+# Exclude development files
+exclude .gitlab-ci.yml
+exclude .gitignore
+exclude .pre-commit-config.yaml
+exclude tox.ini
+prune .git
+prune .github
+prune __pycache__
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude .DS_Store

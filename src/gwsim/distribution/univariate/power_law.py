@@ -1,17 +1,19 @@
-"""A power law distribution.
-"""
-from typing import Union
+"""A power law distribution."""
+
+from __future__ import annotations
+
 import numpy as np
-from .univariate import UnivariateDistribution
-from .uniform import Uniform
+
 from ...utils.random import get_rng
+from .uniform import Uniform
+from .univariate import UnivariateDistribution
 
 
 class PowerLaw(UnivariateDistribution):
     """
     A class that represents a power law distribution.
 
-    The probability density funcion for a power law distribution is given by:
+    The probability density function for a power law distribution is given by:
 
     .. math::
         p(x | \alpha, x_{\text{min}}, x_{\text{max}}) =
@@ -29,11 +31,8 @@ class PowerLaw(UnivariateDistribution):
     - :math:`x_{\text{max}}` is the maximum value of `x`.
     - :math:`x` is the variable of interest.
     """
-    def __new__(cls,
-                alpha: float,
-                x_min: float,
-                x_max: Union[float, None] = None,
-                name: Union[str, None] = None):
+
+    def __new__(cls, alpha: float, x_min: float, x_max: float | None = None, name: str | None = None):
         """Return a PowerLaw instance, or a Uniform instance if alpha == 0.
 
         Args:
@@ -50,17 +49,13 @@ class PowerLaw(UnivariateDistribution):
         """
         if alpha == 0:
             if x_max is None:
-                raise ValueError(f'x_max = {x_max} must be provided for a uniform distribution.')
+                raise ValueError(f"x_max = {x_max} must be provided for a uniform distribution.")
             if name is None:
-                name = 'uniform'
+                name = "uniform"
             return Uniform(x_min=x_min, x_max=x_max, name=name)
         return super().__new__(cls)
 
-    def __init__(self,
-                 alpha: float,
-                 x_min: float,
-                 x_max: float = np.inf,
-                 name: str = 'power_law'):
+    def __init__(self, alpha: float, x_min: float, x_max: float = np.inf, name: str = "power_law"):
         """Power law distribution.
 
         Args:
@@ -74,15 +69,13 @@ class PowerLaw(UnivariateDistribution):
             ValueError: alpha is negative and x_min cannot be zero.
             ValueError: alpha >= -1 but x_max is not provided.
         """
-        super().__init__(x_min=x_min,
-                         x_max=x_max,
-                         name=name)
+        super().__init__(x_min=x_min, x_max=x_max, name=name)
         if x_min < 0:
-            raise ValueError(f'x_min = {x_min} must be non-negative.')
+            raise ValueError(f"x_min = {x_min} must be non-negative.")
         if alpha < 0.0 and x_min == 0.0:
-            raise ValueError(f'alpha = {alpha} is negative and x_min = {x_min} cannot be zero.')
+            raise ValueError(f"alpha = {alpha} is negative and x_min = {x_min} cannot be zero.")
         if alpha >= -1.0 and x_max is None:
-            raise ValueError(f'alpha = {alpha} >= -1 but x_max = {x_max} is not provided.')
+            raise ValueError(f"alpha = {alpha} >= -1 but x_max = {x_max} is not provided.")
         self._alpha = alpha
 
     @property
@@ -114,16 +107,17 @@ class PowerLaw(UnivariateDistribution):
             float: Log normalization constant.
         """
         if self.alpha != -1 and self.x_max is not None:
-            return np.log(1 + self.alpha) - \
-                np.log(self.x_max**(1 + self.alpha) - self.x_min**(1 + self.alpha))
+            return np.log(1 + self.alpha) - np.log(self.x_max ** (1 + self.alpha) - self.x_min ** (1 + self.alpha))
         if self.alpha < -1 and self.x_max is None:
-            return np.log(-1 - self.alpha) - (1 + self.alpha)*np.log(self.x_min)
+            return np.log(-1 - self.alpha) - (1 + self.alpha) * np.log(self.x_min)
         if self.alpha == -1:
             return -np.log(np.log(self.x_max) - np.log(self.x_min))
-        raise Exception((f'Unexpected error. alpha = {self.alpha}, x_min = {self.x_min}, and x_max = {self.x_max}'
-                        'miss the conditions to compute the log normalization constant.'))
+        raise ValueError(
+            f"Unexpected error. alpha = {self.alpha}, x_min = {self.x_min}, and x_max = {self.x_max}"
+            "miss the conditions to compute the log normalization constant."
+        )
 
-    def log_prob(self, samples: np.ndarray, given: Union[np.ndarray, None] = None) -> np.ndarray:
+    def log_prob(self, samples: np.ndarray, given: np.ndarray | None = None) -> np.ndarray:
         """Log probability density.
 
         Args:
@@ -134,7 +128,7 @@ class PowerLaw(UnivariateDistribution):
         """
         return self.alpha * np.log(samples) + self.log_norm
 
-    def sample(self, number: int = 1, given: Union[np.ndarray, None] = None) -> np.ndarray:
+    def sample(self, number: int = 1, given: np.ndarray | None = None) -> np.ndarray:
         """Draw samples.
 
         Args:
@@ -146,9 +140,9 @@ class PowerLaw(UnivariateDistribution):
         if self.alpha != -1 and self.x_max is not None:
             a = self.x_max ** (1 + self.alpha)
             b = self.x_min ** (1 + self.alpha)
-            return (get_rng().random((number, 1))*(a - b) + b) ** (1 / (1 + self.alpha))
+            return (get_rng().random((number, 1)) * (a - b) + b) ** (1 / (1 + self.alpha))
         if self.alpha == -1:
             log_x_min = np.log(self.x_min)
             log_x_max = np.log(self.x_max)
             return np.exp(get_rng().random((number, 1)) * (log_x_max - log_x_min) + log_x_min)
-        return (1. - get_rng().random((number, 1)))**(1 / (1 + self.alpha)) * self.x_min
+        return (1.0 - get_rng().random((number, 1))) ** (1 / (1 + self.alpha)) * self.x_min

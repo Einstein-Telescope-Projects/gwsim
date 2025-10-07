@@ -1,17 +1,16 @@
-"""A parent class for all univariate distribution classes.
-"""
+"""A parent class for all univariate distribution classes."""
+
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Union
+
 import numpy as np
 
 
 class UnivariateDistribution(ABC):
-    """A univariate distribution.
-    """
-    def __init__(self,
-                 x_min: float = -np.inf,
-                 x_max: float = np.inf,
-                 name: Union[str, None] = None):
+    """A univariate distribution."""
+
+    def __init__(self, x_min: float = -np.inf, x_max: float = np.inf, name: str | None = None):
         """Distribution.
 
         Args:
@@ -28,10 +27,10 @@ class UnivariateDistribution(ABC):
         self._name = name
         self._log_norm = None
         if x_min >= x_max:
-            raise ValueError(f'x_min = {x_min} must be smaller than x_max = {x_max}.')
-        if name == 'mass_1':
+            raise ValueError(f"x_min = {x_min} must be smaller than x_max = {x_max}.")
+        if name == "mass_1":
             if x_min <= 0:
-                raise ValueError(f'For {name} distribution, x_min = {x_min} must be positive.')
+                raise ValueError(f"For {name} distribution, x_min = {x_min} must be positive.")
 
     def __repr__(self) -> str:
         """Printable representation of the object.
@@ -39,7 +38,7 @@ class UnivariateDistribution(ABC):
         Returns:
             str: Printable representation of the object.
         """
-        return f'UnivariateDistribution({self.name})'
+        return f"UnivariateDistribution({self.name})"
 
     @property
     def x_min(self) -> float:
@@ -63,7 +62,7 @@ class UnivariateDistribution(ABC):
             ValueError: value must be smaller than x_max.
         """
         if value >= self.x_max:
-            raise ValueError(f'value = {value} must be smaller than x_max = {self.x_max}.')
+            raise ValueError(f"value = {value} must be smaller than x_max = {self.x_max}.")
         self._x_min = value
         self._log_norm = None
 
@@ -89,12 +88,12 @@ class UnivariateDistribution(ABC):
             ValueError: value must be greater than x_min.
         """
         if value <= self.x_min:
-            raise ValueError(f'value = {value} must be greater than x_min = {self.x_min}.')
+            raise ValueError(f"value = {value} must be greater than x_min = {self.x_min}.")
         self._x_max = value
         self._log_norm = None
 
     @property
-    def name(self) -> Union[str, None]:
+    def name(self) -> str | None:
         """Name of the distribution.
 
         Returns:
@@ -103,7 +102,7 @@ class UnivariateDistribution(ABC):
         return self._name
 
     @name.setter
-    def name(self, value: Union[str, None]):
+    def name(self, value: str | None):
         """Set the
 
         Args:
@@ -129,10 +128,10 @@ class UnivariateDistribution(ABC):
         Raises:
             NotImplementedError: This method should be implemented in a subclass.
         """
-        raise NotImplementedError('This method should be implemented in a subclass.')
+        raise NotImplementedError("This method should be implemented in a subclass.")
 
     @abstractmethod
-    def log_prob(self, samples: np.ndarray, given: Union[np.ndarray, None]) -> np.ndarray:
+    def log_prob(self, samples: np.ndarray, given: np.ndarray | None) -> np.ndarray:
         """Log probability density for continuous distributions,
         of log probability for discrete distributions.
 
@@ -147,22 +146,22 @@ class UnivariateDistribution(ABC):
             np.ndarray: Log probability density for continuous distributions,
             or log probability for discrete distributions.
         """
-        raise NotImplementedError('This method should be implemented in a subclass.')
+        raise NotImplementedError("This method should be implemented in a subclass.")
 
-    def prob(self, samples: np.ndarray, given: Union[np.ndarray, None]) -> np.ndarray:
-        """Probablity density for continuous distributions or probability for discrete distribution.
+    def prob(self, samples: np.ndarray, given: np.ndarray | None) -> np.ndarray:
+        """Probability density for continuous distributions or probability for discrete distribution.
 
         Args:
             samples (np.ndarray): Samples.
             given (Union[np.ndarray, None]): Conditioned samples.
 
         Returns:
-            np.ndarray: Probablity density for continuous distributions or probability for discrete distribution.
+            np.ndarray: Probability density for continuous distributions or probability for discrete distribution.
         """
         return np.exp(self.log_prob(samples=samples, given=given))
 
     @abstractmethod
-    def sample(self, number: int = 1, given: Union[np.ndarray, None] = None) -> np.ndarray:
+    def sample(self, number: int = 1, given: np.ndarray | None = None) -> np.ndarray:
         """Draw samples from the distribution $p(x | y)$.
 
         Args:
@@ -175,4 +174,4 @@ class UnivariateDistribution(ABC):
         Returns:
             np.ndarray: An array of samples.
         """
-        raise NotImplementedError('This method should be implemented in a subclass.')
+        raise NotImplementedError("This method should be implemented in a subclass.")
