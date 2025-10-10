@@ -14,13 +14,13 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
 
     start_time = StateAttribute(0)
 
-    def __init__(self, start_time: float = 0, duration: float | None = None, sampling_frequency: float | None = None):
+    def __init__(self, start_time: float = 0, duration: float = 4, sampling_frequency: float = 4096):
         """Initialize timing parameters.
 
         Args:
             start_time: Start time in GPS seconds. Default is 0.
-            duration: Duration of simulation in seconds.
-            sampling_frequency: Sampling frequency in Hz.
+            duration: Duration of simulation in seconds. Default is 4.
+            sampling_frequency: Sampling frequency in Hz. Default is 4096.
             **kwargs: Additional arguments passed to parent classes.
         """
         self.start_time = start_time
