@@ -6,7 +6,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -144,7 +144,8 @@ class Simulator(ABC):
             raise StopIteration("Maximum number of samples reached.")
 
         sample = self.simulate()
-        self.counter += 1
+        self.update_state()
+        self.counter = cast(int, self.counter) + 1
         return sample
 
     # # State persistence
@@ -202,6 +203,13 @@ class Simulator(ABC):
 
     #     with file_name.open("w") as f:
     #         json.dump(self.metadata, f)
+
+    @abstractmethod
+    def update_state(self) -> None:
+        """Update internal state after each sample generation.
+
+        This method must be implemented by all simulator subclasses.
+        """
 
     # Abstract methods that subclasses must implement
     @abstractmethod

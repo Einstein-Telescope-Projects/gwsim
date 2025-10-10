@@ -4,7 +4,7 @@ A descriptor class to handle a state attribute.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Generic, TypeVar
+from typing import Any, Callable, Generic, TypeVar, overload
 
 T = TypeVar("T")
 
@@ -44,6 +44,12 @@ class StateAttribute(Generic[T]):
             owner._state_attributes = []
         if name not in owner._state_attributes:
             owner._state_attributes.append(name)
+
+    @overload
+    def __get__(self, instance: None, owner: type) -> StateAttribute[T]: ...
+
+    @overload
+    def __get__(self, instance: Any, owner: type) -> T: ...
 
     def __get__(self, instance: Any, owner: type) -> T | StateAttribute[T]:
         """Get the value of the attribute.
