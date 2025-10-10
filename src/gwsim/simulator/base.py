@@ -205,7 +205,7 @@ class Simulator(ABC):
 
     # Abstract methods that subclasses must implement
     @abstractmethod
-    def simulate(self) -> Any:
+    def simulate(self, *args, **kwargs) -> Any:
         """Generate a single sample.
 
         This method must be implemented by all simulator subclasses.

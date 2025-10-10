@@ -2,9 +2,11 @@ freqs
 gengli
 gwpy
 gwsim
+infft
 LIGO
 NSBH
 Nyquist
 pycbc
+realisation
 retryable
 Uncatched

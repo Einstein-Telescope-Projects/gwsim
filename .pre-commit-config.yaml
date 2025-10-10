@@ -59,6 +59,7 @@ repos:
             typer,
             gwpy,
             pycbc,
+            bilby,
           ]
 
   - repo: https://github.com/asottile/pyupgrade
