@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import cast
+
+import numpy as np
 
 from gwsim.simulator.base import Simulator
 from gwsim.simulator.mixin.gwf import GWFOutputMixin
@@ -44,6 +47,29 @@ class NoiseSimulator(Simulator, RandomnessMixin, TimeSeriesMixin, GWFOutputMixin
             seed=seed,
             **kwargs,
         )
+
+    def save_batch(self, batch: np.ndarray, file_name: str | Path, overwrite: bool = False, **kwargs) -> None:
+        """Save a batch of noise data to a file.
+
+        Args:
+            batch: Batch of noise data to save.
+            file_name: Name of the output file.
+            overwrite: Whether to overwrite existing files. Default is False.
+            **kwargs: Additional arguments for the output mixin.
+
+        Raises:
+            NotImplementedError: If the output mixin does not implement this method.
+        """
+        suffix = Path(file_name).suffix.lower()
+        if suffix == ".gwf":
+            self.save_batch_to_gwf(
+                batch=batch,
+                file_path=file_name,
+                overwrite=overwrite,
+                **kwargs,
+            )
+        else:
+            raise NotImplementedError(f"Output format {suffix} not supported by the output mixin.")
 
     @property
     def metadata(self) -> dict:

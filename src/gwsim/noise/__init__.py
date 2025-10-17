@@ -4,6 +4,7 @@ Noise models for gravitational wave detector simulations.
 
 from __future__ import annotations
 
-from .white_noise import WhiteNoiseSimulator
+from .bilby_stationary_gaussian import BilbyStationaryGaussianNoiseSimulator
+from .pycbc_stationary_gaussian import PyCBCStationaryGaussianNoiseSimulator
 
-__all__ = ["WhiteNoiseSimulator"]
+__all__ = ["BilbyStationaryGaussianNoiseSimulator", "PyCBCStationaryGaussianNoiseSimulator"]

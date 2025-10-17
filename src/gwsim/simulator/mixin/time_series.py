@@ -14,7 +14,9 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
 
     start_time = StateAttribute(0)
 
-    def __init__(self, start_time: float = 0, duration: float = 4, sampling_frequency: float = 4096):
+    def __init__(  # pylint: disable=unused-argument
+        self, start_time: float = 0, duration: float = 4, sampling_frequency: float = 4096, **kwargs
+    ):
         """Initialize timing parameters.
 
         Args:
@@ -23,6 +25,7 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
             sampling_frequency: Sampling frequency in Hz. Default is 4096.
             **kwargs: Additional arguments passed to parent classes.
         """
+        # TimeSeriesMixin is the last mixin in the hierarchy, so no super().__init__() call needed
         self.start_time = start_time
         self.duration = duration
         self.sampling_frequency = sampling_frequency

@@ -16,6 +16,11 @@ recursive-include tests *.py
 # Include examples and configuration
 recursive-include examples *.yaml *.yml *.json *.py
 
+# Exclude generated simulation output
+prune examples/*/output
+prune examples/*/metadata
+prune examples/*/checkpoints
+
 # Include documentation source (but not generated API docs)
 include docs/*.rst
 include docs/Makefile

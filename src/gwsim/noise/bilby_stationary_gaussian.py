@@ -42,9 +42,6 @@ class BilbyStationaryGaussianNoiseSimulator(StationaryGaussianNoiseSimulator):
             seed: Random seed. If None, RNG is not initialized.
             **kwargs: Additional arguments.
         """
-        self.frequency_array = frequency_array
-        self.psd_array = psd_array
-        self.psd_file = psd_file
         super().__init__(
             sampling_frequency=sampling_frequency,
             duration=duration,
@@ -53,6 +50,23 @@ class BilbyStationaryGaussianNoiseSimulator(StationaryGaussianNoiseSimulator):
             seed=seed,
             **kwargs,
         )
+        self.frequency_array = frequency_array
+        self.psd_array = psd_array
+        self.psd_file = psd_file
+        self._setup_psd()
+
+    @property
+    def frequency_array(self) -> np.ndarray[Any, np.dtype[Any]] | None:
+        """Get the frequency array."""
+        return self._frequency_array
+
+    @frequency_array.setter
+    def frequency_array(self, value: np.ndarray[Any, np.dtype[Any]] | None) -> None:
+        """Set the frequency array."""
+        if value is None:
+            self._frequency_array = np.arange(int(self.sampling_frequency * self.duration // 2) + 1) / self.duration
+        else:
+            self._frequency_array = value
 
     def _setup_psd(self) -> None:
         if self.frequency_array is not None and self.psd_array is not None:

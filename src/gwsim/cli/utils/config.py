@@ -21,7 +21,7 @@ def validate_config(config: dict) -> None:
     """Validate configuration structure and provide helpful error messages.
 
     Args:
-        config: Configuration dictionary to validate
+        config (dict): Configuration dictionary to validate
 
     Raises:
         ValueError: If configuration is invalid with detailed error message

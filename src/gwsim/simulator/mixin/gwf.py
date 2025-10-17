@@ -7,20 +7,14 @@ from pathlib import Path
 
 import numpy as np
 from gwpy.io.gwf import write_frames
-
-try:
-    from gwpy.timeseries import TimeSeries
-
-    GWPY_AVAILABLE = True
-except ImportError:
-    GWPY_AVAILABLE = False
+from gwpy.timeseries import TimeSeries
 
 
 def save_timeseries_to_gwf(
     data: np.ndarray,
     file_path: str | Path,
     channel: str = "H1:STRAIN",
-    sample_rate: float = 4096,
+    sampling_frequency: float = 4096,
     start_time: float = 0,
     overwrite: bool = False,
 ) -> None:
@@ -30,7 +24,7 @@ def save_timeseries_to_gwf(
         data: Time series data array.
         file_path: Output GWF file path.
         channel: Channel name (e.g., "H1:STRAIN"). Default is "H1:STRAIN".
-        sample_rate: Sampling rate in Hz. Default is 4096.
+        sampling_frequency: Sampling rate in Hz. Default is 4096.
         start_time: GPS start time. Default is 0.
         overwrite: Whether to overwrite existing files. Default is False.
 
@@ -39,13 +33,11 @@ def save_timeseries_to_gwf(
         FileExistsError: If file exists and overwrite=False.
         ValueError: If data is empty or parameters are invalid.
     """
-    if not GWPY_AVAILABLE:
-        raise ImportError("gwpy is required for GWF file output")
 
     if len(data) == 0:
         raise ValueError("Data array cannot be empty")
 
-    if sample_rate <= 0:
+    if sampling_frequency <= 0:
         raise ValueError("Sample rate must be positive")
 
     # Convert to Path object
@@ -56,7 +48,7 @@ def save_timeseries_to_gwf(
         raise FileExistsError(f"File {file_path} already exists and overwrite=False")
 
     # Create gwpy TimeSeries
-    timeseries = TimeSeries(data, sample_rate=sample_rate, epoch=start_time, name=channel, channel=channel)
+    timeseries = TimeSeries(data=data, t0=start_time, sample_rate=sampling_frequency, channel=channel, name=channel)
 
     # Ensure output directory exists
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -68,7 +60,7 @@ def save_timeseries_to_gwf(
 def combine_timeseries_to_gwf(
     timeseries_list: list[tuple[np.ndarray, str]],
     file_path: str | Path,
-    sample_rate: float = 4096,
+    sampling_frequency: float = 4096,
     start_time: float = 0,
     overwrite: bool = False,
 ) -> None:
@@ -77,7 +69,7 @@ def combine_timeseries_to_gwf(
     Args:
         timeseries_list: List of (data, channel_name) tuples.
         file_path: Output GWF file path.
-        sample_rate: Sampling rate in Hz. Default is 4096.
+        sampling_frequency: Sampling rate in Hz. Default is 4096.
         start_time: GPS start time. Default is 0.
         overwrite: Whether to overwrite existing files. Default is False.
 
@@ -85,9 +77,6 @@ def combine_timeseries_to_gwf(
         ImportError: If gwpy is not available.
         ValueError: If timeseries_list is empty or data shapes don't match.
     """
-    if not GWPY_AVAILABLE:
-        raise ImportError("gwpy is required for GWF file output")
-
     if not timeseries_list:
         raise ValueError("timeseries_list cannot be empty")
 
@@ -106,7 +95,7 @@ def combine_timeseries_to_gwf(
     # Create gwpy TimeSeries objects
     gwpy_timeseries = []
     for data, channel in timeseries_list:
-        ts = TimeSeries(data, sample_rate=sample_rate, epoch=start_time, name=channel, channel=channel)
+        ts = TimeSeries(data, sampling_frequency=sampling_frequency, epoch=start_time, name=channel, channel=channel)
         gwpy_timeseries.append(ts)
 
     # Ensure output directory exists
@@ -121,7 +110,7 @@ class GWFOutputMixin:
     """Mixin to add GWF file output capabilities to simulators.
 
     This mixin provides methods for saving simulator output to GWF frame files
-    using gwpy. It assumes the simulator has sample_rate, start_time, and
+    using gwpy. It assumes the simulator has sampling_frequency, start_time, and
     generates numpy arrays.
     """
 
@@ -141,11 +130,11 @@ class GWFOutputMixin:
             overwrite: Whether to overwrite existing files.
         """
         # Get parameters from simulator
-        sample_rate = getattr(self, "sample_rate", None)
+        sampling_frequency = getattr(self, "sampling_frequency", None)
         start_time = getattr(self, "start_time", 0)
 
-        if sample_rate is None:
-            raise ValueError("Simulator must have sample_rate attribute")
+        if sampling_frequency is None:
+            raise ValueError("Simulator must have sampling_frequency attribute")
 
         # Generate default channel name if not provided
         if channel is None:
@@ -158,17 +147,18 @@ class GWFOutputMixin:
             data=data,
             file_path=file_path,
             channel=channel,
-            sample_rate=sample_rate,
+            sampling_frequency=sampling_frequency,
             start_time=start_time,
             overwrite=overwrite,
         )
 
-    def save_batch_to_gwf(
+    def save_batch_to_gwf(  # pylint: disable=unused-argument
         self,
         batch: list[np.ndarray] | np.ndarray,
         file_path: str | Path,
         channel: str | None = None,
         overwrite: bool = False,
+        **kwargs,
     ) -> None:
         """Save a batch of simulator data to GWF file.
 

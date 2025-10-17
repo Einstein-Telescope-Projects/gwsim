@@ -49,7 +49,7 @@ class Simulator(ABC):
             logger.debug("Unused kwargs in Simulator.__init__: %s", kwargs)
 
         # Initialize StateAttribute system
-        super().__init__()
+        super().__init__(**kwargs)
 
         # Non-state attributes
         self.max_samples = max_samples
@@ -88,8 +88,13 @@ class Simulator(ABC):
         Returns:
             Dictionary containing all state attributes.
         """
-        # Get state attributes from the class (set by StateAttribute descriptors)
-        state_attrs = getattr(self.__class__, "_state_attributes", [])
+        # Get state attributes from all classes in MRO (set by StateAttribute descriptors)
+        state_attrs = []
+        for cls in self.__class__.__mro__:
+            state_attrs.extend(getattr(cls, "_state_attributes", []))
+        # Remove duplicates while preserving order
+        seen = set()
+        state_attrs = [x for x in state_attrs if not (x in seen or seen.add(x))]
         return {key: getattr(self, key) for key in state_attrs}
 
     @state.setter
@@ -102,8 +107,14 @@ class Simulator(ABC):
         Raises:
             ValueError: If state contains unregistered attributes.
         """
-        # Get state attributes from the class (set by StateAttribute descriptors)
-        state_attrs = getattr(self.__class__, "_state_attributes", [])
+        # Get state attributes from all classes in MRO (set by StateAttribute descriptors)
+        state_attrs = []
+        for cls in self.__class__.__mro__:
+            state_attrs.extend(getattr(cls, "_state_attributes", []))
+        # Remove duplicates while preserving order
+        seen = set()
+        state_attrs = [x for x in state_attrs if not (x in seen or seen.add(x))]
+
         for key, value in state.items():
             if key not in state_attrs:
                 raise ValueError(f"Attribute {key} is not registered as a state attribute.")
@@ -147,23 +158,22 @@ class Simulator(ABC):
         return sample
 
     # # State persistence
-    # @check_file_overwrite()
-    # def save_state(self, file_name: Path, overwrite: bool = False) -> None:
-    #     """Save simulator state to file.
+    def save_state(self, file_name: Path, overwrite: bool = False) -> None:  # pylint: disable=unused-argument
+        """Save simulator state to file.
 
-    #     Args:
-    #         file_name: Output file path (must have .json extension).
-    #         overwrite: Whether to overwrite existing files.
+        Args:
+            file_name: Output file path (must have .json extension).
+            overwrite: Whether to overwrite existing files.
 
-    #     Raises:
-    #         ValueError: If file extension is not .json.
-    #         FileExistsError: If file exists and overwrite=False.
-    #     """
-    #     if file_name.suffix.lower() != ".json":
-    #         raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: .json")
+        Raises:
+            ValueError: If file extension is not .json.
+            FileExistsError: If file exists and overwrite=False.
+        """
+        if file_name.suffix.lower() != ".json":
+            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: .json")
 
-    #     with file_name.open("w") as f:
-    #         json.dump(self.state, f)
+        with file_name.open("w") as f:
+            json.dump(self.state, f)
 
     @check_file_exist()
     def load_state(self, file_name: Path) -> None:
@@ -184,23 +194,22 @@ class Simulator(ABC):
 
         self.state = state
 
-    # @check_file_overwrite()
-    # def save_metadata(self, file_name: Path, overwrite: bool = False) -> None:
-    #     """Save simulator metadata to file.
+    def save_metadata(self, file_name: Path, overwrite: bool = False) -> None:  # pylint: disable=unused-argument
+        """Save simulator metadata to file.
 
-    #     Args:
-    #         file_name: Output file path (must have .json extension).
-    #         overwrite: Whether to overwrite existing files.
+        Args:
+            file_name: Output file path (must have .json extension).
+            overwrite: Whether to overwrite existing files.
 
-    #     Raises:
-    #         ValueError: If file extension is not .json.
-    #         FileExistsError: If file exists and overwrite=False.
-    #     """
-    #     if file_name.suffix.lower() != ".json":
-    #         raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: .json")
+        Raises:
+            ValueError: If file extension is not .json.
+            FileExistsError: If file exists and overwrite=False.
+        """
+        if file_name.suffix.lower() != ".json":
+            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: .json")
 
-    #     with file_name.open("w") as f:
-    #         json.dump(self.metadata, f)
+        with file_name.open("w") as f:
+            json.dump(self.metadata, f)
 
     def update_state(self) -> None:
         """Update internal state after each sample generation.

@@ -39,8 +39,3 @@ class StationaryGaussianNoiseSimulator(NoiseSimulator):
             seed=seed,
             **kwargs,
         )
-        self._setup_psd()
-
-    def _setup_psd(self) -> None:
-        """Set up the PSD data based on the provided psd argument."""
-        raise NotImplementedError("_setup_psd method must be implemented in subclasses.")

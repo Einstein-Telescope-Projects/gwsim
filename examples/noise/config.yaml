@@ -1,0 +1,17 @@
+globals:
+  working-directory: .
+  sampling-frequency: 2048
+  max_samples: 10
+  duration: 4
+  output-directory: output
+  metadata-directory: metadata
+simulators:
+  noise:
+    class: BilbyStationaryGaussianNoiseSimulator
+    arguments:
+      psd_file: ET_D_psd.txt
+      seed: 0
+    output:
+      file_name: example-{{ start_time }}-{{ duration }}.gwf
+      arguments:
+        channel: STRAIN
