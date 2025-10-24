@@ -386,3 +386,10 @@ add_imports = ["from __future__ import annotations"]
 path = "src"
 expand_stars = true
 all = true
+
+[tool.check-manifest]
+ignore = [
+    "examples/**/output/**",
+    "examples/**/metadata/**",
+    "examples/**/checkpoints/**",
+]

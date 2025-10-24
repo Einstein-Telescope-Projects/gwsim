@@ -12,6 +12,6 @@ simulators:
       psd_file: ET_D_psd.txt
       seed: 0
     output:
-      file_name: example-{{ start_time }}-{{ duration }}.gwf
+      file_name: ET1-{{ start_time }}-{{ duration }}.gwf
       arguments:
         channel: STRAIN
