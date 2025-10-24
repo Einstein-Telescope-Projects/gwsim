@@ -9,6 +9,7 @@ simulators:
   noise:
     class: PyCBCStationaryGaussianNoiseSimulator
     arguments:
+      detectors: ["ET1",]
       label: EinsteinTelescopeP1600143
       seed: 0
     output:
