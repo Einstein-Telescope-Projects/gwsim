@@ -3,6 +3,7 @@ gengli
 gwpy
 gwsim
 infft
+Inspiral
 levelname
 LIGO
 NSBH
