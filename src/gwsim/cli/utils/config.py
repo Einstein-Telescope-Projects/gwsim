@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from ...utils.io import check_file_overwrite
+from gwsim.utils.io import check_file_overwrite
 
 logger = logging.getLogger("gwsim")
 
@@ -21,7 +21,7 @@ def validate_config(config: dict) -> None:
     """Validate configuration structure and provide helpful error messages.
 
     Args:
-        config: Configuration dictionary to validate
+        config (dict): Configuration dictionary to validate
 
     Raises:
         ValueError: If configuration is invalid with detailed error message

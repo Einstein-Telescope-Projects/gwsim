@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
+from typing import cast
 
-from ..mixin.randomness import RandomnessMixin
-from ..simulator.base import Simulator
-from ..simulator.state import StateAttribute
-from ..version import __version__
+import numpy as np
+
+from gwsim.cli.utils.utils import get_file_name_from_template_with_dict
+from gwsim.simulator.base import Simulator
+from gwsim.simulator.mixin.detector import DetectorMixin
+from gwsim.simulator.mixin.gwf import GWFOutputMixin
+from gwsim.simulator.mixin.randomness import RandomnessMixin
+from gwsim.simulator.mixin.time_series import TimeSeriesMixin
+from gwsim.simulator.state import StateAttribute
+from gwsim.utils.random import get_state
 
 
-class NoiseSimulator(Simulator, RandomnessMixin):
+class NoiseSimulator(
+    Simulator, RandomnessMixin, DetectorMixin, TimeSeriesMixin, GWFOutputMixin
+):  # pylint: disable=duplicate-code
     """Base class for noise simulators."""
 
     start_time = StateAttribute(0)
@@ -22,6 +31,7 @@ class NoiseSimulator(Simulator, RandomnessMixin):
         start_time: float = 0,
         max_samples: int | None = None,
         seed: int | None = None,
+        detectors: list[str] | None = None,
         **kwargs,
     ) -> None:
         """Initialize the base noise simulator.
@@ -32,12 +42,73 @@ class NoiseSimulator(Simulator, RandomnessMixin):
             start_time: Start time of the first noise segment in GPS seconds. Default is 0
             max_samples: Maximum number of samples to generate. None means infinite.
             seed: Seed for the random number generator. If None, the RNG is not initialized.
+            detectors: List of detector names. Default is None.
             **kwargs: Additional arguments absorbed by subclasses and mixins.
         """
-        super().__init__(max_samples=max_samples, seed=seed, **kwargs)
-        self.sampling_frequency = sampling_frequency
-        self.duration = duration
-        self.start_time = start_time
+        super().__init__(
+            sampling_frequency=sampling_frequency,
+            duration=duration,
+            start_time=start_time,
+            max_samples=max_samples,
+            seed=seed,
+            detectors=detectors,
+            **kwargs,
+        )
+
+    def save_batch(self, batch: np.ndarray, file_name: str | Path, overwrite: bool = False, **kwargs) -> None:
+        """Save a batch of noise data to a file.
+
+        Args:
+            batch: Batch of noise data to save.
+            file_name: Name of the output file.
+            overwrite: Whether to overwrite existing files. Default is False.
+            **kwargs: Additional arguments for the output mixin.
+
+        Raises:
+            NotImplementedError: If the output mixin does not implement this method.
+        """
+        suffix = Path(file_name).suffix.lower()
+        if suffix == ".gwf":
+            save_function = self.save_batch_to_gwf
+        else:
+            raise NotImplementedError(f"Output format {suffix} not supported by the output mixin.")
+
+        # Check whether the file_name contains the {detector} placeholder
+        if "{detector}" in str(file_name).replace(" ", ""):
+            # Check whether self.detectors is set
+            if self.detectors is None:
+                raise ValueError(
+                    "The file_name contains the {detector} placeholder, but the simulator does not have detectors set."
+                )
+            # Check whether the dimension of batch matches number of detectors
+            if len(batch.shape) == 1:
+                batch = batch[None, :]
+            # Check whether the length of batch matches number of detectors
+            if batch.shape[0] != len(self.detectors):
+                raise ValueError(
+                    f"The batch has {batch.shape[0]} channels, but the simulator has {len(self.detectors)} detectors."
+                )
+            # Save each detector's data separately
+            for i, detector in enumerate(self.detectors):
+                detector_file_name = get_file_name_from_template_with_dict(
+                    template=str(file_name),
+                    values={
+                        "detector": detector,
+                    },
+                )
+                self.save_batch_to_gwf(
+                    batch=batch[i, :],
+                    file_path=detector_file_name,
+                    overwrite=overwrite,
+                    **kwargs,
+                )
+        else:
+            save_function(
+                batch=batch,
+                file_path=file_name,
+                overwrite=overwrite,
+                **kwargs,
+            )
 
     @property
     def metadata(self) -> dict:
@@ -47,60 +118,17 @@ class NoiseSimulator(Simulator, RandomnessMixin):
         Returns:
             dict: A dictionary of metadata.
         """
-        return {
-            "max_samples": self.max_samples,
-            "rng_state": self.rng_state,
-            "sampling_frequency": self.sampling_frequency,
-            "duration": self.duration,
-            "start_time": self.start_time,
-            "version": __version__,
-        }
+        # Get metadata from all parent classes using cooperative inheritance
+        metadata = super().metadata
 
-    def next(self) -> Any:
-        """Next noise segment."""
-        raise NotImplementedError("Not implemented.")
+        return metadata
 
-    # def update_state(self) -> None:
-    #     """Update the state of the simulator after generating a noise segment."""
-    #     # Type ignore needed due to StateAttribute descriptor behavior
-    #     self.counter += 1
-    #     self.start_time += self.duration
-    #     if self.rng is not None:
-    #         self.rng_state = get_state()
+    def update_state(self) -> None:
+        """Update internal state after each sample generation.
 
-    # def save_batch(self, batch: np.ndarray, file_name: str | Path, overwrite: bool = False, **kwargs) -> None:
-    #     """Save a batch of noise segments to a file."""
-    #     file_name = Path(file_name)
-    #     if file_name.suffix in [".h5", ".hdf5"]:
-    #         self._save_batch_hdf5(batch=batch, file_name=file_name, overwrite=overwrite, **kwargs)
-    #     elif file_name.suffix == ".gwf":
-    #         self._save_batch_gwf(batch=batch, file_name=file_name, overwrite=overwrite, **kwargs)
-    #     else:
-    #         raise ValueError(
-    #             f"Suffix of file_name = {file_name} is not supported. Use ['.h5', '.hdf5'] for HDF5 files,"
-    #             "and '.gwf' for frame files."
-    #         )
-
-    # @check_file_overwrite()
-    # def _save_batch_hdf5(
-    #     self,
-    #     batch: np.ndarray,
-    #     file_name: str | Path,
-    #     overwrite: bool = False,
-    #     dataset_name: str = "strain",
-    # ) -> None:
-    #     """Save a batch of noise segments to an HDF5 file."""
-    #     with h5py.File(file_name, "w") as f:
-    #         # Add dataset.
-    #         f.create_dataset(dataset_name, data=batch)
-
-    # @check_file_overwrite()
-    # def _save_batch_gwf(
-    #     self, batch: np.ndarray, file_name: str | Path, overwrite: bool = False, channel: str = "strain"
-    # ) -> None:
-    #     """Save a batch of noise segments to a GWF frame file."""
-    #     # Create a pycbc TimeSeries instance.
-    #     time_series = TimeSeries(initial_array=batch, delta_t=1 / self.sampling_frequency, epoch=self.start_time)
-
-    #     # Write to frame file.
-    #     write_frame(location=str(file_name), channels=channel, timeseries=time_series)
+        This method can be overridden by subclasses to update any internal state
+        after generating a sample. The default implementation does nothing.
+        """
+        self.counter = cast(int, self.counter) + 1
+        self.start_time += self.duration
+        self.rng_state = get_state()

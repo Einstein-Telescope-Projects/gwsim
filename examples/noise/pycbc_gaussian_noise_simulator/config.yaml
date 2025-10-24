@@ -1,0 +1,18 @@
+globals:
+  working-directory: .
+  sampling-frequency: 2048
+  max_samples: 10
+  duration: 4
+  output-directory: output
+  metadata-directory: metadata
+simulators:
+  noise:
+    class: PyCBCStationaryGaussianNoiseSimulator
+    arguments:
+      detectors: ["ET1",]
+      label: EinsteinTelescopeP1600143
+      seed: 0
+    output:
+      file_name: ET1-{{ start_time }}-{{ duration }}.gwf
+      arguments:
+        channel: STRAIN

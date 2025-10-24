@@ -15,11 +15,11 @@ from typing import Annotated, Any
 import typer
 from tqdm import tqdm
 
-from ..simulator.base import Simulator
-from .utils.config import load_config, process_config, resolve_class_path
-from .utils.retry import RetryManager
-from .utils.template import TemplateValidator
-from .utils.utils import get_file_name_from_template, handle_signal, import_attribute, save_file_safely
+from gwsim.cli.utils.config import load_config, process_config, resolve_class_path
+from gwsim.cli.utils.retry import RetryManager
+from gwsim.cli.utils.template import TemplateValidator
+from gwsim.cli.utils.utils import get_file_name_from_template, handle_signal, import_attribute, save_file_safely
+from gwsim.simulator.base import Simulator
 
 logger = logging.getLogger("gwsim")
 
@@ -164,7 +164,7 @@ def process_batch(
     if detector and "{detector}" in file_name_template:
         file_name_template = file_name_template.replace("{detector}", detector)
 
-    file_name = Path(get_file_name_from_template(file_name_template, simulator))
+    file_name = Path(get_file_name_from_template(file_name_template, simulator, exclude={"detector"}))
     batch_file_name = config.output_directory / file_name
 
     # Check whether the file exists
@@ -189,19 +189,22 @@ def process_batch(
             ]
 
     # Write the batch of data to file.
+    logger.debug("Saving batch to file: %s", batch_file_name)
     simulator.save_batch(batch, batch_file_name, overwrite=config.overwrite, **output_arguments)
 
     # Write the metadata to file.
     if config.metadata:
         metadata_file_name = config.metadata_directory / file_name.with_suffix(".json")
+        logger.debug("Saving metadata to file: %s", metadata_file_name)
         simulator.save_metadata(file_name=metadata_file_name, overwrite=config.overwrite)
 
-    # Update the state if the data is saved successfully (backward compatibility)
-    if hasattr(simulator, "update_state"):
-        simulator.update_state()
+    # Log the state update
+    logger.debug("Updating simulator state after batch processing.")
+    logger.debug("State after update: %s", simulator.state)
     # Note: New StateAttribute-based simulators advance state automatically
 
     # Create checkpoint file.
+    logger.debug("Creating checkpoint file: %s", config.checkpoint_file)
     save_file_safely(
         file_name=config.checkpoint_file,
         backup_file_name=config.checkpoint_file_backup,
@@ -346,7 +349,6 @@ def execute_simulator_with_retry(
     simulator: Simulator,
     simulator_name: str,
     batch_config: BatchProcessingConfig,
-    detectors: list[str],
     max_retries: int = 3,
 ) -> None:
     """Execute simulator with retry capability.
@@ -355,13 +357,12 @@ def execute_simulator_with_retry(
         simulator: The simulator instance
         simulator_name: Name of the simulator
         batch_config: Batch processing configuration
-        detectors: List of detectors
         max_retries: Maximum number of retry attempts
     """
     retry_manager = RetryManager(max_retries=max_retries)
 
     def single_execution():
-        return execute_simulator_with_rollback(simulator, simulator_name, batch_config, detectors)
+        return execute_simulator_with_rollback(simulator, simulator_name, batch_config)
 
     retry_manager.retry_with_backoff(single_execution)
 
@@ -370,7 +371,6 @@ def execute_simulator_with_rollback(
     simulator: Simulator,
     simulator_name: str,
     batch_config: BatchProcessingConfig,
-    detectors: list[str],
 ) -> None:
     """Execute simulator with rollback capability for batch failures.
 
@@ -378,68 +378,28 @@ def execute_simulator_with_rollback(
         simulator: The simulator instance
         simulator_name: Name of the simulator
         batch_config: Batch processing configuration
-        detectors: List of detectors
     """
-    uses_detector_placeholder = "{detector}" in batch_config.file_name_template or any(
-        "{detector}" in str(v) for v in batch_config.output_arguments.values()
+    uses_detector_placeholder = "{detector}" in batch_config.file_name_template.replace(" ", "") or any(
+        "{detector}" in str(v).replace(" ", "") for v in batch_config.output_arguments.values()
     )
 
-    if uses_detector_placeholder and detectors:
-        # Multi-detector simulator: process each detector separately
-        logger.info("Multi-detector mode: generating %s data for %d detectors", simulator_name, len(detectors))
-        for detector in detectors:
-            logger.info("Generating %s data for detector: %s", simulator_name, detector)
+    logger.debug("Simulator '%s' uses detector placeholder: %s", simulator, uses_detector_placeholder)
 
-            # Check if simulator supports multi-detector operation
-            if hasattr(simulator, "set_detector"):
-                simulator.set_detector(detector)
+    print(simulator.detectors)
 
-            # Process batches for this detector with rollback
-            for batch in tqdm(simulator, desc=f"Generating {simulator_name} data for {detector}"):
-                process_batch_with_rollback(simulator=simulator, batch=batch, config=batch_config, detector=detector)
-    else:
-        # Single simulator, population simulator, or network-wide simulator
-        logger.info("Single-mode: generating %s data (detector-agnostic)", simulator_name)
-        for batch in tqdm(simulator, desc=f"Generating {simulator_name} data"):
-            process_batch_with_rollback(simulator=simulator, batch=batch, config=batch_config)
+    if uses_detector_placeholder and not hasattr(simulator, "detectors"):
+        logger.error(
+            (
+                "Simulator '%s' does not support multi-detector operation, "
+                "but detector placeholders are used in the output configuration."
+            ),
+            simulator,
+        )
+        raise ValueError("Incompatible simulator and output configuration.")
 
-
-def execute_simulator(
-    simulator: Simulator,
-    simulator_name: str,
-    batch_config: BatchProcessingConfig,
-    detectors: list[str],
-) -> None:
-    """Execute simulator with appropriate detector handling.
-
-    Args:
-        simulator: The simulator instance
-        simulator_name: Name of the simulator
-        batch_config: Batch processing configuration
-        detectors: List of detectors
-    """
-    uses_detector_placeholder = "{detector}" in batch_config.file_name_template or any(
-        "{detector}" in str(v) for v in batch_config.output_arguments.values()
-    )
-
-    if uses_detector_placeholder and detectors:
-        # Multi-detector simulator: process each detector separately
-        logger.info("Multi-detector mode: generating %s data for %d detectors", simulator_name, len(detectors))
-        for detector in detectors:
-            logger.info("Generating %s data for detector: %s", simulator_name, detector)
-
-            # Check if simulator supports multi-detector operation
-            if hasattr(simulator, "set_detector"):
-                simulator.set_detector(detector)
-
-            # Process batches for this detector
-            for batch in tqdm(simulator, desc=f"Generating {simulator_name} data for {detector}"):
-                process_batch(simulator=simulator, batch=batch, config=batch_config, detector=detector)
-    else:
-        # Single simulator, population simulator, or network-wide simulator
-        logger.info("Single-mode: generating %s data (detector-agnostic)", simulator_name)
-        for batch in tqdm(simulator, desc=f"Generating {simulator_name} data"):
-            process_batch(simulator=simulator, batch=batch, config=batch_config)
+    logger.info("Single-mode: generating %s data (detector-agnostic)", simulator_name)
+    for batch in tqdm(simulator, desc=f"Generating {simulator_name} data"):
+        process_batch_with_rollback(simulator=simulator, batch=batch, config=batch_config)
 
 
 def process_single_simulator(
@@ -473,9 +433,8 @@ def process_single_simulator(
         simulator.load_state(file_name=batch_config.checkpoint_file)
 
     # Execute simulator with retry and rollback capabilities
-    detectors = globals_config.get("detectors", [])
     max_retries = globals_config.get("max_retries", 3)
-    execute_simulator_with_retry(simulator, simulator_name, batch_config, detectors, max_retries)
+    execute_simulator_with_retry(simulator, simulator_name, batch_config, max_retries)
 
 
 def simulate_command(

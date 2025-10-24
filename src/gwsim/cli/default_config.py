@@ -9,7 +9,7 @@ from typing import Annotated
 
 import typer
 
-from .utils.config import save_config
+from gwsim.cli.utils.config import save_config
 
 _DEFAULT_CONFIG = {
     "globals": {

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from ..simulator.state import StateAttribute
-from ..utils.random import Generator, get_rng, get_state, set_seed, set_state
+from gwsim.simulator.state import StateAttribute
+from gwsim.utils.random import Generator, get_rng, get_state, set_seed, set_state
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("gwsim")
 
 
 class RandomnessMixin:
@@ -103,6 +103,5 @@ class RandomnessMixin:
         Returns:
             Dictionary containing seed and other metadata.
         """
-        metadata = super().metadata if hasattr(super(), "metadata") else {}
-        metadata.update({"seed": self.seed})
+        metadata = {"seed": self.seed}
         return metadata
