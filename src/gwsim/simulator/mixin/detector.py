@@ -14,7 +14,6 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
             **kwargs: Additional arguments.
         """
         super().__init__(**kwargs)
-        print("mixin", detectors)
         self.detectors = detectors
 
     @property
