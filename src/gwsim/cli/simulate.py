@@ -198,12 +198,9 @@ def process_batch(
         logger.debug("Saving metadata to file: %s", metadata_file_name)
         simulator.save_metadata(file_name=metadata_file_name, overwrite=config.overwrite)
 
-    # Update the state if the data is saved successfully (backward compatibility)
-    if hasattr(simulator, "update_state"):
-        logger.debug("Updating simulator state after batch processing.")
-        logger.debug("State before update: %s", simulator.state)
-        simulator.update_state()
-        logger.debug("State after update: %s", simulator.state)
+    # Log the state update
+    logger.debug("Updating simulator state after batch processing.")
+    logger.debug("State after update: %s", simulator.state)
     # Note: New StateAttribute-based simulators advance state automatically
 
     # Create checkpoint file.
