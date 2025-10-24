@@ -385,8 +385,6 @@ def execute_simulator_with_rollback(
 
     logger.debug("Simulator '%s' uses detector placeholder: %s", simulator, uses_detector_placeholder)
 
-    print(simulator.detectors)
-
     if uses_detector_placeholder and not hasattr(simulator, "detectors"):
         logger.error(
             (
@@ -397,7 +395,7 @@ def execute_simulator_with_rollback(
         )
         raise ValueError("Incompatible simulator and output configuration.")
 
-    logger.info("Single-mode: generating %s data (detector-agnostic)", simulator_name)
+    logger.info("Generating %s data", simulator_name)
     for batch in tqdm(simulator, desc=f"Generating {simulator_name} data"):
         process_batch_with_rollback(simulator=simulator, batch=batch, config=batch_config)
 
