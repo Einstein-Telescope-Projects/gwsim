@@ -189,19 +189,25 @@ def process_batch(
             ]
 
     # Write the batch of data to file.
+    logger.debug("Saving batch to file: %s", batch_file_name)
     simulator.save_batch(batch, batch_file_name, overwrite=config.overwrite, **output_arguments)
 
     # Write the metadata to file.
     if config.metadata:
         metadata_file_name = config.metadata_directory / file_name.with_suffix(".json")
+        logger.debug("Saving metadata to file: %s", metadata_file_name)
         simulator.save_metadata(file_name=metadata_file_name, overwrite=config.overwrite)
 
     # Update the state if the data is saved successfully (backward compatibility)
     if hasattr(simulator, "update_state"):
+        logger.debug("Updating simulator state after batch processing.")
+        logger.debug("State before update: %s", simulator.state)
         simulator.update_state()
+        logger.debug("State after update: %s", simulator.state)
     # Note: New StateAttribute-based simulators advance state automatically
 
     # Create checkpoint file.
+    logger.debug("Creating checkpoint file: %s", config.checkpoint_file)
     save_file_safely(
         file_name=config.checkpoint_file,
         backup_file_name=config.checkpoint_file_backup,
