@@ -1,9 +1,50 @@
-# Configuration for ET 2L aligned configuration, following LAL convention.
+# Configuration for ET 2L aligned, following LAL convention.
 # E1 is located at Sardinia location (latitude 40◦31’, longitude 9◦25’) from COBA paper.
 # E2 is located at Meuse-Rhine location (latitude 50◦43’23”, longitude 5◦55’14”) from COBA paper.
 # Generated on 7/11/2025
 ; The detector arms are defined on the tangent plane at the vertex position.
 ; The arm 1 of E1 has the same azimuth angle (0.33916285632 rad) and altitude (0.0 rad) of the Virgo arm 1 in the local horizontal coordinate system center at the E1 vertex.
 ; Both vertices have the same height of the Virgo V1 vertex (51.88399887084961 m).
-; Each detector is oriented w.r.t. its local North. The aligned configuration corresponds to a relative angle of 0◦, from COBA paper.
+; Each detector is oriented w.r.t. its local North. The aligned configuration corresponds to a relative angle of 0◦ between E1 and E2, from COBA paper.
+; All the angles are measured clockwise in the local horizontal coordinate system (North to East)
+
+[E1]
+LATITUDE = 0.70714923527 ; E1 vertex latitude (radians)
+LONGITUDE = 0.16435183790 ; E1 vertex longitude (radians)
+ELEVATION = 51.884 ; E1 vertex elevation (meters)
+X_AZIMUTH = 0.33916285632 ; E1 X arm azimuth (radians)
+Y_AZIMUTH = 1.90995918311 ; E1 Y arm azimuth (radians)
+X_ALTITUDE = 2.64278457158e-10 ; E1 X arm altitude (radians)
+Y_ALTITUDE = -2.11594666113e-17 ; E1 Y arm altitude (radians)
+VERTEX_LOCATION_X = 4.79024028940e+06 ; E1 x-component of vertex location (ECEF, meters)
+VERTEX_LOCATION_Y = 7.94450819669e+05 ; E1 y-component of vertex location (ECEF, meters)
+VERTEX_LOCATION_Z = 4.12180073579e+06 ; E1 z-component of vertex location (ECEF, meters)
+ARM_X_DIRECTION_X = -0.658837666912 ; E1 x-component of unit vector pointing along X arm (ECEF)
+ARM_X_DIRECTION_Y = 0.22797544621 ; E1 y-component of unit vector pointing along X arm (ECEF)
+ARM_X_DIRECTION_Z = 0.716910123086 ; E1 z-component of unit vector pointing along X arm (ECEF)
+ARM_Y_DIRECTION_X = 0.058938387708 ; E1 x-component of unit vector pointing along Y arm (ECEF)
+ARM_Y_DIRECTION_Y = 0.965689638748 ; E1 y-component of unit vector pointing along Y arm (ECEF)
+ARM_Y_DIRECTION_Z = -0.252922494196 ; E1 z-component of unit vector pointing along Y arm (ECEF)
+X_LENGTH = 15000 ; E1 X arm length (meters)
+Y_LENGTH = 15000 ; E1 Y arm length (meters)
+
+[E2]
+LATITUDE = 0.88528432612 ; E2 vertex latitude (radians)
+LONGITUDE = 0.10333318799 ; E2 vertex longitude (radians)
+ELEVATION = 51.884 ; E2 vertex elevation (meters)
+X_AZIMUTH = 0.33916285634 ; E2 X arm azimuth (radians)
+Y_AZIMUTH = 1.90995918314 ; E2 Y arm azimuth (radians)
+X_ALTITUDE = 2.93896654317e-10 ; E2 X arm altitude (radians)
+Y_ALTITUDE = 9.96198037968e-18 ; E2 Y arm altitude (radians)
+VERTEX_LOCATION_X = 4.02437788247e+06 ; E2 x-component of vertex location (ECEF, meters)
+VERTEX_LOCATION_Y = 4.17338265653e+05 ; E2 y-component of vertex location (ECEF, meters)
+VERTEX_LOCATION_Z = 4.91413835193e+06 ; E2 z-component of vertex location (ECEF, meters)
+ARM_X_DIRECTION_X = -0.760421214656 ; E2 x-component of unit vector pointing along X arm (ECEF)
+ARM_X_DIRECTION_Y = 0.255624300403 ; E2 y-component of unit vector pointing along X arm (ECEF)
+ARM_X_DIRECTION_Z = 0.597005689541 ; E2 z-component of unit vector pointing along X arm (ECEF)
+ARM_Y_DIRECTION_X = 0.158892591583 ; E2 x-component of unit vector pointing along Y arm (ECEF)
+ARM_Y_DIRECTION_Y = 0.96456831387 ; E2 y-component of unit vector pointing along Y arm (ECEF)
+ARM_Y_DIRECTION_Z = -0.21062077822 ; E2 z-component of unit vector pointing along Y arm (ECEF)
+X_LENGTH = 15000 ; E2 X arm length (meters)
+Y_LENGTH = 15000 ; E2 Y arm length (meters)
 
