@@ -1,3 +1,5 @@
+""" Script to compute the ET Triangular geometry at a given location """
+
 import numpy as np
 import pymap3d as pm
 

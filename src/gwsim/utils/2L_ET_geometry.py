@@ -1,3 +1,5 @@
+""" Script to compute the ET 2L aligned/misaligned geometry at a given location """
+
 import numpy as np
 import pymap3d as pm
 
@@ -57,6 +59,7 @@ def add_ET_2L_detectors_at_location(E1_latitude: float,
     Add the 2L Einstein Telescope detectors with PyCBC at two given locations and heights, for a given relative angle alpha.
     The arms of the detectors are defined on the tangent plane at their vertex position.
     The arm 1 of E1 has the same azimuth angle and altitude of the Virgo arm 1 in the local horizontal coordinate system center at the E1 vertex.
+    All the angles are measured clockwise in the local horizontal coordinate system (North to East).
 
     Args:
         E1_latitude (float): E1 vertex latitude (rad)
@@ -118,7 +121,7 @@ def add_ET_2L_detectors_at_location(E1_latitude: float,
     E1Arm2Angles = get_unit_vector_angles(E1Arm2, E1_ellipsoid)
 
     add_detector_on_earth(
-        name=f"E1_{config}"+E1_location_name,
+        name=f"E1_{config}_"+E1_location_name,
         latitude=E1_ellipsoid[0],
         longitude=E1_ellipsoid[1],
         height=E1_ellipsoid[2],
@@ -137,16 +140,17 @@ def add_ET_2L_detectors_at_location(E1_latitude: float,
     # E2 vertex location in geocentric (ECEF) coordinates
     E2 = np.array(pm.geodetic2ecef(*E2_ellipsoid, deg=False))
 
-    # Normal vector to the tangent plane at the E1 vertex (ECEF coordinates)
+    # Normal vector to the tangent plane at the E2 vertex (ECEF coordinates)
     E2normVec = np.array([
         np.cos(E2_latitude) * np.cos(E2_longitude),
         np.cos(E2_latitude) * np.sin(E2_longitude),
         np.sin(E2_latitude)
     ])
 
-    # Define the arm 1 of E1 with the same azimuth and altitude of the Virgo arm 1 (ECEF coordinates)
+    # Define the arm 1 of E2 with the same azimuth and altitude of the Virgo arm 1 + alpha (ECEF coordinates)
+    E2Arm1_az = V1Arm1_az + alpha
     E2Arm1 = np.array(pm.aer2ecef(
-        az=V1Arm1_az+alpha,
+        az=E2Arm1_az,
         el=V1Arm1_alt,
         srange=1,
         lat0=E2_latitude,
@@ -155,14 +159,14 @@ def add_ET_2L_detectors_at_location(E1_latitude: float,
         deg=False
     ) - E2)
 
-    # Vector perpendicular to E1Arm1 on the same plane
+    # Vector perpendicular to E2Arm1 on the same plane
     E2Arm2 = np.cross(E2Arm1, E2normVec)
 
     E2Arm1Angles = get_unit_vector_angles(E2Arm1, E2_ellipsoid)
     E2Arm2Angles = get_unit_vector_angles(E2Arm2, E2_ellipsoid)
 
     add_detector_on_earth(
-        name=f"E2_{config}"+E2_location_name,
+        name=f"E2_{config}_"+E2_location_name,
         latitude=E2_ellipsoid[0],
         longitude=E2_ellipsoid[1],
         height=E2_ellipsoid[2],
@@ -174,7 +178,7 @@ def add_ET_2L_detectors_at_location(E1_latitude: float,
         ylength=ETArmL
     )
 
-    return Detector(f"E1_{config}"+E1_location_name), Detector(f"E2_{config}"+E2_location_name)
+    return Detector(f"E1_{config}_"+E1_location_name), Detector(f"E2_{config}_"+E2_location_name)
 
 
 if __name__ == "__main__":
@@ -198,5 +202,5 @@ if __name__ == "__main__":
                                                   alpha=0,
                                                   E1_location_name='Sardinia',
                                                   E2_location_name='EMR',
-                                                  ETArmL=3000
+                                                  ETArmL=15000
                                                   )
