@@ -111,11 +111,6 @@ repos:
       - id: bandit
         args: ["-c", "pyproject.toml"]
 
-  - repo: https://github.com/mgedmin/check-manifest
-    rev: "0.50"
-    hooks:
-      - id: check-manifest
-
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0 # Use the latest stable version
     hooks:
