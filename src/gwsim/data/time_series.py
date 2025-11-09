@@ -12,6 +12,8 @@ from gwpy.timeseries import TimeSeries as GWpyTimeSeries
 from gwpy.types.index import Index
 from scipy.interpolate import interp1d
 
+from gwsim.data.serializable import JSONSerializable
+
 logger = logging.getLogger("gwsim")
 
 
@@ -19,7 +21,7 @@ if TYPE_CHECKING:
     from gwsim.data.time_series_list import TimeSeriesList
 
 
-class TimeSeries:
+class TimeSeries(JSONSerializable):
     """Class representing a time series data for multiple channels."""
 
     def __init__(self, data: np.ndarray, start_time: int | Quantity, sampling_frequency: float | Quantity):
@@ -204,3 +206,20 @@ class TimeSeries:
             if remaining_chunk is not None:
                 remaining_ts.append(remaining_chunk)
         return TimeSeriesList(remaining_ts)
+
+    def to_json_dict(self) -> dict:
+        """Convert the TimeSeries to a JSON-serializable dictionary.
+
+        Assume the unit
+
+        Returns:
+            JSON-serializable dictionary representation of the TimeSeries.
+        """
+        return {
+            "__type__": "TimeSeries",
+            "data": [self[i].value.tolist() for i in range(self.num_channels)],
+            "start_time": self.start_time.value,
+            "start_time_unit": str(self.start_time.unit),
+            "sampling_frequency": self.sampling_frequency.value,
+            "sampling_frequency_unit": str(self.sampling_frequency.unit),
+        }
