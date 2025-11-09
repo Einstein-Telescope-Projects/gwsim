@@ -18,3 +18,4 @@ class JSONSerializable(Protocol):  # pylint: disable=too-few-public-methods
         Returns:
             dict[str, Any]: JSON-serializable dictionary representation of the object.
         """
+        raise NotImplementedError("to_json_dict method must be implemented by subclasses.")
