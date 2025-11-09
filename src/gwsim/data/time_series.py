@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 import numpy as np
 from astropy.units.quantity import Quantity
@@ -11,6 +13,10 @@ from gwpy.types.index import Index
 from scipy.interpolate import interp1d
 
 logger = logging.getLogger("gwsim")
+
+
+if TYPE_CHECKING:
+    from gwsim.data.time_series_list import TimeSeriesList
 
 
 class TimeSeries:
@@ -174,3 +180,21 @@ class TimeSeries:
         if other.end_time > self.end_time:
             return other.crop(start_time=self.end_time)
         return None
+
+    def inject_from_list(self, ts_iterable: Iterable[TimeSeries]) -> TimeSeriesList:
+        """Inject multiple TimeSeries from an iterable into the current TimeSeries.
+
+        Args:
+            ts_iterable: Iterable of TimeSeries instances to inject.
+
+        Returns:
+            TimeSeriesList of remaining TimeSeries instances that extend beyond the current TimeSeries end time.
+        """
+        from gwsim.data.time_series_list import TimeSeriesList  # pylint: disable=import-outside-toplevel
+
+        remaining_ts: list[TimeSeries] = []
+        for ts in ts_iterable:
+            remaining_chunk = self.inject(ts)
+            if remaining_chunk is not None:
+                remaining_ts.append(remaining_chunk)
+        return TimeSeriesList(remaining_ts)
