@@ -16,3 +16,5 @@ retryable
 Uncatched
 coo
 gwsim
+pycbc
+retryable
