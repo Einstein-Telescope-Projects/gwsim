@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any, cast, overload
 
 from gwsim.data.time_series import TimeSeries
@@ -79,7 +79,7 @@ class TimeSeriesList(Iterable[TimeSeries]):
         """
         return len(self._data)
 
-    def __iter__(self) -> Iterable[TimeSeries]:
+    def __iter__(self) -> Iterator[TimeSeries]:
         """Iterate over the TimeSeries objects in the list.
 
         Returns:
@@ -128,6 +128,44 @@ class TimeSeriesList(Iterable[TimeSeries]):
             TimeSeries object that was popped.
         """
         return self._data.pop(index)
+
+    def to_json_dict(self) -> dict[str, Any]:
+        """Convert the TimeSeriesList to a JSON-serializable dictionary.
+
+        Returns:
+            JSON-serializable dictionary representation of the TimeSeriesList.
+        """
+        return {
+            "__type__": "TimeSeriesList",
+            "data": self._data,
+        }
+
+    @classmethod
+    def from_json_dict(cls, data: dict[str, Any]) -> TimeSeriesList:
+        """Reconstruct a TimeSeriesList instance from a JSON dictionary.
+
+        Args:
+            data: Dictionary with keys: 'data' containing list of TimeSeries dicts.
+
+        Returns:
+            Reconstructed TimeSeriesList instance.
+
+        Raises:
+            ValueError: If required keys are missing or data format is invalid.
+        """
+        try:
+            items = data["data"]
+        except KeyError as e:
+            raise ValueError(f"Missing required key in JSON dict: {e}") from e
+
+        ts_list: list[TimeSeries] = []
+        for item in items:
+            if isinstance(item, TimeSeries):
+                ts_list.append(item)
+            else:
+                raise TypeError(f"Invalid item in TimeSeriesList JSON data: {type(item)}")
+
+        return cls(ts_list)
 
     def __repr__(self) -> str:
         """Get the string representation of the TimeSeriesList.
