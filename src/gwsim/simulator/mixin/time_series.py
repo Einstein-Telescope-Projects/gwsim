@@ -20,7 +20,6 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
 
     def __init__(
         self,
-        *args,
         start_time: int = 0,
         duration: float = 4,
         sampling_frequency: float = 4096,
@@ -37,7 +36,7 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
             dtype: Data type for the time series data. Default is np.float64.
             **kwargs: Additional arguments passed to parent classes.
         """
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
         # TimeSeriesMixin is the last mixin in the hierarchy, so no super().__init__() call needed
         self.start_time = start_time
         self.duration = duration
