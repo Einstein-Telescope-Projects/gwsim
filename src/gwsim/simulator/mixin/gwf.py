@@ -120,6 +120,7 @@ class GWFOutputMixin:
         Args:
             **kwargs: Additional arguments absorbed by subclasses.
         """
+        super().__init__(**kwargs)
 
     def save_to_gwf(
         self,
