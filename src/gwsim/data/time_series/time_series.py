@@ -18,7 +18,7 @@ logger = logging.getLogger("gwsim")
 
 
 if TYPE_CHECKING:
-    from gwsim.data.time_series_list import TimeSeriesList
+    from gwsim.data.time_series.time_series_list import TimeSeriesList
 
 
 class TimeSeries(JSONSerializable):
@@ -67,6 +67,27 @@ class TimeSeries(JSONSerializable):
             GWPy TimeSeries object for the specified channel.
         """
         return self._data[index]
+
+    def __setitem__(self, index: int, value: GWpyTimeSeries) -> None:
+        """Set the GWPy TimeSeries object for a specific channel.
+
+        Args:
+            index: Index of the channel to set.
+            value: GWPy TimeSeries object to set for the specified channel.
+        """
+        # First check whether the start time and sampling frequency match
+        if value.t0 != self.start_time:
+            raise ValueError("Start time of the provided TimeSeries does not match.")
+        if value.sample_rate != self.sampling_frequency:
+            raise ValueError("Sampling frequency of the provided TimeSeries does not match.")
+        # Check the duration
+        if value.duration != self.duration:
+            raise ValueError("Duration of the provided TimeSeries does not match.")
+
+        if not isinstance(value, GWpyTimeSeries):
+            raise TypeError(f"Value must be a GWpy TimeSeries instance, got {type(value)}")
+
+        self._data[index] = value
 
     def __iter__(self):
         """Iterate over the channels in the time series.
@@ -154,8 +175,19 @@ class TimeSeries(JSONSerializable):
         if len(other) != len(self):
             raise ValueError("Number of channels in chunk must match number of channels in segment.")
 
-        if other.end_time < self.start_time or other.start_time > self.end_time:
-            raise ValueError("The time series to inject does not overlap with the current time series.")
+        if other.end_time < self.start_time:
+            raise ValueError(
+                "The time series to inject ends before the current time series starts."
+                f"The start time of this segment is {self.start_time}, "
+                f"while the end time of the other segment is {other.end_time}"
+            )
+
+        if other.start_time > self.end_time:
+            raise ValueError(
+                "The time series to inject starts after the current time series ends."
+                f"The end time of this segment is {self.end_time}, "
+                f"while the start time of the other segment is {other.start_time}"
+            )
 
         # Check whether there is any offset in times
         other_start_time = other.start_time.to(self.start_time.unit)
@@ -168,6 +200,7 @@ class TimeSeries(JSONSerializable):
             other_new_times = self.time_array.value[
                 (self.time_array.value >= other_start_time.value) & (self.time_array.value <= other_end_time.value)
             ]
+            print(other_new_times)
 
             other = TimeSeries(
                 data=np.array(
@@ -178,12 +211,13 @@ class TimeSeries(JSONSerializable):
                         for i in range(len(other))
                     ]
                 ),
-                start_time=other.start_time,
+                start_time=Quantity(other_new_times[0], unit=self.start_time.unit),
                 sampling_frequency=other.sampling_frequency,
             )
 
         for i in range(self.num_channels):
-            self[i].inject(other[i])
+            print("Injecting channel", i)
+            self[i] = self[i].inject(other[i])
 
         if other.end_time > self.end_time:
             return other.crop(start_time=self.end_time)
@@ -198,7 +232,7 @@ class TimeSeries(JSONSerializable):
         Returns:
             TimeSeriesList of remaining TimeSeries instances that extend beyond the current TimeSeries end time.
         """
-        from gwsim.data.time_series_list import TimeSeriesList  # pylint: disable=import-outside-toplevel
+        from gwsim.data.time_series.time_series_list import TimeSeriesList  # pylint: disable=import-outside-toplevel
 
         remaining_ts: list[TimeSeries] = []
         for ts in ts_iterable:
