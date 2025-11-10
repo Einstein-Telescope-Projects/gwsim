@@ -200,7 +200,6 @@ class TimeSeries(JSONSerializable):
             other_new_times = self.time_array.value[
                 (self.time_array.value >= other_start_time.value) & (self.time_array.value <= other_end_time.value)
             ]
-            print(other_new_times)
 
             other = TimeSeries(
                 data=np.array(
@@ -216,7 +215,6 @@ class TimeSeries(JSONSerializable):
             )
 
         for i in range(self.num_channels):
-            print("Injecting channel", i)
             self[i] = self[i].inject(other[i])
 
         if other.end_time > self.end_time:
