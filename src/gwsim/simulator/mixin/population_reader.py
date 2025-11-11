@@ -26,7 +26,7 @@ class PopulationReaderMixin:  # pylint: disable=too-few-public-methods
             raise FileNotFoundError(f"Population file {self.population_file} does not exist.")
 
         if population_file_type == "pycbc":
-            self._population_data = self._read_pycbc_population_file(self.population_file, **kwargs)
+            self.population_data = self._read_pycbc_population_file(self.population_file, **kwargs)
         else:
             raise ValueError(f"Unsupported population file type: {population_file_type}")
 
@@ -45,7 +45,7 @@ class PopulationReaderMixin:  # pylint: disable=too-few-public-methods
         # Load the pycbc population file and create a pandas DataFrame
 
         with h5py.File(file_name, "r") as f:
-            data = {key: value[()] for key, value in f.keys()}
+            data = {key: value[()] for key, value in f.items()}
 
             # Create a DataFrame
             population_data = pd.DataFrame(data)
