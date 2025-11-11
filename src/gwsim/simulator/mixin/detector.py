@@ -30,7 +30,7 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
         return self._detectors
 
     @detectors.setter
-    def detectors(self, value: list[str | Path | Detector] | None) -> None:
+    def detectors(self, value: list[str | Detector] | None) -> None:
         """Set the list of detectors.
 
         Args:
