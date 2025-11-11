@@ -141,7 +141,10 @@ class Detector:
 
         if name is not None:
             # Try to load from pycbc
-            self._detector = pycbc.detector.Detector(name)
+            try:
+                self._detector = pycbc.detector.Detector(name)
+            except ValueError as exc:
+                raise ValueError(f"Detector '{name}' not found in PyCBC. Provide a valid config_file.") from exc
             self.name = name
 
         if config_file is not None:
@@ -184,3 +187,21 @@ class Detector:
         Return a string representation of the detector name, stripped to the base part.
         """
         return self.name
+
+    @staticmethod
+    def get_detector(name: str | None = None, config_file: str | Path | None = None) -> Detector | str:
+        """A helper function to get a Detector instance or return the name string.
+
+        Args:
+            name: Name of the detector (e.g., 'H1', 'L1').
+            config_file: Path to the detector configuration file.
+
+        Returns:
+            Detector instance if loading is successful, otherwise returns the name string.
+        """
+        try:
+            return Detector(name=name, config_file=config_file)
+        except ValueError as exc:
+            if name is not None:
+                return name
+            raise ValueError(f"Detector '{name}' not found in PyCBC. Provide a valid config_file.") from exc
