@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from gwpy.timeseries import TimeSeries as GWPyTimeSeries
@@ -111,10 +112,28 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
         }
         return metadata
 
-    def _save_data(self, data: GWPyTimeSeries, file_name: Path, channel: str | None = None, **kwargs) -> None:
+    def _save_data(self, data: Any, file_name: Path, **kwargs) -> None:
+        """Save time series data to a file.
+
+        Args:
+            data: Time series data to save.
+            file_name: Path to the output file.
+            **kwargs: Additional arguments for the saving function.
+        """
         if isinstance(data, GWPyTimeSeries):
-            if channel is not None:
-                data.channel = channel
-            data.write(str(file_name), **kwargs)
+            self._save_gwf_data(data=data, file_name=file_name, **kwargs)
         else:
-            raise TypeError("Data must be a GWPy TimeSeries instance to save using TimeSeriesMixin.")
+            raise TypeError("Data must be a GWpy TimeSeries instance to save using TimeSeriesMixin.")
+
+    def _save_gwf_data(self, data: GWPyTimeSeries, file_name: Path, channel: str | None = None, **kwargs) -> None:
+        """Save GWPy TimeSeries data to a GWF file.
+
+        Args:
+            data: GWPy TimeSeries data to save.
+            file_name: Path to the output GWF file.
+            channel: Optional channel name to set in the data.
+            **kwargs: Additional arguments for the write function.
+        """
+        if channel is not None:
+            data.channel = channel
+        data.write(str(file_name), **kwargs)
