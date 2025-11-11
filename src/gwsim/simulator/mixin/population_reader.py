@@ -77,6 +77,18 @@ class PopulationReaderMixin:  # pylint: disable=too-few-public-methods
             output = None
         return output
 
+    def get_injection_parameter_keys(self) -> list[str]:
+        """Get the list of injection parameter keys from the population data.
+
+        Returns:
+            A list of strings representing the injection parameter keys.
+        """
+        if not self.population_data.empty:
+            output = list(self.population_data.columns)
+        else:
+            output = []
+        return output
+
     @property
     def metadata(self) -> dict:
         """Get metadata including population file information.
