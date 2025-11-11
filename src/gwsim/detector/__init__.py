@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from gwsim.detector.base import Detector
+from gwsim.detector.utils import DEFAULT_DETECTOR_BASE_PATH, load_interferometer_config
 
-from .base import Detector, get_available_detectors, load_interferometer_config
-
-# The default base path for detector configuration files
-DEFAULT_DETECTOR_BASE_PATH = Path(__file__).parent / "detectors"
-
-__all__ = ['DEFAULT_DETECTOR_BASE_PATH', 'Detector', 'get_available_detectors', 'load_interferometer_config']
+__all__ = ["DEFAULT_DETECTOR_BASE_PATH", "Detector", "load_interferometer_config"]
