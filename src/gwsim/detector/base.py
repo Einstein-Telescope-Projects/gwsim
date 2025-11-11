@@ -189,19 +189,21 @@ class Detector:
         return self.name
 
     @staticmethod
-    def get_detector(name: str | None = None, config_file: str | Path | None = None) -> Detector | str:
+    def get_detector(name: str | Path) -> Detector | str:
         """A helper function to get a Detector instance or return the name string.
 
         Args:
-            name: Name of the detector (e.g., 'H1', 'L1').
-            config_file: Path to the detector configuration file.
+            name: Name of the detector (e.g., 'H1', 'L1') or configuration.
 
         Returns:
             Detector instance if loading is successful, otherwise returns the name string.
         """
+        # First check if name corresponds to a configuration file
+        if Path(name).is_file() or (DEFAULT_DETECTOR_BASE_PATH / name).is_file():
+            return Detector(config_file=name)
         try:
-            return Detector(name=name, config_file=config_file)
+            return Detector(name=str(name))
         except ValueError as exc:
             if name is not None:
-                return name
+                return str(name)
             raise ValueError(f"Detector '{name}' not found in PyCBC. Provide a valid config_file.") from exc
