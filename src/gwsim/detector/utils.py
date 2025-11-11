@@ -7,6 +7,9 @@ from pathlib import Path
 
 from pycbc.detector import add_detector_on_earth
 
+# The default base path for detector configuration files
+DEFAULT_DETECTOR_BASE_PATH = Path(__file__).parent / "detectors"
+
 
 def load_interferometer_config(config_file: str | Path) -> str:  # pylint: disable=too-many-locals
     """

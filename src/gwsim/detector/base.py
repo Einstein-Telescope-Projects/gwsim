@@ -6,10 +6,7 @@ from pathlib import Path
 
 import pycbc.detector
 
-# Monkey-patch get_available_detectors to include config/group names
-get_available_detectors = extended_get_available_detectors
-from gwsim.detector import DEFAULT_DETECTOR_BASE_PATH
-from gwsim.detector.utils import load_interferometer_config
+from gwsim.detector.utils import DEFAULT_DETECTOR_BASE_PATH, load_interferometer_config
 
 # Store the original for reference
 _original_get_available_detectors = get_available_detectors
