@@ -9,6 +9,8 @@ from pycbc.frame import write_frame
 from pycbc.types.timeseries import TimeSeries
 
 from gwsim.simulator.base import Simulator
+from gwsim.simulator.mixin.detector import DetectorMixin
+from gwsim.simulator.mixin.population_reader import PopulationReaderMixin
 from gwsim.simulator.mixin.time_series import TimeSeriesMixin
 
 from ..generator.base import Generator
@@ -91,7 +93,7 @@ class BaseSignal(Generator):
         write_frame(location=str(file_name), channels=channel, timeseries=time_series)
 
 
-class SignalSimulator(TimeSeriesMixin, Simulator):
+class SignalSimulator(PopulationReaderMixin, TimeSeriesMixin, DetectorMixin, Simulator):
     def __init__(
         self,
         population_file: str | Path,
