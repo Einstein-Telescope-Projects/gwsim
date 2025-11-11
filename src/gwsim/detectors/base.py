@@ -1,9 +1,9 @@
 from __future__ import annotations
-import configparser
+
 from pathlib import Path
 
 import pycbc.detector
-from pycbc.detector import get_available_detectors, add_detector_on_earth
+from pycbc.detector import add_detector_on_earth, get_available_detectors
 
 # Store the original for reference
 _original_get_available_detectors = get_available_detectors
@@ -13,7 +13,8 @@ detectors_dir = str(Path(__file__).parent / "detectors")
 det_dir_path = Path(detectors_dir)
 if not det_dir_path.exists() or not det_dir_path.is_dir():
     print(
-        f"\n *** Warning: Detector config directory {det_dir_path.absolute()} does not exist or is not a directory. ***")
+        f"\n *** Warning: Detector config directory {det_dir_path.absolute()} does not exist or is not a directory. ***"
+    )
 
 
 def _bilby_to_pycbc_parameters(bilby_params: dict) -> dict:
@@ -32,16 +33,16 @@ def _bilby_to_pycbc_parameters(bilby_params: dict) -> dict:
     """
     pycbc_params = dict()
 
-    pycbc_params['name'] = bilby_params['name']
-    pycbc_params['latitude'] = np.deg2rad(bilby_params['latitude'])
-    pycbc_params['longitude'] = np.deg2rad(bilby_params['longitude'])
-    pycbc_params['height'] = bilby_params['elevation']
-    pycbc_params['xangle'] = (np.pi / 2 - np.deg2rad(bilby_params['xarm_azimuth'])) % (2 * np.pi)
-    pycbc_params['yangle'] = (np.pi / 2 - np.deg2rad(bilby_params['yarm_azimuth'])) % (2 * np.pi)
-    pycbc_params['xaltitude'] = bilby_params['xarm_tilt']
-    pycbc_params['yaltitude'] = bilby_params['yarm_tilt']
-    pycbc_params['xlength'] = bilby_params['length'] * 1000
-    pycbc_params['ylength'] = bilby_params['length'] * 1000
+    pycbc_params["name"] = bilby_params["name"]
+    pycbc_params["latitude"] = np.deg2rad(bilby_params["latitude"])
+    pycbc_params["longitude"] = np.deg2rad(bilby_params["longitude"])
+    pycbc_params["height"] = bilby_params["elevation"]
+    pycbc_params["xangle"] = (np.pi / 2 - np.deg2rad(bilby_params["xarm_azimuth"])) % (2 * np.pi)
+    pycbc_params["yangle"] = (np.pi / 2 - np.deg2rad(bilby_params["yarm_azimuth"])) % (2 * np.pi)
+    pycbc_params["xaltitude"] = bilby_params["xarm_tilt"]
+    pycbc_params["yaltitude"] = bilby_params["yarm_tilt"]
+    pycbc_params["xlength"] = bilby_params["length"] * 1000
+    pycbc_params["ylength"] = bilby_params["length"] * 1000
 
     return pycbc_params
 
@@ -65,7 +66,7 @@ def load_interferometer_config(config_name: str, config_dir: str = detectors_dir
 
     # Extract the parameters
     bilby_params = dict()
-    with open(file_path, "r") as parameter_file:
+    with open(file_path) as parameter_file:
         lines = parameter_file.readlines()
         for line in lines:
             if line[0] == "#" or line[0] == "\n":
@@ -76,20 +77,20 @@ def load_interferometer_config(config_name: str, config_dir: str = detectors_dir
             bilby_params[key] = value
 
     params = _bilby_to_pycbc_parameters(bilby_params)
-    det_name = params['name']
+    det_name = params["name"]
 
     # Add detector configuration
     add_detector_on_earth(
         name=det_name,
-        latitude=params['latitude'],
-        longitude=params['longitude'],
-        height=params['height'],
-        xangle=params['xangle'],
-        yangle=params['yangle'],
-        xaltitude=params['xaltitude'],
-        yaltitude=params['yaltitude'],
-        xlength=params['xlength'],
-        ylength=params['ylength']
+        latitude=params["latitude"],
+        longitude=params["longitude"],
+        height=params["height"],
+        xangle=params["xangle"],
+        yangle=params["yangle"],
+        xaltitude=params["xaltitude"],
+        yaltitude=params["yaltitude"],
+        xlength=params["xlength"],
+        ylength=params["ylength"],
     )
 
     return det_name
@@ -108,7 +109,7 @@ def extended_get_available_detectors(config_dir: str = detectors_dir) -> list[st
     """
     built_in_dets = _original_get_available_detectors()
     path = Path(config_dir)
-    config_files = [f.stem for f in path.glob('*.interferometer')]
+    config_files = [f.stem for f in path.glob("*.interferometer")]
 
     return sorted(set(built_in_dets + config_files))
 
@@ -120,11 +121,7 @@ get_available_detectors = extended_get_available_detectors
 class Detector:
     """A wrapper class around pycbc.detector.Detector that handles custom detector configurations from .interferometer files"""
 
-    def __init__(
-        self,
-        detector_name: str,
-        config_dir: str = detectors_dir
-    ):
+    def __init__(self, detector_name: str, config_dir: str = detectors_dir):
         """
         Initialize Detector class.
         If `detector_name` is a built-in PyCBC detector, use it directly.
@@ -139,18 +136,21 @@ class Detector:
             det_suffix = detector_name
         else:
             # Load the config and add detector configuration
-            det_suffix = load_interferometer_config(
-                config_name=detector_name, config_dir=config_dir)
+            det_suffix = load_interferometer_config(config_name=detector_name, config_dir=config_dir)
             if not det_suffix:
                 raise ValueError(f"No detector loaded from config '{detector_name}'.")
 
         self._detector = pycbc.detector.Detector(det_suffix)
 
-    def antenna_pattern(self, right_ascension, declination, polarization, t_gps, frequency=0, polarization_type='tensor'):
+    def antenna_pattern(
+        self, right_ascension, declination, polarization, t_gps, frequency=0, polarization_type="tensor"
+    ):
         """
         Return the antenna pattern for the detector.
         """
-        return self._detector.antenna_pattern(right_ascension, declination, polarization, t_gps, frequency, polarization_type)
+        return self._detector.antenna_pattern(
+            right_ascension, declination, polarization, t_gps, frequency, polarization_type
+        )
 
     def time_delay_from_earth_center(self, right_ascension, declination, t_gps):
         """
@@ -168,4 +168,8 @@ class Detector:
         """
         Return a string representation of the detector name, stripped to the base part.
         """
-        return self.name.split('_')[0].strip()
+        return self.name.split("_")[0].strip()
+
+    @staticmethod
+    def get_detector(detector_name: str) -> Detector | str:
+        pass

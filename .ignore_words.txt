@@ -1,5 +1,6 @@
 astropy
 coo
+dets
 freqs
 gengli
 gwpy
@@ -16,13 +17,9 @@ realisation
 retryable
 submatrix
 Uncatched
-coo
-freqs
-gengli
-gwpy
-gwsim
-LIGO
-NSBH
-Nyquist
-pycbc
-retryable
+xaltitude
+xangle
+xlength
+yaltitude
+yangle
+ylength

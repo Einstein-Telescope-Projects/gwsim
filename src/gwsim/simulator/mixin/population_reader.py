@@ -69,9 +69,11 @@ class PopulationReaderMixin:  # pylint: disable=too-few-public-methods
             Dictionary containing metadata.
         """
         metadata = {
-            "population_file": str(self.population_file),
-            "population_file_type": self.population_file_type,
+            "population": {
+                "population_file": str(self.population_file),
+                "population_file_type": self.population_file_type,
+            }
         }
         if hasattr(self, "_population_metadata"):
-            metadata.update(self._population_metadata)
+            metadata["population"].update(self._population_metadata)
         return metadata
