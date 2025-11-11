@@ -1,12 +1,19 @@
+"""A module to handle gravitational wave detector configurations,"""
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import pycbc.detector
-from pycbc.detector import add_detector_on_earth, get_available_detectors
+
+# Monkey-patch get_available_detectors to include config/group names
+get_available_detectors = extended_get_available_detectors
+from gwsim.detector import DEFAULT_DETECTOR_BASE_PATH
+from gwsim.detector.utils import load_interferometer_config
 
 # Store the original for reference
 _original_get_available_detectors = get_available_detectors
+
 
 # Define the path to the available .interferometer config files
 detectors_dir = str(Path(__file__).parent / "detectors")
@@ -114,14 +121,12 @@ def extended_get_available_detectors(config_dir: str = detectors_dir) -> list[st
     return sorted(set(built_in_dets + config_files))
 
 
-# Monkey-patch get_available_detectors to include config/group names
-get_available_detectors = extended_get_available_detectors
-
-
 class Detector:
-    """A wrapper class around pycbc.detector.Detector that handles custom detector configurations from .interferometer files"""
+    """A wrapper class around pycbc.detector.Detector that
+    handles custom detector configurations from .interferometer files
+    """
 
-    def __init__(self, detector_name: str, config_dir: str = detectors_dir):
+    def __init__(self, name: str | None = None, config_file: str | Path | None = None):
         """
         Initialize Detector class.
         If `detector_name` is a built-in PyCBC detector, use it directly.
@@ -131,16 +136,29 @@ class Detector:
             detector_name (str): The detector name or config name (e.g., 'V1' or 'E1_Triangle_Sardinia').
             config_dir (str, optional): Directory where .interferometer files are stored (default: detectors_dir).
         """
+        if name is not None and config_file is not None:
+            raise ValueError("Specify either 'name' or 'config_file', not both.")
 
-        if detector_name in _original_get_available_detectors():
-            det_suffix = detector_name
-        else:
-            # Load the config and add detector configuration
-            det_suffix = load_interferometer_config(config_name=detector_name, config_dir=config_dir)
-            if not det_suffix:
-                raise ValueError(f"No detector loaded from config '{detector_name}'.")
+        if name is None and config_file is None:
+            raise ValueError("Either 'name' or 'config_file' must be specified.")
 
-        self._detector = pycbc.detector.Detector(det_suffix)
+        if name is not None:
+            # Try to load from pycbc
+            self._detector = pycbc.detector.Detector(name)
+            self.name = name
+
+        if config_file is not None:
+            config_file = Path(config_file)
+            if config_file.is_file():
+                prefix = load_interferometer_config(config_file=config_file)
+                self._detector = pycbc.detector.Detector(prefix)
+                self.name = prefix
+            elif (DEFAULT_DETECTOR_BASE_PATH / config_file).is_file():
+                prefix = load_interferometer_config(config_file=DEFAULT_DETECTOR_BASE_PATH / config_file)
+                self._detector = pycbc.detector.Detector(prefix)
+                self.name = prefix
+            else:
+                raise FileNotFoundError(f"Config file {config_file} not found.")
 
     def antenna_pattern(
         self, right_ascension, declination, polarization, t_gps, frequency=0, polarization_type="tensor"
@@ -168,8 +186,4 @@ class Detector:
         """
         Return a string representation of the detector name, stripped to the base part.
         """
-        return self.name.split("_")[0].strip()
-
-    @staticmethod
-    def get_detector(detector_name: str) -> Detector | str:
-        pass
+        return self.name
