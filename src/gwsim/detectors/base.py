@@ -16,6 +16,36 @@ if not det_dir_path.exists() or not det_dir_path.is_dir():
         f"\n *** Warning: Detector config directory {det_dir_path.absolute()} does not exist or is not a directory. ***")
 
 
+def _bilby_to_pycbc_parameters(bilby_params: dict) -> dict:
+    """
+    Convert Bilby detector parameters to PyCBC-compatible parameters.
+
+    This function handles the conversion of units and conventions between Bilby and PyCBC,
+    including latitude/longitude to radians, length from km to meters, and azimuth adjustments
+    due to different reference conventions (Bilby: from East counterclockwise; PyCBC/LAL: from North clockwise).
+
+    Args:
+        bilby_params (dict): Dictionary of Bilby parameters (e.g., 'latitude', 'xarm_azimuth', etc.).
+
+    Returns:
+        dict: Dictionary of converted PyCBC parameters.
+    """
+    pycbc_params = dict()
+
+    pycbc_params['name'] = bilby_params['name']
+    pycbc_params['latitude'] = np.deg2rad(bilby_params['latitude'])
+    pycbc_params['longitude'] = np.deg2rad(bilby_params['longitude'])
+    pycbc_params['height'] = bilby_params['elevation']
+    pycbc_params['xangle'] = (np.pi / 2 - np.deg2rad(bilby_params['xarm_azimuth'])) % (2 * np.pi)
+    pycbc_params['yangle'] = (np.pi / 2 - np.deg2rad(bilby_params['yarm_azimuth'])) % (2 * np.pi)
+    pycbc_params['xaltitude'] = bilby_params['xarm_tilt']
+    pycbc_params['yaltitude'] = bilby_params['yarm_tilt']
+    pycbc_params['xlength'] = bilby_params['length'] * 1000
+    pycbc_params['ylength'] = bilby_params['length'] * 1000
+
+    return pycbc_params
+
+
 def load_interferometer_config(config_name: str, config_dir: str = detectors_dir) -> str:
     """
     Load a .interferometer config file and add its detector using pycbc.detector.add_detector_on_earth.
@@ -33,46 +63,36 @@ def load_interferometer_config(config_name: str, config_dir: str = detectors_dir
     if not file_path.exists():
         raise FileNotFoundError(f"Config file {file_path} not found.")
 
-    config = configparser.ConfigParser()
-    config.read(file_path)
+    # Extract the parameters
+    bilby_params = dict()
+    with open(file_path, "r") as parameter_file:
+        lines = parameter_file.readlines()
+        for line in lines:
+            if line[0] == "#" or line[0] == "\n":
+                continue
+            split_line = line.split("=")
+            key = split_line[0].strip()
+            value = eval("=".join(split_line[1:]))
+            bilby_params[key] = value
 
-    sections = config.sections()
-    if len(sections) != 1:
-        raise ValueError(f"Expected only one detector for config file, found {len(sections)}.")
-
-    section = sections[0]
-    params = config[section]
-    det_suffix = section
-
-    try:
-        # Parse parameters (assume radians for angles/lat/lon, meters for lengths/heights)
-        latitude = float(params['LATITUDE'].split(';')[0].strip())
-        longitude = float(params['LONGITUDE'].split(';')[0].strip())
-        height = float(params.get('ELEVATION', '0').split(';')[0].strip())
-        xangle = float(params['X_AZIMUTH'].split(';')[0].strip())
-        yangle = float(params['Y_AZIMUTH'].split(';')[0].strip())
-        xaltitude = float(params.get('X_ALTITUDE', '0').split(';')[0].strip())
-        yaltitude = float(params.get('Y_ALTITUDE', '0').split(';')[0].strip())
-        xlength = float(params.get('X_LENGTH', '10000').split(';')[0].strip())
-        ylength = float(params.get('Y_LENGTH', '10000').split(';')[0].strip())
-    except (KeyError, ValueError, IndexError) as e:
-        raise ValueError(f"Error parsing config parameter in {file_path}: {e}")
+    params = _bilby_to_pycbc_parameters(bilby_params)
+    det_name = params['name']
 
     # Add detector configuration
     add_detector_on_earth(
-        name=det_suffix,
-        latitude=latitude,
-        longitude=longitude,
-        height=height,
-        xangle=xangle,
-        yangle=yangle,
-        xaltitude=xaltitude,
-        yaltitude=yaltitude,
-        xlength=xlength,
-        ylength=ylength
+        name=det_name,
+        latitude=params['latitude'],
+        longitude=params['longitude'],
+        height=params['height'],
+        xangle=params['xangle'],
+        yangle=params['yangle'],
+        xaltitude=params['xaltitude'],
+        yaltitude=params['yaltitude'],
+        xlength=params['xlength'],
+        ylength=params['ylength']
     )
 
-    return det_suffix
+    return det_name
 
 
 def extended_get_available_detectors(config_dir: str = detectors_dir) -> list[str]:
