@@ -5,8 +5,7 @@ from typing import Any
 
 import numpy as np
 from scipy.interpolate import interp1d
-from scipy.linalg import cholesky
-from scipy.sparse import block_diag, coo_matrix
+from scipy.signal.windows import tukey
 
 from ..generator.state import StateAttribute
 from ..utils.random import get_state
@@ -37,10 +36,9 @@ class ColoredNoise(BaseNoise):
 
     ):
         """
-        Initialiser for the CorrelatedNoise class.
+        Initialiser for the ColoredNoise class.
 
-        This class generates noise time series with specified power spectral density (PSD)
-        and cross-spectral density (CSD) for multiple detectors
+        This class generates noise time series with specified power spectral density (PSD).
 
         Args:
             detector_names (List[str]): Names of the detectors.
@@ -74,8 +72,7 @@ class ColoredNoise(BaseNoise):
         self._initialize_window_properties()
         self._initialize_frequency_properties()
         self._initialize_psd(psd)
-        self.spectral_matrix = self.spectral_matrix_cholesky_decomposition()
-        self.previous_strain = np.zeros((self.N_det, self.N))
+        self.previous_strain = np.zeros((self.N_det, self._N_chunk))
         self._temp_strain_buffer = None
 
     def _initialize_window_properties(self) -> None:
@@ -85,34 +82,35 @@ class ColoredNoise(BaseNoise):
         Raises:
             ValueError: If the duration is smaller than (2 * 100 / flow), raise ValueError
         """
-        self.f_window = self.flow / 100
-        self.T_window = 1 / self.f_window
-        self.T_overlap = self.T_window / 2.0
-        self.N_overlap = int(self.T_overlap * self.sampling_frequency)
-        self.w0 = 0.5 + np.cos(2 * np.pi * self.f_window *
-                               np.linspace(0, self.T_overlap, self.N_overlap)) / 2
-        self.w1 = (
-            0.5 + np.sin(2 * np.pi * self.f_window * np.linspace(0,
-                         self.T_overlap, self.N_overlap) - np.pi / 2) / 2
+        self._T_window = 2048
+        self._f_window = 1.0 / self._T_window
+        self._T_overlap = self._T_window / 2.0
+        self._N_overlap = int(self._T_overlap * self.sampling_frequency)
+        self._w0 = 0.5 + np.cos(2 * np.pi * self._f_window *
+                                np.linspace(0, self._T_overlap, self._N_overlap)) / 2
+        self._w1 = (
+            0.5 + np.sin(2 * np.pi * self._f_window * np.linspace(0,
+                         self._T_overlap, self._N_overlap) - np.pi / 2) / 2
         )
 
         # Safety check to ensure proper noise generation
-        if self.duration < 2 * self.T_window:
+        if self.duration < self._T_window / 2:
             raise ValueError(
-                f"Duration ({self.duration:.2f}s) must be at least {2 * self.T_window:.2f}s for flow = {self.flow:.2f}Hz to ensure noise continuity.")
+                f"Duration ({self.duration:.1f} seconds) must be at least {self._T_window / 2:.1f} seconds to ensure noise continuity.")
 
     def _initialize_frequency_properties(self) -> None:
         """
         Initialize frequency and time properties for noise generation
         """
-        self.T = self.T_window * 3
-        self.df = 1.0 / self.T
+        self._T_chunk = self._T_window
+        self._df_chunk = 1.0 / self._T_chunk
+        self._N_chunk = int(self._T_chunk * self.sampling_frequency)
+        self._kmin_chunk = int(self.flow / self._df_chunk)
+        self._kmax_chunk = int(self.fhigh / self._df_chunk) + 1
+        self._frequency_chunk = np.arange(0.0, self._N_chunk / 2.0 + 1) * self._df_chunk
+        self._N_freq_chunk = len(self._frequency_chunk[self._kmin_chunk: self._kmax_chunk])
+
         self.dt = 1.0 / self.sampling_frequency
-        self.N = int(self.T * self.sampling_frequency)
-        self.kmin = int(self.flow / self.df)
-        self.kmax = int(self.fhigh / self.df) + 1
-        self.frequency = np.arange(0.0, self.N / 2.0 + 1) * self.df
-        self.N_freq = len(self.frequency[self.kmin: self.kmax])
 
     def _load_array(self, arr_path: str) -> np.ndarray:
         """
@@ -147,6 +145,7 @@ class ColoredNoise(BaseNoise):
         Raises:
             ValueError: If the shape of the psd or csd is different form (N, 2), raise ValueError
         """
+        # TODO: Allow different PSDs for different detectors
 
         # Load psd/csd
         psd = self._load_array(psd)
@@ -156,57 +155,35 @@ class ColoredNoise(BaseNoise):
             raise ValueError("PSD must have shape (N, 2)")
 
         # Interpolate the PSD and CSD to the relevant frequencies
-        freqs = self.frequency[self.kmin: self.kmax]
-        self.psd = interp1d(psd[:, 0], psd[:, 1], bounds_error=False,
-                            fill_value="extrapolate")(freqs)
+        freqs = self._frequency_chunk[self._kmin_chunk: self._kmax_chunk]
+        psd_interp = interp1d(psd[:, 0], psd[:, 1], bounds_error=False,
+                              fill_value="extrapolate")(freqs)
 
-    def spectral_matrix_cholesky_decomposition(self) -> coo_matrix:
-        """
-        Compute the Cholesky decomposition of the spectral matrix.
+        # Add a roll-off at the edges
+        window = tukey(self._N_freq_chunk, alpha=5e-3)
+        self.psd = psd_interp * window
 
-        Returns:
-            scipy sparse coo_matrix: Cholesky decomposition of the spectral matrix
-        """
-        # Take the principal diagonals of the spectral matrix
-        d0 = self.psd
-        d1 = np.zeros_like(self.psd)
-
-        # Build Cholesky decomposition of the spectral matrix in block diagonal form
-        spectral_matrix = np.empty((self.N_freq, self.N_det, self.N_det))
-        for n in range(self.N_freq):
-            submatrix = np.array(
-                [
-                    [d0[n] if row == col else d1[n] for row in range(self.N_det)]
-                    for col in range(self.N_det)
-                ]
-            )
-            spectral_matrix[n, :, :] = cholesky(submatrix, lower=True)
-
-        return block_diag(spectral_matrix, format="coo")
-
-    def single_noise_realization(self, spectral_matrix: coo_matrix) -> np.ndarray:
+    def single_noise_realization(self, psd: np.ndarray) -> np.ndarray:
         """
         Generate a single noise realization in the frequency domain for each detector, and then transform it into the time domain.
 
         Args:
-            spectral_matrix (scipy sparse csc_matrix): Cholesky decomposition of the spectral matrix
+            psd (np.ndarray): Power spectral density array
 
         Returns:
             np.ndarray: time_series
         """
-        freq_series = np.zeros((self.N_det, self.frequency.size), dtype=np.complex128)
+        freq_series = np.zeros((self.N_det, self._frequency_chunk.size), dtype=np.complex128)
 
-        # generate white noise and color it with the spectral matrix
-        white_strain = (self.rng.standard_normal(self.N_freq * self.N_det) + 1j *
-                        self.rng.standard_normal(self.N_freq * self.N_det)) / np.sqrt(2)
-        colored_strain = spectral_matrix.dot(white_strain) * np.sqrt(0.5 / self.df)
-
-        # Split the frequency strain for each detector
-        freq_series[:, self.kmin: self.kmax] += np.transpose(
-            np.reshape(colored_strain, (self.N_freq, self.N_det)))
+        # generate white noise and color it with the PSD
+        white_strain = (self.rng.standard_normal((self.N_det, self._N_freq_chunk)) + 1j *
+                        self.rng.standard_normal((self.N_det, self._N_freq_chunk))) / np.sqrt(2)
+        colored_strain = white_strain[:, :] * np.sqrt(psd * 0.5 / self._df_chunk)
+        freq_series[:, self._kmin_chunk: self._kmax_chunk] += colored_strain
 
         # Transform each frequency strain into the time domain
-        time_series = np.fft.irfft(freq_series, n=self.N, axis=1) * self.df * self.N
+        time_series = np.fft.irfft(freq_series, n=self._N_chunk, axis=1) * \
+            self._df_chunk * self._N_chunk
 
         return time_series
 
@@ -217,31 +194,33 @@ class ColoredNoise(BaseNoise):
         Returns:
             np.ndarray: time series for each detector
         """
+        # TODO: self.previous_strain should be a list of strains of gwf files. Need to open and read them
+
         N_frame = int(self.duration * self.sampling_frequency)
 
         # Load previous strain, or generate new if all zeros
-        if self.previous_strain.shape[-1] < self.N:
+        if self.previous_strain.shape[-1] < self._N_overlap:
             raise ValueError(
-                f"previous_strain has only {self.previous_strain.shape[-1]} points for each detector, but expected at least {self.N}.")
+                f"Previous_strain has only {self.previous_strain.shape[-1]} points for each detector, but expected at least {self._N_overlap}.")
 
-        strain_buffer = self.previous_strain[:, -self.N:]
+        strain_buffer = self.previous_strain[:, -self._N_chunk:]
         if np.all(strain_buffer == 0):
-            strain_buffer = self.single_noise_realization(self.spectral_matrix)
+            strain_buffer = self.single_noise_realization(self.psd)
 
         # Apply the final part of the window
-        strain_buffer[:, -self.N_overlap:] *= self.w0
+        strain_buffer[:, -self._N_overlap:] *= self._w0
 
         # Extend the strain buffer until it has more valid data than a single frame
-        while strain_buffer.shape[-1] - self.N - self.N_overlap < N_frame:
-            new_strain = self.single_noise_realization(self.spectral_matrix)
-            new_strain[:, :self.N_overlap] *= self.w1
-            new_strain[:, -self.N_overlap:] *= self.w0
-            strain_buffer[:, -self.N_overlap:] += new_strain[:, :self.N_overlap]
-            strain_buffer[:, -self.N_overlap:] *= 1 / np.sqrt(self.w0**2 + self.w1**2)
-            strain_buffer = np.concatenate((strain_buffer, new_strain[:, self.N_overlap:]), axis=1)
+        while strain_buffer.shape[-1] - self._N_chunk - self._N_overlap < N_frame:
+            new_strain = self.single_noise_realization(self.psd)
+            new_strain[:, :self._N_overlap] *= self._w1
+            new_strain[:, -self._N_overlap:] *= self._w0
+            strain_buffer[:, -self._N_overlap:] += new_strain[:, :self._N_overlap]
+            strain_buffer[:, -self._N_overlap:] *= 1 / np.sqrt(self._w0**2 + self._w1**2)
+            strain_buffer = np.concatenate((strain_buffer, new_strain[:, self._N_overlap:]), axis=1)
 
         # Discard the first N points and the excess data
-        output_strain = strain_buffer[:, self.N:(self.N + N_frame)]
+        output_strain = strain_buffer[:, self._N_chunk:(self._N_chunk + N_frame)]
 
         # Store the strain buffer temporarily
         self._temp_strain_buffer = output_strain
