@@ -32,7 +32,7 @@ class WaveformFactory:
             # Import from path
             module_path, func_name = factory_func.rsplit(".", 1)
             module = importlib.import_module(module_path)
-            factory_func = getattr(module, func_name)
+            factory_func: Callable = getattr(module, func_name)
 
         self._models[name] = factory_func
         logger.info("Registered waveform model: %s", name)
