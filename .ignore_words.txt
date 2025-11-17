@@ -1,3 +1,4 @@
+approximants
 astropy
 coo
 dets
@@ -13,13 +14,16 @@ LIGO
 NSBH
 Nyquist
 pycbc
+pytestmark
 realisation
 retryable
+SEOBN
 submatrix
 Uncatched
 xaltitude
 xangle
 xlength
+XPHM
 yaltitude
 yangle
 ylength
