@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+from typing import cast
 
 import pycbc.detector
 
@@ -116,6 +118,7 @@ def extended_get_available_detectors(config_dir: str = detectors_dir) -> list[st
     config_files = [f.stem for f in path.glob("*.interferometer")]
 
     return sorted(set(built_in_dets + config_files))
+logger = logging.getLogger("gwsim")
 
 
 class Detector:
@@ -123,7 +126,7 @@ class Detector:
     handles custom detector configurations from .interferometer files
     """
 
-    def __init__(self, name: str | None = None, config_file: str | Path | None = None):
+    def __init__(self, name: str | None = None, configuration_file: str | Path | None = None):
         """
         Initialize Detector class.
         If `detector_name` is a built-in PyCBC detector, use it directly.
@@ -133,32 +136,43 @@ class Detector:
             detector_name (str): The detector name or config name (e.g., 'V1' or 'E1_Triangle_Sardinia').
             config_dir (str, optional): Directory where .interferometer files are stored (default: detectors_dir).
         """
-        if name is not None and config_file is not None:
-            raise ValueError("Specify either 'name' or 'config_file', not both.")
-
-        if name is None and config_file is None:
-            raise ValueError("Either 'name' or 'config_file' must be specified.")
-
-        if name is not None:
-            # Try to load from pycbc
+        if name is not None and configuration_file is None:
             try:
-                self._detector = pycbc.detector.Detector(name)
-            except ValueError as exc:
-                raise ValueError(f"Detector '{name}' not found in PyCBC. Provide a valid config_file.") from exc
-            self.name = name
+                self._detector = pycbc.detector.Detector(str(name))
+                self.name = str(name)
+            except ValueError as e:
+                logger.warning("Detector name '%s' not found in PyCBC: %s", name, e)
+                logger.warning("Setting up detector with no configuration.")
+                self._detector = None
+                self.name = str(name)
+        elif configuration_file is not None:
+            configuration_file = Path(configuration_file)
 
-        if config_file is not None:
-            config_file = Path(config_file)
-            if config_file.is_file():
-                prefix = load_interferometer_config(config_file=config_file)
-                self._detector = pycbc.detector.Detector(prefix)
-                self.name = prefix
-            elif (DEFAULT_DETECTOR_BASE_PATH / config_file).is_file():
-                prefix = load_interferometer_config(config_file=DEFAULT_DETECTOR_BASE_PATH / config_file)
-                self._detector = pycbc.detector.Detector(prefix)
-                self.name = prefix
+            if configuration_file.is_file():
+
+                logger.debug("Loading detector from configuration file: %s", configuration_file)
+
+                prefix = load_interferometer_config(config_file=configuration_file)
+
+            elif (DEFAULT_DETECTOR_BASE_PATH / configuration_file).is_file():
+
+                logger.debug("Loading detector from default path: %s", configuration_file)
+
+                prefix = load_interferometer_config(config_file=DEFAULT_DETECTOR_BASE_PATH / configuration_file)
             else:
-                raise FileNotFoundError(f"Config file {config_file} not found.")
+                raise FileNotFoundError(f"Configuration file '{configuration_file}' not found.")
+            self._detector = pycbc.detector.Detector(prefix)
+            self.name = prefix
+            if name is not None:
+                logger.warning("Using the detector prefix as the name. Ignoring provided name: %s", name)
+        else:
+            raise ValueError("Either name or configuration_file must be provided.")
+
+    def is_configured(self) -> bool:
+        """
+        Check if the detector is properly configured.
+        """
+        return isinstance(self._detector, pycbc.detector.Detector)
 
     def antenna_pattern(
         self, right_ascension, declination, polarization, t_gps, frequency=0, polarization_type="tensor"
@@ -166,15 +180,19 @@ class Detector:
         """
         Return the antenna pattern for the detector.
         """
-        return self._detector.antenna_pattern(
-            right_ascension, declination, polarization, t_gps, frequency, polarization_type
-        )
+        if not self.is_configured():
+            raise ValueError(f"Detector '{self.name}' is not configured.")
+        detector = cast(pycbc.detector.Detector, self._detector)
+        return detector.antenna_pattern(right_ascension, declination, polarization, t_gps, frequency, polarization_type)
 
     def time_delay_from_earth_center(self, right_ascension, declination, t_gps):
         """
         Return the time delay from the Earth center for the detector.
         """
-        return self._detector.time_delay_from_earth_center(right_ascension, declination, t_gps)
+        if not self.is_configured():
+            raise ValueError(f"Detector '{self.name}' is not configured.")
+        detector = cast(pycbc.detector.Detector, self._detector)
+        return detector.time_delay_from_earth_center(right_ascension, declination, t_gps)
 
     def __getattr__(self, attr):
         """
@@ -200,10 +218,5 @@ class Detector:
         """
         # First check if name corresponds to a configuration file
         if Path(name).is_file() or (DEFAULT_DETECTOR_BASE_PATH / name).is_file():
-            return Detector(config_file=name)
-        try:
-            return Detector(name=str(name))
-        except ValueError as exc:
-            if name is not None:
-                return str(name)
-            raise ValueError(f"Detector '{name}' not found in PyCBC. Provide a valid config_file.") from exc
+            return Detector(configuration_file=name)
+        return Detector(name=str(name))
