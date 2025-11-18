@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import numpy as np
-from pathlib import Path
-import tempfile
-
 import pytest
 import yaml
 from click.testing import CliRunner
-
 from gwsim.tools.main import main
+
 from gwsim.noise.correlated_noise import CorrelatedNoise
 
 
@@ -108,9 +105,7 @@ def test_spectral_matrix_is_block_diag(correlated_noise_instance):
 
 def test_single_noise_realization_shapes(correlated_noise_instance):
     """Check if `single_noise_realization` returns finite data with correct shape"""
-    ts = correlated_noise_instance.single_noise_realization(
-        correlated_noise_instance.spectral_matrix
-    )
+    ts = correlated_noise_instance.single_noise_realization(correlated_noise_instance.spectral_matrix)
     # shape: (num_detectors, N)
     assert ts.shape == (2, correlated_noise_instance.N)
     assert np.isfinite(ts).all()
@@ -164,8 +159,9 @@ def test_generate_correlated_noise(runner, mock_config, temp_dir):
 
     # Check generated files
     output_files = list((temp_dir / "output").glob("*.gwf"))
-    expected_files = mock_config["generator"]["arguments"]["max_samples"] * \
-        len(mock_config["generator"]["arguments"]["detector_names"])
+    expected_files = mock_config["generator"]["arguments"]["max_samples"] * len(
+        mock_config["generator"]["arguments"]["detector_names"]
+    )
     assert len(output_files) == expected_files
 
     metadata_files = list((temp_dir / "metadata").glob("*.json"))
