@@ -1,107 +1,118 @@
+"""Base class for signal simulators."""
+
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-import h5py
 import numpy as np
-from pycbc.frame import write_frame
-from pycbc.types.timeseries import TimeSeries
 
+from gwsim.data.time_series.time_series_list import TimeSeriesList
+from gwsim.mixin.detector import DetectorMixin
+from gwsim.mixin.population_reader import PopulationReaderMixin
+from gwsim.mixin.time_series import TimeSeriesMixin
+from gwsim.mixin.waveform import WaveformMixin
 from gwsim.simulator.base import Simulator
-from gwsim.simulator.mixin.detector import DetectorMixin
-from gwsim.simulator.mixin.population_reader import PopulationReaderMixin
-from gwsim.simulator.mixin.time_series import TimeSeriesMixin
+from gwsim.simulator.state import StateAttribute
 
-from ..generator.base import Generator
-from ..generator.state import StateAttribute
-from ..utils.io import check_file_overwrite
-from ..version import __version__
+logger = logging.getLogger("gwsim")
 
 
-class BaseSignal(Generator):
+class SignalSimulator(PopulationReaderMixin, WaveformMixin, TimeSeriesMixin, DetectorMixin, Simulator):
+    """Base class for signal simulators."""
+
     start_time = StateAttribute(0)
 
-    def __init__(
-        self,
-        sampling_frequency: float,
-        duration: float,
-        start_time: float = 0,
-        max_samples: int | None = None,
-    ) -> None:
-        super().__init__(max_samples=max_samples)
-        self.sampling_frequency = sampling_frequency
-        self.duration = duration
-        self.start_time = start_time
-
-    @property
-    def metadata(self) -> dict:
-        """Get a dictionary of metadata.
-        This can be overridden by the subclass.
-
-        Returns:
-            dict: A dictionary of metadata.
-        """
-        return {
-            "max_samples": self.max_samples,
-            "rng_state": self.rng_state,
-            "sampling_frequency": self.sampling_frequency,
-            "duration": self.duration,
-            "start_time": self.start_time,
-            "version": __version__,
-        }
-
-    def next(self) -> Any:
-        raise NotImplementedError("Not implemented.")
-
-    def update_state(self) -> None:
-        self.sample_counter += 1
-        self.start_time += self.duration
-
-    def save_batch(self, batch: np.ndarray, file_name: str | Path, overwrite: bool = False, **kwargs) -> None:
-        file_name = Path(file_name)
-        if file_name.suffix in [".h5", ".hdf5"]:
-            self._save_batch_hdf5(batch=batch, file_name=file_name, overwrite=overwrite, **kwargs)
-        elif file_name.suffix == ".gwf":
-            self._save_batch_gwf(batch=batch, file_name=file_name, overwrite=overwrite, **kwargs)
-        else:
-            raise ValueError(
-                f"Suffix of file_name = {file_name} is not supported. Use ['.h5', '.hdf5'] for HDF5 files,"
-                "and '.gwf' for frame files."
-            )
-
-    @check_file_overwrite()
-    def _save_batch_hdf5(
-        self,
-        batch: np.ndarray,
-        file_name: str | Path,
-        overwrite: bool = False,
-        dataset_name: str = "strain",
-    ) -> None:
-        with h5py.File(file_name, "w") as f:
-            # Add dataset.
-            f.create_dataset(dataset_name, data=batch)
-
-    @check_file_overwrite()
-    def _save_batch_gwf(
-        self, batch: np.ndarray, file_name: str | Path, overwrite: bool = False, channel: str = "strain"
-    ) -> None:
-        # Create a pycbc TimeSeries instance.
-        time_series = TimeSeries(initial_array=batch, delta_t=1 / self.sampling_frequency, epoch=self.start_time)
-
-        # Write to frame file.
-        write_frame(location=str(file_name), channels=channel, timeseries=time_series)
-
-
-class SignalSimulator(PopulationReaderMixin, TimeSeriesMixin, DetectorMixin, Simulator):
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         population_file: str | Path,
+        population_file_type: str = "pycbc",
+        waveform_model: str | Callable = "IMRPhenomXPHM",
+        waveform_arguments: dict[str, Any] | None = None,
         start_time: int = 0,
         duration: float = 1024,
         sampling_frequency: float = 4096,
         max_samples: int | None = None,
         dtype: type = np.float64,
+        detectors: list[str] | None = None,
+        minimum_frequency: float = 5,
         **kwargs,
     ) -> None:
-        pass
+        """Initialize the base signal simulator.
+
+        Args:
+            population_file: Path to the population file.
+            population_file_type: Type of the population file (e.g., 'pycbc').
+            waveform_model: Name (from registry) or callable for waveform generation.
+            waveform_arguments: Fixed parameters to pass to waveform model.
+            start_time: Start time of the first signal segment in GPS seconds. Default is 0.
+            duration: Duration of each signal segment in seconds. Default is 1024.
+            sampling_frequency: Sampling frequency of the signals in Hz. Default is 4096.
+            max_samples: Maximum number of samples to generate. None means infinite.
+            dtype: Data type for the time series data. Default is np.float64.
+            detectors: List of detector names. Default is None.
+            minimum_frequency: Minimum GW frequency for waveform generation. Default is 5 Hz.
+            **kwargs: Additional arguments absorbed by subclasses and mixins.
+        """
+        waveform_arguments = waveform_arguments or {}
+        if "minimum_frequency" not in waveform_arguments:
+            logger.info("minimum_frequency not specified in waveform_arguments; setting to %s Hz", minimum_frequency)
+            waveform_arguments["minimum_frequency"] = minimum_frequency
+        super().__init__(
+            population_file=population_file,
+            population_file_type=population_file_type,
+            waveform_model=waveform_model,
+            waveform_arguments=waveform_arguments,
+            detectors=detectors,
+            start_time=start_time,
+            duration=duration,
+            sampling_frequency=sampling_frequency,
+            max_samples=max_samples,
+            dtype=dtype,
+            **kwargs,
+        )
+
+    def _simulate(self, *args, **kwargs) -> TimeSeriesList:
+        """Simulate signals for the current segment.
+
+        Returns:
+            TimeSeriesList: List of simulated signals.
+        """
+        output = []
+        while True:
+            # Get the next injection parameters
+            parameters = self.get_next_injection_parameters()
+
+            # If the parameters are None, break the loop
+            if parameters is None:
+                break
+
+            # Get the polarizations
+            polarizations = self.waveform_factory.generate(
+                waveform_model=self.waveform_model, parameters=parameters, **self.waveform_arguments
+            )
+
+            # Project onto detectors
+            strain = self.project_polarizations(
+                polarizations=polarizations,
+                right_ascension=parameters["right_ascension"],
+                declination=parameters["declination"],
+                polarization_angle=parameters["polarization_angle"],
+                **self.waveform_arguments,
+            )
+            output.append(strain)
+
+            # Check whether the end time of the strain exceeds the end time of the current segment
+            if strain.end_time >= self.end_time:
+                break
+        return TimeSeriesList(output)
+
+    @property
+    def metadata(self) -> dict:
+        """Get the metadata of the simulator.
+
+        Returns:
+            Metadata dictionary.
+        """
+        return super().metadata
