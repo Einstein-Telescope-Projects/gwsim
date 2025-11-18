@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
+from gwsim.mixin.population_reader import PopulationReaderMixin
 from gwsim.simulator.base import Simulator
-from gwsim.simulator.mixin.population_reader import PopulationReaderMixin
 
 
 class MockPopulationSimulator(PopulationReaderMixin, Simulator):

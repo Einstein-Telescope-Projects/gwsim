@@ -12,8 +12,8 @@ from gwpy.timeseries import TimeSeries as GWPyTimeSeries
 
 from gwsim.data.time_series import TimeSeries
 from gwsim.data.time_series.time_series_list import TimeSeriesList
+from gwsim.mixin.time_series import TimeSeriesMixin
 from gwsim.simulator.base import Simulator
-from gwsim.simulator.mixin.time_series import TimeSeriesMixin
 
 
 class MockTimeSeriesSimulator(TimeSeriesMixin, Simulator):

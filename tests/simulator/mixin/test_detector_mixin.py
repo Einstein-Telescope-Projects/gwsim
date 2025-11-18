@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+from gwsim.mixin.detector import DetectorMixin
 from gwsim.simulator.base import Simulator
-from gwsim.simulator.mixin.detector import DetectorMixin
 
 
 class MockSimulator(DetectorMixin, Simulator):
