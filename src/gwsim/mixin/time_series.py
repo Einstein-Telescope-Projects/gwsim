@@ -58,6 +58,15 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
         else:
             self.num_of_channels = 1
 
+    @property
+    def end_time(self) -> float:
+        """Calculate the end time of the current segment.
+
+        Returns:
+            End time in GPS seconds.
+        """
+        return self.start_time + self.duration
+
     def _simulate(self, *args, **kwargs) -> TimeSeriesList:
         """Generate time series data chunks.
 
