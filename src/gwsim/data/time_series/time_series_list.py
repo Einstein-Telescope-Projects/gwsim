@@ -174,7 +174,3 @@ class TimeSeriesList(Iterable[TimeSeries]):
             String representation of the TimeSeriesList.
         """
         return f"TimeSeriesList({self._data!r})"
-
-
-class EmptyTimeSeriesList(TimeSeriesList):
-    """An empty TimeSeriesList singleton."""
