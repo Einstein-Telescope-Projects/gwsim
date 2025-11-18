@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import cast
 
-import pycbc.detector
+from pycbc.detector import Detector as PyCBCDetector
 
 from gwsim.detector.utils import DEFAULT_DETECTOR_BASE_PATH, load_interferometer_config
 
@@ -144,7 +144,7 @@ class Detector:
         }
         if name is not None and configuration_file is None:
             try:
-                self._detector = pycbc.detector.Detector(str(name))
+                self._detector = PyCBCDetector(str(name))
                 self.name = str(name)
             except ValueError as e:
                 logger.warning("Detector name '%s' not found in PyCBC: %s", name, e)
@@ -167,7 +167,7 @@ class Detector:
                 prefix = load_interferometer_config(config_file=DEFAULT_DETECTOR_BASE_PATH / configuration_file)
             else:
                 raise FileNotFoundError(f"Configuration file '{configuration_file}' not found.")
-            self._detector = pycbc.detector.Detector(prefix)
+            self._detector = PyCBCDetector(prefix)
             self.name = prefix
         elif name is not None and configuration_file is not None:
             raise ValueError("Specify either 'name' or 'configuration_file', not both.")
@@ -180,7 +180,7 @@ class Detector:
         """
         Check if the detector is properly configured.
         """
-        return isinstance(self._detector, pycbc.detector.Detector)
+        return self._detector is not None
 
     def antenna_pattern(
         self, right_ascension, declination, polarization, t_gps, frequency=0, polarization_type="tensor"
@@ -190,7 +190,7 @@ class Detector:
         """
         if not self.is_configured():
             raise ValueError(f"Detector '{self.name}' is not configured.")
-        detector = cast(pycbc.detector.Detector, self._detector)
+        detector = cast(PyCBCDetector, self._detector)
         return detector.antenna_pattern(right_ascension, declination, polarization, t_gps, frequency, polarization_type)
 
     def time_delay_from_earth_center(self, right_ascension, declination, t_gps):
@@ -199,7 +199,7 @@ class Detector:
         """
         if not self.is_configured():
             raise ValueError(f"Detector '{self.name}' is not configured.")
-        detector = cast(pycbc.detector.Detector, self._detector)
+        detector = cast(PyCBCDetector, self._detector)
         return detector.time_delay_from_earth_center(right_ascension, declination, t_gps)
 
     def __getattr__(self, attr):
