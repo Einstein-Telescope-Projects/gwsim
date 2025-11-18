@@ -36,6 +36,11 @@ class MockTimeSeriesSimulator(TimeSeriesMixin, Simulator):
         """Mock save batch method."""
         self.saved_batches.append((batch, file_name, kwargs))
 
+    @property
+    def metadata(self) -> dict:
+        """Mock metadata method."""
+        return super().metadata
+
 
 class TestTimeSeriesMixin:
     """Test suite for TimeSeriesMixin."""
@@ -131,9 +136,9 @@ class TestTimeSeriesMixin:
         simulator = MockTimeSeriesSimulator(duration=2, sampling_frequency=512, dtype=np.float32)
         metadata = simulator.metadata
 
-        assert metadata["duration"] == 2
-        assert metadata["sampling_frequency"] == 512
-        assert metadata["dtype"] == str(np.float32)
+        assert metadata["time_series"]["arguments"]["duration"] == 2
+        assert metadata["time_series"]["arguments"]["sampling_frequency"] == 512
+        assert metadata["time_series"]["arguments"]["dtype"] == str(np.float32)
 
     def test_iteration_protocol(self):
         """Test that the simulator works with iteration protocol."""
