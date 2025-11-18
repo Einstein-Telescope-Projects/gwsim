@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 class TimeSeries(JSONSerializable):
     """Class representing a time series data for multiple channels."""
 
-    def __init__(self, data: np.ndarray, start_time: Number | Quantity, sampling_frequency: float | Quantity):
+    def __init__(self, data: np.ndarray, start_time: int | float | Quantity, sampling_frequency: float | Quantity):
         """Initialize the TimeSeries with a list of GWPy TimeSeries objects.
 
         Args:
