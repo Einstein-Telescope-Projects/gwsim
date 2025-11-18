@@ -1,16 +1,12 @@
-import pytest
-import numpy as np
-import pandas as pd
-from pathlib import Path
-import tempfile
+from __future__ import annotations
+
 import os
-import matplotlib.pyplot as plt
+import tempfile
 
 import bilby
-from bilby.gw.waveform_generator import WaveformGenerator
-from pycbc.types.timeseries import TimeSeries
-from pycbc.detector import Detector
-
+import numpy as np
+import pandas as pd
+import pytest
 from gwsim.signal.cbc_signal import CBCSignal
 
 
@@ -34,30 +30,29 @@ def temp_population_file_single_event():
     redshift = 0.3
     geocent_time = 4300.0  # Placed to span across two frames
     flow = 2.0
-    duration = bilby.gw.utils.calculate_time_to_merger(flow, mass1 * (1 + redshift),
-                                                       mass2 * (1 + redshift), safety=1.2)
+    duration = bilby.gw.utils.calculate_time_to_merger(flow, mass1 * (1 + redshift), mass2 * (1 + redshift), safety=1.2)
 
     data = {
-        'mass_1': [mass1],
-        'mass_2': [mass2],
-        'geocent_time': [geocent_time],
-        'luminosity_distance': [dl],
-        'spin_1x': [spin1x],
-        'spin_1y': [spin1y],
-        'spin_1z': [spin1z],
-        'spin_2x': [spin2x],
-        'spin_2y': [spin2y],
-        'spin_2z': [spin2z],
-        'right_ascension': [ra],
-        'declination': [dec],
-        'polarization_angle': [pol],
-        'iota': [iota],
-        'phase': [phase],
-        'redshift': [redshift],
-        'duration': [duration]
+        "mass_1": [mass1],
+        "mass_2": [mass2],
+        "geocent_time": [geocent_time],
+        "luminosity_distance": [dl],
+        "spin_1x": [spin1x],
+        "spin_1y": [spin1y],
+        "spin_1z": [spin1z],
+        "spin_2x": [spin2x],
+        "spin_2y": [spin2y],
+        "spin_2z": [spin2z],
+        "right_ascension": [ra],
+        "declination": [dec],
+        "polarization_angle": [pol],
+        "iota": [iota],
+        "phase": [phase],
+        "redshift": [redshift],
+        "duration": [duration],
     }
     df = pd.DataFrame(data)
-    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as temp_file:
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as temp_file:
         df.to_csv(temp_file.name, index=False)
     yield temp_file.name
     os.remove(temp_file.name)
@@ -83,42 +78,41 @@ def temp_population_file_single_event_long():
     redshift = 0.3
     geocent_time = 3900.0  # Placed to span across two frames
     flow = 2.0
-    duration = bilby.gw.utils.calculate_time_to_merger(flow, mass1 * (1 + redshift),
-                                                       mass2 * (1 + redshift), safety=1.2)
+    duration = bilby.gw.utils.calculate_time_to_merger(flow, mass1 * (1 + redshift), mass2 * (1 + redshift), safety=1.2)
 
     data = {
-        'mass_1': [mass1],
-        'mass_2': [mass2],
-        'geocent_time': [geocent_time],
-        'luminosity_distance': [dl],
-        'spin_1x': [spin1x],
-        'spin_1y': [spin1y],
-        'spin_1z': [spin1z],
-        'spin_2x': [spin2x],
-        'spin_2y': [spin2y],
-        'spin_2z': [spin2z],
-        'right_ascension': [ra],
-        'declination': [dec],
-        'polarization_angle': [pol],
-        'iota': [iota],
-        'phase': [phase],
-        'redshift': [redshift],
-        'duration': [duration]
+        "mass_1": [mass1],
+        "mass_2": [mass2],
+        "geocent_time": [geocent_time],
+        "luminosity_distance": [dl],
+        "spin_1x": [spin1x],
+        "spin_1y": [spin1y],
+        "spin_1z": [spin1z],
+        "spin_2x": [spin2x],
+        "spin_2y": [spin2y],
+        "spin_2z": [spin2z],
+        "right_ascension": [ra],
+        "declination": [dec],
+        "polarization_angle": [pol],
+        "iota": [iota],
+        "phase": [phase],
+        "redshift": [redshift],
+        "duration": [duration],
     }
     df = pd.DataFrame(data)
-    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as temp_file:
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as temp_file:
         df.to_csv(temp_file.name, index=False)
     yield temp_file.name
     os.remove(temp_file.name)
 
 
 def test_signal_continuity_across_segments(temp_population_file_single_event):
-    """ Test that a CBC signal that spans multiple data segments maintain continuity """
-    approximant = 'IMRPhenomD'
+    """Test that a CBC signal that spans multiple data segments maintain continuity"""
+    approximant = "IMRPhenomD"
     flow = 2.0
     sampling_frequency = 4096.0
     frame_duration = 4096.0
-    detector_names = ['E1']
+    detector_names = ["E1"]
     earth_rotation = True
     time_dependent_timedelay = True
     start_time = 0.0
@@ -163,16 +157,17 @@ def test_signal_continuity_across_segments(temp_population_file_single_event):
     )
 
     # Check if they match
-    np.testing.assert_allclose(concat_data, ref_data, atol=1e-26, rtol=1e-3,
-                               err_msg="Signal is not continuous across adjacent frames.")
+    np.testing.assert_allclose(
+        concat_data, ref_data, atol=1e-26, rtol=1e-3, err_msg="Signal is not continuous across adjacent frames."
+    )
 
 
 def test_earth_rotation_option(temp_population_file_single_event_long):
-    approximant = 'IMRPhenomD'
+    approximant = "IMRPhenomD"
     flow = 2.0
     sampling_frequency = 4096.0
     frame_duration = 4096.0
-    detector_names = ['E1']
+    detector_names = ["E1"]
     start_time = 0.0
 
     # Generate with earth_rotation=True
@@ -205,5 +200,4 @@ def test_earth_rotation_option(temp_population_file_single_event_long):
 
     # Check that they are different (Earth rotation should affect the signal)
     with pytest.raises(AssertionError):
-        np.testing.assert_allclose(
-            frame_with_rotation, frame_without_rotation, atol=1e-26, rtol=1e-5)
+        np.testing.assert_allclose(frame_with_rotation, frame_without_rotation, atol=1e-26, rtol=1e-5)
