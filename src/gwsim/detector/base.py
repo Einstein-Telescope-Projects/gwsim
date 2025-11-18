@@ -200,11 +200,23 @@ class Detector:
         """
         return getattr(self._detector, attr)
 
-    def __str__(self):
+    def __str__(self) -> str:
         """
         Return a string representation of the detector name, stripped to the base part.
+
+        Returns:
+            str: The detector name.
         """
         return self.name
+
+    def __repr__(self) -> str:
+        """
+        Return a detailed string representation of the Detector instance.
+
+        Returns:
+            str: A string representation of the Detector instance.
+        """
+        return f"Detector(name={self.name}, configured={self.is_configured()})"
 
     @staticmethod
     def get_detector(name: str | Path) -> Detector | str:
