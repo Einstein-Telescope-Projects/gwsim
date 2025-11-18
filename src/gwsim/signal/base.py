@@ -24,7 +24,7 @@ class SignalSimulator(PopulationReaderMixin, WaveformMixin, TimeSeriesMixin, Det
 
     start_time = StateAttribute(0)
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
         self,
         population_file: str | Path,
         population_file_type: str = "pycbc",
@@ -56,9 +56,15 @@ class SignalSimulator(PopulationReaderMixin, WaveformMixin, TimeSeriesMixin, Det
             **kwargs: Additional arguments absorbed by subclasses and mixins.
         """
         waveform_arguments = waveform_arguments or {}
-        if "minimum_frequency" not in waveform_arguments:
-            logger.info("minimum_frequency not specified in waveform_arguments; setting to %s Hz", minimum_frequency)
-            waveform_arguments["minimum_frequency"] = minimum_frequency
+        required_waveform_arguments = {
+            "minimum_frequency": minimum_frequency,
+            "sampling_frequency": sampling_frequency,
+        }
+        for key, value in required_waveform_arguments.items():
+            if key not in waveform_arguments:
+                logger.info("%s not specified in waveform_arguments; setting to %s", key, value)
+                waveform_arguments[key] = value
+
         super().__init__(
             population_file=population_file,
             population_file_type=population_file_type,
