@@ -136,6 +136,12 @@ class Detector:
             detector_name (str): The detector name or config name (e.g., 'V1' or 'E1_Triangle_Sardinia').
             config_dir (str, optional): Directory where .interferometer files are stored (default: detectors_dir).
         """
+        self._metadata = {
+            "arguments": {
+                "name": name,
+                "configuration_file": configuration_file,
+            }
+        }
         if name is not None and configuration_file is None:
             try:
                 self._detector = pycbc.detector.Detector(str(name))
@@ -167,6 +173,8 @@ class Detector:
                 logger.warning("Using the detector prefix as the name. Ignoring provided name: %s", name)
         else:
             raise ValueError("Either name or configuration_file must be provided.")
+
+        self.configuration_file = configuration_file
 
     def is_configured(self) -> bool:
         """
@@ -232,3 +240,12 @@ class Detector:
         if Path(name).is_file() or (DEFAULT_DETECTOR_BASE_PATH / name).is_file():
             return Detector(configuration_file=name)
         return Detector(name=str(name))
+
+    @property
+    def metadata(self) -> dict:
+        """Get a dictionary of metadata.
+
+        Returns:
+            dict: A dictionary of metadata.
+        """
+        return self._metadata
