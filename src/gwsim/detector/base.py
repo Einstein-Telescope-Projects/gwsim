@@ -172,7 +172,7 @@ class Detector:
         elif name is not None and configuration_file is not None:
             raise ValueError("Specify either 'name' or 'configuration_file', not both.")
         else:
-            raise ValueError("Either name or configuration_file must be provided.")
+            raise ValueError("Either 'name' or 'configuration_file' must be provided.")
 
         self.configuration_file = configuration_file
 
