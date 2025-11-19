@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+import yaml
 
 from gwsim import __version__
 from gwsim.simulator.state import StateAttribute
@@ -127,11 +127,14 @@ class Simulator(ABC):
         Returns:
             Dictionary containing metadata.
         """
-        return {
+        metadata = {
             "max_samples": self.max_samples,
             "counter": self.counter,
             "version": __version__,
+            "state": {},
         }
+        metadata["state"].update(self.state)
+        return metadata
 
     # Iterator protocol
     def __iter__(self):
@@ -158,46 +161,46 @@ class Simulator(ABC):
         """Save simulator state to file.
 
         Args:
-            file_name: Output file path (must have .json extension).
+            file_name: Output file path (must have .yml or .yaml extension).
             overwrite: Whether to overwrite existing files.
             encoding: File encoding to use when writing the file.
 
         Raises:
-            ValueError: If file extension is not .json.
+            ValueError: If file extension is not .yml or .yaml.
             FileExistsError: If file exists and overwrite=False.
         """
         file_name = Path(file_name)
 
-        if file_name.suffix.lower() != ".json":
-            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: .json")
+        if file_name.suffix.lower() not in [".yml", ".yaml"]:
+            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: [.yml, .yaml]")
 
         if not overwrite and file_name.exists():
             raise FileExistsError(f"File '{file_name}' already exists. Use overwrite=True to overwrite it.")
 
         with file_name.open("w", encoding=encoding) as f:
-            json.dump(self.state, f)
+            yaml.safe_dump(self.state, f)
 
     def load_state(self, file_name: str | Path, encoding: str = "utf-8") -> None:
         """Load simulator state from file.
 
         Args:
-            file_name: Input file path (must have .json extension).
+            file_name: Input file path (must have .yml or .yaml extension).
             encoding: File encoding to use when reading the file.
 
         Raises:
             FileNotFoundError: If file doesn't exist.
-            ValueError: If file extension is not .json.
+            ValueError: If file extension is not .yml or .yaml.
         """
         file_name = Path(file_name)
 
-        if file_name.suffix.lower() != ".json":
-            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: .json")
+        if file_name.suffix.lower() not in [".yml", ".yaml"]:
+            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: [.yml, .yaml]")
 
         if not file_name.exists():
             raise FileNotFoundError(f"File '{file_name}' does not exist.")
 
         with file_name.open("r", encoding=encoding) as f:
-            state = json.load(f)
+            state = yaml.safe_load(f)
 
         self.state = state
 
@@ -205,24 +208,24 @@ class Simulator(ABC):
         """Save simulator metadata to file.
 
         Args:
-            file_name: Output file path (must have .json extension).
+            file_name: Output file path (must have .yml or .yaml extension).
             overwrite: Whether to overwrite existing files.
             encoding: File encoding to use when writing the file.
 
         Raises:
-            ValueError: If file extension is not .json.
+            ValueError: If file extension is not .yml or .yaml.
             FileExistsError: If file exists and overwrite=False.
         """
         file_name = Path(file_name)
 
-        if file_name.suffix.lower() != ".json":
-            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: .json")
+        if file_name.suffix.lower() not in [".yml", ".yaml"]:
+            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: [.yml, .yaml]")
 
         if not overwrite and file_name.exists():
             raise FileExistsError(f"File '{file_name}' already exists. Use overwrite=True to overwrite it.")
 
         with file_name.open("w", encoding=encoding) as f:
-            json.dump(self.metadata, f)
+            yaml.safe_dump(self.metadata, f)
 
     def update_state(self) -> None:
         """Update internal state after each sample generation.
@@ -273,7 +276,7 @@ class Simulator(ABC):
             instance=self,
         )
 
-        if isinstance(file_name_resolved, str):
+        if isinstance(file_name_resolved, Path):
             if not overwrite and Path(file_name_resolved).exists():
                 raise FileExistsError(
                     f"File '{file_name_resolved}' already exists. " f"Use overwrite=True to overwrite it."
