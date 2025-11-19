@@ -258,7 +258,14 @@ class Simulator(ABC):
             **kwargs: Additional arguments for specific file formats.
         """
 
-    def save_data(self, data: Any, file_name: str | Path, overwrite: bool = False, **kwargs) -> None:
+    def save_data(
+        self,
+        data: Any,
+        file_name: str | Path,
+        output_directory: str | Path | None = None,
+        overwrite: bool = False,
+        **kwargs,
+    ) -> None:
         """Save data to a file.
 
         This method must be implemented by all simulator subclasses.
@@ -268,16 +275,18 @@ class Simulator(ABC):
             file_name: Output file path.
                 If the file_name contains placeholders (e.g., {{detector}}, {{duration}}),
                 they are filled by the attributes of the simulator.
+            output_directory: Optional output directory to prepend to the file name.
             overwrite: Whether to overwrite existing files.
             **kwargs: Additional arguments for specific file formats.
         """
         file_name_resolved = get_file_name_from_template(
             template=str(file_name),
             instance=self,
+            output_directory=output_directory,
         )
 
         if isinstance(file_name_resolved, Path):
-            if not overwrite and Path(file_name_resolved).exists():
+            if not overwrite and file_name_resolved.exists():
                 raise FileExistsError(
                     f"File '{file_name_resolved}' already exists. " f"Use overwrite=True to overwrite it."
                 )
@@ -296,7 +305,7 @@ class Simulator(ABC):
             for idx in np.ndindex(file_name_resolved.shape):
                 single_file_name = file_name_resolved[idx]
                 single_data = data[idx]
-                if not overwrite and Path(single_file_name).exists():
+                if not overwrite and single_file_name.exists():
                     raise FileExistsError(
                         f"File '{single_file_name}' already exists. " f"Use overwrite=True to overwrite it."
                     )
