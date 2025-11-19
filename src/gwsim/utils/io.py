@@ -63,7 +63,7 @@ def check_file_exist():
 
 def get_file_name_from_template(  # pylint: disable=too-many-locals
     template: str, instance: object, output_directory: str | Path | None = None, exclude: set[str] | None = None
-) -> str | NDArray[np.str_]:
+) -> Path | NDArray[Path]:
     """Get the file name(s) from a template string.
 
     The template string uses double curly brackets for placeholders (e.g., '{{ x }}-{{ y }}.txt').
@@ -155,4 +155,4 @@ def get_file_name_from_template(  # pylint: disable=too-many-locals
 
         return np.array(reshape_to_nested(results, lengths))
     # No arrays: return single string
-    return results[0] if results else ""
+    return results[0] if results else Path("")
