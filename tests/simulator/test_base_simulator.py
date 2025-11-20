@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -19,7 +20,7 @@ class MockSimulator(Simulator):
         """Return the current counter value."""
         return self.counter
 
-    def _save_data(self, data: int, file_name: str | Path, **kwargs) -> None:
+    def _save_data(self, data: int, file_name: str | Path | np.ndarray[Any, np.dtype[np.object_]], **kwargs) -> None:
         """Save data as JSON."""
         # Handle array of file names for multi-file saves
         if isinstance(file_name, np.ndarray):
