@@ -237,8 +237,12 @@ def create_plan_from_config(config: Config, checkpoint_dir: Path) -> SimulationP
     for simulator_name, simulator_config in config.simulators.items():
         # Determine number of batches for this simulator
         # This comes from simulator_arguments in globals_config (max_samples parameter)
-        # For now, default to 1 batch per simulator, but this can be customized
-        max_samples = getattr(simulator_config, "max_samples", 1)
+        # First check simulator-specific arguments, then fall back to global simulator_arguments
+        # Note: Keys in simulator_arguments may have hyphens (YAML style), so normalize them
+        global_sim_args = {k.replace("-", "_"): v for k, v in config.globals.simulator_arguments.items()}
+        local_sim_args = {k.replace("-", "_"): v for k, v in simulator_config.arguments.items()}
+
+        max_samples = local_sim_args.get("max_samples", global_sim_args.get("max_samples", 1))
 
         for batch_idx in range(max_samples):
             batch = SimulationBatch(
