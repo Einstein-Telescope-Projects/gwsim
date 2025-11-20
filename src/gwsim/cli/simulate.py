@@ -133,15 +133,23 @@ def update_metadata_index(
         raise
 
 
-def instantiate_simulator(simulator_config: SimulatorConfig, simulator_name: str | None = None) -> Simulator:
+def instantiate_simulator(
+    simulator_config: SimulatorConfig,
+    simulator_name: str | None = None,
+    global_simulator_arguments: dict[str, Any] | None = None,
+) -> Simulator:
     """Instantiate a simulator from configuration.
 
     Creates a single simulator instance that will be reused across multiple batches.
     The simulator maintains state (RNG, counters, etc.) across iterations.
 
+    Global simulator arguments are merged with simulator-specific arguments,
+    with simulator-specific arguments taking precedence.
+
     Args:
         simulator_config: Configuration for this simulator
         simulator_name: Name of the simulator (used for class path resolution)
+        global_simulator_arguments: Global fallback arguments for the simulator
 
     Returns:
         Instantiated Simulator
@@ -156,7 +164,15 @@ def instantiate_simulator(simulator_config: SimulatorConfig, simulator_name: str
     class_spec = resolve_class_path(class_spec, simulator_name)
 
     simulator_cls = import_attribute(class_spec)
-    simulator = simulator_cls(**simulator_config.arguments)
+
+    # Merge global and simulator-specific arguments
+    # Simulator-specific arguments override global defaults
+    if global_simulator_arguments:
+        merged_arguments = {**global_simulator_arguments, **simulator_config.arguments}
+    else:
+        merged_arguments = simulator_config.arguments
+
+    simulator = simulator_cls(**merged_arguments)
 
     logger.info("Instantiated simulator from class %s", class_spec)
     return simulator
@@ -405,7 +421,9 @@ def execute_plan(  # pylint: disable=too-many-locals
             logger.info("Starting simulator: %s with %d batches", simulator_name, len(batches))
 
             # Create ONE simulator instance for all batches of this simulator
-            simulator = instantiate_simulator(batches[0].simulator_config, simulator_name)
+            # Extract global simulator arguments from the first batch's global config
+            global_sim_args = batches[0].globals_config.simulator_arguments if batches else {}
+            simulator = instantiate_simulator(batches[0].simulator_config, simulator_name, global_sim_args)
 
             # Process batches sequentially, maintaining state across them
             for batch_idx, batch in enumerate(batches):
