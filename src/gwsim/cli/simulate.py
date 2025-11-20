@@ -15,7 +15,7 @@ import typer
 import yaml
 from tqdm import tqdm
 
-from gwsim.cli.utils.config import SimulatorConfig, load_config
+from gwsim.cli.utils.config import SimulatorConfig, load_config, resolve_class_path
 from gwsim.cli.utils.simulation_plan import (
     SimulationBatch,
     SimulationPlan,
@@ -120,7 +120,7 @@ def update_metadata_index(
         raise
 
 
-def instantiate_simulator(simulator_config: SimulatorConfig) -> Simulator:
+def instantiate_simulator(simulator_config: SimulatorConfig, simulator_name: str | None = None) -> Simulator:
     """Instantiate a simulator from configuration.
 
     Creates a single simulator instance that will be reused across multiple batches.
@@ -128,6 +128,7 @@ def instantiate_simulator(simulator_config: SimulatorConfig) -> Simulator:
 
     Args:
         simulator_config: Configuration for this simulator
+        simulator_name: Name of the simulator (used for class path resolution)
 
     Returns:
         Instantiated Simulator
@@ -137,6 +138,10 @@ def instantiate_simulator(simulator_config: SimulatorConfig) -> Simulator:
         TypeError: If simulator instantiation fails
     """
     class_spec = simulator_config.class_
+
+    # Resolve short class names to full paths
+    class_spec = resolve_class_path(class_spec, simulator_name)
+
     simulator_cls = import_attribute(class_spec)
     simulator = simulator_cls(**simulator_config.arguments)
 
@@ -381,7 +386,7 @@ def execute_plan(
             logger.info("Starting simulator: %s with %d batches", simulator_name, len(batches))
 
             # Create ONE simulator instance for all batches of this simulator
-            simulator = instantiate_simulator(batches[0].simulator_config)
+            simulator = instantiate_simulator(batches[0].simulator_config, simulator_name)
 
             # Process batches sequentially, maintaining state across them
             for batch_idx, batch in enumerate(batches):
