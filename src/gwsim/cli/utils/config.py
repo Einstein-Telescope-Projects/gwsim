@@ -225,7 +225,7 @@ def validate_config(config: dict) -> None:
     logger.info("Configuration validation passed")
 
 
-def resolve_class_path(class_spec: str, section_name: str) -> str:
+def resolve_class_path(class_spec: str, section_name: str | None) -> str:
     """Resolve class specification to full module path.
 
     Args:
@@ -239,7 +239,7 @@ def resolve_class_path(class_spec: str, section_name: str) -> str:
         resolve_class_path("WhiteNoise", "noise") -> "gwsim.noise.WhiteNoise"
         resolve_class_path("numpy.random.Generator", "noise") -> "numpy.random.Generator"
     """
-    if "." not in class_spec:
+    if "." not in class_spec and section_name:
         # Just a class name - use section_name as submodule, class imported in __init__.py
         return f"gwsim.{section_name}.{class_spec}"
     # Contains dots - assume it's a third-party package, use as-is
