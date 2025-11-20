@@ -61,6 +61,7 @@ repos:
             gwpy,
             pycbc,
             bilby,
+            pydantic,
           ]
 
   - repo: https://github.com/asottile/pyupgrade
