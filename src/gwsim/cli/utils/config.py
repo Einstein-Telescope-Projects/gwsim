@@ -87,7 +87,7 @@ def load_config(file_name: Path, encoding: str = "utf-8") -> dict:
     if not file_name.exists():
         raise FileNotFoundError(f"Configuration file not found: {file_name}")
 
-    with open(file_name, encoding=encoding) as f:
+    with file_name.open(encoding=encoding) as f:
         config = yaml.safe_load(f)
 
     # Validate the loaded configuration
