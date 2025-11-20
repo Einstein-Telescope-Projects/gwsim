@@ -302,16 +302,24 @@ def get_output_directories(
 
     # Simulator-specific overrides
     if simulator_config.output.output_directory:
-        output_directory = Path(simulator_config.output.output_directory)
+        output_path = Path(simulator_config.output.output_directory)
+        # Prepend working_dir if path is relative
+        output_directory = output_path if output_path.is_absolute() else working_dir / output_path
     elif globals_config.output_directory:
-        output_directory = Path(globals_config.output_directory)
+        output_path = Path(globals_config.output_directory)
+        # Prepend working_dir if path is relative
+        output_directory = output_path if output_path.is_absolute() else working_dir / output_path
     else:
         output_directory = working_dir / "output" / simulator_name
 
     if simulator_config.output.metadata_directory:
-        metadata_directory = Path(simulator_config.output.metadata_directory)
+        metadata_path = Path(simulator_config.output.metadata_directory)
+        # Prepend working_dir if path is relative
+        metadata_directory = metadata_path if metadata_path.is_absolute() else working_dir / metadata_path
     elif globals_config.metadata_directory:
-        metadata_directory = Path(globals_config.metadata_directory)
+        metadata_path = Path(globals_config.metadata_directory)
+        # Prepend working_dir if path is relative
+        metadata_directory = metadata_path if metadata_path.is_absolute() else working_dir / metadata_path
     else:
         metadata_directory = working_dir / "metadata" / simulator_name
 
