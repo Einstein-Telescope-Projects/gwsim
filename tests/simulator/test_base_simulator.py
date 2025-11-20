@@ -21,8 +21,35 @@ class MockSimulator(Simulator):
 
     def _save_data(self, data: int, file_name: str | Path, **kwargs) -> None:
         """Save data as JSON."""
-        with Path(file_name).open("w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f)
+        # Handle array of file names for multi-file saves
+        if isinstance(file_name, np.ndarray):
+            # For arrays, recursively save each element with its corresponding data
+            flat_files = file_name.flatten()
+
+            if isinstance(data, np.ndarray):
+                flat_data = data.flatten()
+                # Ensure data and file counts match
+                if len(flat_data) != len(flat_files):
+                    raise ValueError(f"Data size ({len(flat_data)}) must match file count ({len(flat_files)})")
+            else:
+                # Single data value for single file
+                if len(flat_files) != 1:
+                    raise ValueError(f"Single data value requires single file, got {len(flat_files)} files")
+                flat_data = [data]
+
+            for f, d in zip(flat_files, flat_data):
+                # Convert numpy scalars to Python native types for YAML serialization
+                if isinstance(d, np.generic):
+                    d = d.item()
+                with Path(f).open("w", encoding="utf-8") as fp:
+                    yaml.safe_dump(d, fp)
+        else:
+            # Handle single file
+            # Convert numpy scalars to Python native types for YAML serialization
+            if isinstance(data, np.generic):
+                data = data.item()
+            with Path(file_name).open("w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f)
 
 
 @pytest.fixture
@@ -271,16 +298,14 @@ class TestSimulatorSaveData:
                 assert yaml.safe_load(f) == 4
 
     def test_save_data_array_shape_mismatch(self, simulator_with_attrs: MockSimulator):
-        """Test save_data with mismatched data shape."""
+        """Test save_data with mismatched data shape raises ValueError."""
         sim = simulator_with_attrs
         # Wrong shape: should be (2, 2) but is (2,)
         data = np.array([1, 2])
 
         with tempfile.TemporaryDirectory() as temp_dir:
             template = f"{temp_dir}/{{{{detector}}}}-{{{{duration}}}}.yaml"
-            with pytest.raises(
-                ValueError, match="Data must have equal or more dimensions than the resolved file names"
-            ):
+            with pytest.raises(ValueError, match=r"Data size .* must match file count"):
                 sim.save_data(data, template)
 
     def test_save_data_overwrite_false(self, simulator: MockSimulator):
