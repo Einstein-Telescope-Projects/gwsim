@@ -401,17 +401,15 @@ class TestCreatePlanFromConfig:
         globals_config: GlobalsConfig,
         simulator_config: SimulatorConfig,
     ):
-        """Test creating a plan where a simulator generates multiple batches."""
+        """Test creating a plan where a simulator generates multiple batches via global simulator_arguments."""
         from gwsim.cli.utils.config import Config
 
-        # Mock simulator config with max_samples attribute
-        sim_config = MagicMock(spec=SimulatorConfig)
-        sim_config.max_samples = 3
-        sim_config.model_dump = simulator_config.model_dump
+        # Create a globals_config with max_samples in simulator_arguments
+        globals_config.simulator_arguments = {"max_samples": 3}
 
         config = MagicMock(spec=Config)
         config.globals = globals_config
-        config.simulators = {"noise": sim_config}
+        config.simulators = {"noise": simulator_config}
 
         plan = create_plan_from_config(config, Path("checkpoints"))
 
@@ -419,6 +417,75 @@ class TestCreatePlanFromConfig:
         noise_batches = plan.get_batches_for_simulator("noise")
         assert len(noise_batches) == 3
         assert all(b.batch_index == i for i, b in enumerate(noise_batches))
+
+    def test_create_plan_max_samples_from_simulator_arguments(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """Test that max_samples from globals.simulator_arguments is used for plan creation."""
+        from gwsim.cli.utils.config import Config
+
+        # Set max_samples in global simulator_arguments
+        globals_config.simulator_arguments = {"max_samples": 5}
+        simulator_config.arguments = {}
+
+        config = MagicMock(spec=Config)
+        config.globals = globals_config
+        config.simulators = {"signal": simulator_config}
+
+        plan = create_plan_from_config(config, Path("checkpoints"))
+
+        # Should create 5 batches based on global max_samples
+        assert plan.total_batches == 5
+        signal_batches = plan.get_batches_for_simulator("signal")
+        assert len(signal_batches) == 5
+
+    def test_create_plan_max_samples_simulator_override(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """Test that simulator-specific max_samples overrides global max_samples."""
+        from gwsim.cli.utils.config import Config
+
+        # Set global max_samples to 3, but simulator-specific to 2
+        globals_config.simulator_arguments = {"max_samples": 3}
+        simulator_config.arguments = {"max_samples": 2}
+
+        config = MagicMock(spec=Config)
+        config.globals = globals_config
+        config.simulators = {"noise": simulator_config}
+
+        plan = create_plan_from_config(config, Path("checkpoints"))
+
+        # Should create 2 batches (simulator-specific overrides global)
+        assert plan.total_batches == 2
+        noise_batches = plan.get_batches_for_simulator("noise")
+        assert len(noise_batches) == 2
+
+    def test_create_plan_max_samples_with_hyphenated_keys(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """Test that hyphenated keys in simulator_arguments (YAML style) are normalized."""
+        from gwsim.cli.utils.config import Config
+
+        # Use hyphenated keys like they come from YAML parsing
+        globals_config.simulator_arguments = {"max-samples": 4, "sampling-frequency": 2048}
+        simulator_config.arguments = {}
+
+        config = MagicMock(spec=Config)
+        config.globals = globals_config
+        config.simulators = {"noise": simulator_config}
+
+        plan = create_plan_from_config(config, Path("checkpoints"))
+
+        # Should create 4 batches (hyphenated "max-samples" should be normalized)
+        assert plan.total_batches == 4
+        noise_batches = plan.get_batches_for_simulator("noise")
+        assert len(noise_batches) == 4
 
 
 # ============================================================================
