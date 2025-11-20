@@ -11,10 +11,93 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from gwsim.utils.io import check_file_overwrite
 
 logger = logging.getLogger("gwsim")
+
+
+class SimulatorOutputConfig(BaseModel):
+    """Configuration for simulator output handling."""
+
+    file_name: str = Field(..., description="Output file name template (supports {{ variable }} placeholders)")
+    arguments: dict[str, Any] = Field(
+        default_factory=dict, description="Output-specific arguments (e.g., channel name)"
+    )
+    output_directory: str | None = Field(
+        default=None, description="Optional directory override for this simulator's output"
+    )
+    metadata_directory: str | None = Field(
+        default=None, description="Optional directory override for this simulator's metadata"
+    )
+
+    # Allow unknown fields
+    model_config = ConfigDict(extra="allow")
+
+
+class SimulatorConfig(BaseModel):
+    """Configuration for a single simulator."""
+
+    class_: str = Field(alias="class", description="Simulator class name or full import path")
+    arguments: dict[str, Any] = Field(default_factory=dict, description="Arguments passed to simulator constructor")
+    output: SimulatorOutputConfig = Field(
+        default_factory=lambda: SimulatorOutputConfig(file_name="output-{{counter}}.hdf5"),
+        description="Output configuration for this simulator",
+    )
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    @field_validator("class_", mode="before")
+    @classmethod
+    def validate_class_name(cls, v: str) -> str:
+        """Validate class specification is non-empty."""
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("'class' must be a non-empty string")
+        return v
+
+
+class GlobalsConfig(BaseModel):
+    """Global configuration applying to all simulators."""
+
+    working_directory: str = Field(
+        default=".", alias="working-directory", description="Base working directory for all output"
+    )
+    output_directory: str | None = Field(
+        default=None, alias="output-directory", description="Default output directory (can be overridden per simulator)"
+    )
+    metadata_directory: str | None = Field(
+        default=None,
+        alias="metadata-directory",
+        description="Default metadata directory (can be overridden per simulator)",
+    )
+    sampling_frequency: float | None = Field(
+        default=None, alias="sampling-frequency", description="Default sampling frequency in Hz"
+    )
+    duration: float | None = Field(default=None, description="Default segment duration in seconds")
+    max_samples: int | None = Field(
+        default=None, alias="max-samples", description="Maximum number of segments to generate"
+    )
+    seed: int | None = Field(default=None, description="Base seed for random number generation")
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+class Config(BaseModel):
+    """Top-level configuration model."""
+
+    globals: GlobalsConfig = Field(default_factory=GlobalsConfig, description="Global configuration")
+    simulators: dict[str, SimulatorConfig] = Field(..., description="Dictionary of simulators")
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    @field_validator("simulators", mode="before")
+    @classmethod
+    def validate_simulators_not_empty(cls, v: dict[str, Any]) -> dict[str, Any]:
+        """Ensure simulators section is not empty."""
+        if not v:
+            raise ValueError("'simulators' section cannot be empty")
+        return v
 
 
 def validate_config(config: dict) -> None:
