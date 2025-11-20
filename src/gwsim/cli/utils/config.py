@@ -5,7 +5,6 @@ Utility functions to load and save configuration files.
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -317,86 +316,3 @@ def get_output_directories(
         metadata_directory = working_dir / "metadata" / simulator_name
 
     return output_directory, metadata_directory
-
-
-def normalize_config(config: dict) -> dict:
-    """Normalize configuration ensuring proper structure.
-
-    Args:
-        config: Raw configuration dictionary
-
-    Returns:
-        Normalized configuration with 'globals' and 'simulators' sections
-    """
-    # Ensure we have the required structure
-    if "simulators" not in config:
-        raise ValueError("Configuration must contain 'simulators' section")
-
-    # Make a copy to avoid modifying the input
-    normalized = deepcopy(config)
-
-    # Ensure we have a globals section (can be empty)
-    if "globals" not in normalized:
-        normalized["globals"] = {}
-
-    # Check each simulator has required fields
-    for name, sim_config in normalized["simulators"].items():
-        if "class" not in sim_config:
-            raise ValueError(f"Simulator '{name}' missing required 'class' field")
-        if "arguments" not in sim_config:
-            sim_config["arguments"] = {}
-        if "output" not in sim_config:
-            sim_config["output"] = {}
-        if "file_name" not in sim_config["output"]:
-            sim_config["output"]["file_name"] = f"{name}-{{{{ counter }}}}.hdf5"
-        if "arguments" not in sim_config["output"]:
-            sim_config["output"]["arguments"] = {}
-
-    return normalized
-
-
-def process_config(config: dict) -> dict:
-    """Process configuration with parameter inheritance but preserve runtime templates.
-
-    Args:
-        config: Raw configuration dictionary
-
-    Returns:
-        Processed configuration ready for use
-    """
-    # Normalize configuration structure
-    normalized = normalize_config(config)
-
-    # Extract globals
-    globals_config = normalized.get("globals", {})
-
-    # Process each simulator
-    processed_simulators = {}
-    for name, simulator_config in normalized["simulators"].items():
-        # Get existing arguments or empty dict
-        existing_args = simulator_config.get("arguments", {})
-
-        # Get existing output arguments or empty dict
-        existing_output = simulator_config.get("output", {})
-        existing_output_args = existing_output.get("arguments", {})
-
-        # Merge parameters for simulator arguments
-        merged_args = merge_parameters(globals_config, existing_args)
-
-        # Merge parameters for output arguments
-        merged_output_args = merge_parameters(globals_config, existing_output_args)
-
-        # Keep the original simulator config structure but update arguments
-        processed_config = simulator_config.copy()
-
-        # Update arguments with merged parameters
-        processed_config["arguments"] = merged_args
-
-        # Update output arguments with merged parameters
-        if "output" not in processed_config:
-            processed_config["output"] = {}
-        processed_config["output"]["arguments"] = merged_output_args
-
-        processed_simulators[name] = processed_config
-
-    return {"globals": globals_config, "simulators": processed_simulators}
