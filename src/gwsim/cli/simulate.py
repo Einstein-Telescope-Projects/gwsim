@@ -172,7 +172,10 @@ def instantiate_simulator(
     else:
         merged_arguments = simulator_config.arguments
 
-    simulator = simulator_cls(**merged_arguments)
+    # Normalize keys: convert hyphens to underscores (YAML uses hyphens, Python uses underscores)
+    normalized_arguments = {k.replace("-", "_"): v for k, v in merged_arguments.items()}
+
+    simulator = simulator_cls(**normalized_arguments)
 
     logger.info("Instantiated simulator from class %s", class_spec)
     return simulator
