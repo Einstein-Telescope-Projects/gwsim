@@ -204,11 +204,18 @@ class Simulator(ABC):
 
         self.state = state
 
-    def save_metadata(self, file_name: str | Path, overwrite: bool = False, encoding: str = "utf-8") -> None:
+    def save_metadata(
+        self,
+        file_name: str | Path,
+        output_directory: str | Path | None = None,
+        overwrite: bool = False,
+        encoding: str = "utf-8",
+    ) -> None:
         """Save simulator metadata to file.
 
         Args:
             file_name: Output file path (must have .yml or .yaml extension).
+            output_directory: Optional output directory to prepend to the file name.
             overwrite: Whether to overwrite existing files.
             encoding: File encoding to use when writing the file.
 
@@ -216,15 +223,21 @@ class Simulator(ABC):
             ValueError: If file extension is not .yml or .yaml.
             FileExistsError: If file exists and overwrite=False.
         """
-        file_name = Path(file_name)
+        file_name_resolved = get_file_name_from_template(
+            template=str(file_name),
+            instance=self,
+            output_directory=output_directory,
+        )
+        if not isinstance(file_name_resolved, Path):
+            raise ValueError("Resolved file name for metadata must be a single Path.")
 
-        if file_name.suffix.lower() not in [".yml", ".yaml"]:
-            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: [.yml, .yaml]")
+        if file_name_resolved.suffix.lower() not in [".yml", ".yaml"]:
+            raise ValueError(f"Unsupported file format: {file_name_resolved.suffix}. Supported: [.yml, .yaml]")
 
-        if not overwrite and file_name.exists():
-            raise FileExistsError(f"File '{file_name}' already exists. Use overwrite=True to overwrite it.")
+        if not overwrite and file_name_resolved.exists():
+            raise FileExistsError(f"File '{file_name_resolved}' already exists. Use overwrite=True to overwrite it.")
 
-        with file_name.open("w", encoding=encoding) as f:
+        with file_name_resolved.open("w", encoding=encoding) as f:
             yaml.safe_dump(self.metadata, f)
 
     def update_state(self) -> None:
@@ -246,7 +259,7 @@ class Simulator(ABC):
         """
 
     @abstractmethod
-    def _save_data(self, data: Any, file_name: str | Path, **kwargs) -> None:
+    def _save_data(self, data: Any, file_name: str | Path | np.ndarray[Any, np.dtype[np.object_]], **kwargs) -> None:
         """Internal method to save data to a file.
 
         This method must be implemented by all simulator subclasses.
@@ -277,6 +290,7 @@ class Simulator(ABC):
                 they are filled by the attributes of the simulator.
             output_directory: Optional output directory to prepend to the file name.
             overwrite: Whether to overwrite existing files.
+            save_metadata: Whether to save metadata alongside the data.
             **kwargs: Additional arguments for specific file formats.
         """
         file_name_resolved = get_file_name_from_template(
@@ -285,28 +299,17 @@ class Simulator(ABC):
             output_directory=output_directory,
         )
 
-        if isinstance(file_name_resolved, Path):
-            if not overwrite and file_name_resolved.exists():
-                raise FileExistsError(
-                    f"File '{file_name_resolved}' already exists. " f"Use overwrite=True to overwrite it."
-                )
-            self._save_data(data=data, file_name=file_name_resolved, **kwargs)
-        else:
-            # Compare the shape of data with the shape of file_name_resolved
-            if not hasattr(data, "shape"):
-                raise ValueError("Data must have a 'shape' attribute when file_name resolves to multiple files.")
-            # The dimensions of data must be greater than or equal to those of file_name_resolved
-            if len(data.shape) < len(file_name_resolved.shape):
-                raise ValueError("Data must have equal or more dimensions than the resolved file names.")
-            # Check the leading dimensions match
-            if data.shape[: len(file_name_resolved.shape)] != file_name_resolved.shape:
-                raise ValueError("Leading dimensions of data must match the shape of the resolved file names.")
-            # Save each file separately
-            for idx in np.ndindex(file_name_resolved.shape):
-                single_file_name = file_name_resolved[idx]
-                single_data = data[idx]
-                if not overwrite and single_file_name.exists():
+        if not overwrite:
+            if isinstance(file_name_resolved, Path):
+                if file_name_resolved.exists():
                     raise FileExistsError(
-                        f"File '{single_file_name}' already exists. " f"Use overwrite=True to overwrite it."
+                        f"File '{file_name_resolved}' already exists. " f"Use overwrite=True to overwrite it."
                     )
-                self._save_data(data=single_data, file_name=single_file_name, **kwargs)
+            else:
+                for single_file in file_name_resolved.flatten():
+                    if single_file.exists():
+                        raise FileExistsError(
+                            f"File '{single_file}' already exists. " f"Use overwrite=True to overwrite it."
+                        )
+
+        self._save_data(data=data, file_name=file_name_resolved, **kwargs)
