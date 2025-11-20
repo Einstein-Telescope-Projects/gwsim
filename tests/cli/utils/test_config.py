@@ -6,29 +6,414 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from gwsim.cli.utils.config import (
-    expand_config_templates,
-    expand_detector_templates,
-    expand_templates,
+    Config,
+    GlobalsConfig,
+    SimulatorConfig,
+    SimulatorOutputConfig,
+    get_output_directories,
     load_config,
     merge_parameters,
-    normalize_config,
-    process_config,
     resolve_class_path,
     save_config,
     validate_config,
 )
 
 
-class TestValidateConfig:
-    """Test configuration validation."""
+class TestSimulatorOutputConfig:
+    """Test SimulatorOutputConfig dataclass."""
+
+    def test_valid_output_config(self):
+        """Test creating a valid output config."""
+        config = SimulatorOutputConfig(file_name="output.gwf")
+        assert config.file_name == "output.gwf"
+        assert config.arguments == {}
+        assert config.output_directory is None
+        assert config.metadata_directory is None
+
+    def test_output_config_with_arguments(self):
+        """Test output config with arguments."""
+        config = SimulatorOutputConfig(
+            file_name="{{ detector }}-{{ start_time }}.gwf",
+            arguments={"channel": "STRAIN"},
+        )
+        assert config.arguments == {"channel": "STRAIN"}
+
+    def test_output_config_with_directories(self):
+        """Test output config with directory overrides."""
+        config = SimulatorOutputConfig(
+            file_name="output.gwf",
+            output_directory="/custom/output",
+            metadata_directory="/custom/metadata",
+        )
+        assert config.output_directory == "/custom/output"
+        assert config.metadata_directory == "/custom/metadata"
+
+    def test_output_config_missing_file_name(self):
+        """Test that file_name is required."""
+        with pytest.raises(ValidationError):
+            SimulatorOutputConfig()
+
+
+class TestSimulatorConfig:
+    """Test SimulatorConfig dataclass."""
+
+    def test_valid_simulator_config(self):
+        """Test creating a valid simulator config."""
+        config = SimulatorConfig(class_="WhiteNoise")
+        assert config.class_ == "WhiteNoise"
+        assert config.arguments == {}
+
+    def test_simulator_config_with_arguments(self):
+        """Test simulator config with arguments."""
+        config = SimulatorConfig(
+            class_="WhiteNoise",
+            arguments={"seed": 42, "detectors": ["H1", "L1"]},
+        )
+        assert config.arguments["seed"] == 42
+        assert config.arguments["detectors"] == ["H1", "L1"]
+
+    def test_simulator_config_with_output(self):
+        """Test simulator config with output configuration."""
+        config = SimulatorConfig(
+            class_="WhiteNoise",
+            output=SimulatorOutputConfig(file_name="noise.gwf"),
+        )
+        assert config.output.file_name == "noise.gwf"
+
+    def test_simulator_config_class_alias(self):
+        """Test that 'class' alias works (YAML compatibility)."""
+        # Using alias directly (as would come from YAML)
+        config = SimulatorConfig.model_validate({"class": "WhiteNoise"})
+        assert config.class_ == "WhiteNoise"
+
+    def test_simulator_config_missing_class(self):
+        """Test that class is required."""
+        with pytest.raises(ValidationError):
+            SimulatorConfig()
+
+
+class TestGlobalsConfig:
+    """Test GlobalsConfig dataclass."""
+
+    def test_default_globals_config(self):
+        """Test GlobalsConfig with default values."""
+        config = GlobalsConfig()
+        assert config.working_directory == "."
+        assert config.output_directory is None
+        assert config.metadata_directory is None
+        assert config.sampling_frequency is None
+        assert config.duration is None
+
+    def test_globals_config_with_values(self):
+        """Test GlobalsConfig with specified values."""
+        config = GlobalsConfig(
+            working_directory="/data",
+            sampling_frequency=4096,
+            duration=64,
+            seed=42,
+        )
+        assert config.working_directory == "/data"
+        assert config.sampling_frequency == 4096
+        assert config.duration == 64
+        assert config.seed == 42
+
+    def test_globals_config_with_aliases(self):
+        """Test that YAML aliases work (snake-case keys)."""
+        config = GlobalsConfig.model_validate(
+            {
+                "working-directory": "/work",
+                "sampling-frequency": 2048,
+                "output-directory": "/out",
+                "metadata-directory": "/meta",
+                "max-samples": 10,
+            }
+        )
+        assert config.working_directory == "/work"
+        assert config.sampling_frequency == 2048
+        assert config.output_directory == "/out"
+        assert config.metadata_directory == "/meta"
+        assert config.max_samples == 10
+
+    def test_globals_config_serialization(self):
+        """Test YAML serialization with aliases."""
+        config = GlobalsConfig(
+            working_directory="/data",
+            sampling_frequency=4096,
+        )
+        # Serialize with aliases for YAML export
+        data = config.model_dump(by_alias=True, exclude_none=True)
+        assert data["working-directory"] == "/data"
+        assert data["sampling-frequency"] == 4096
+        assert "output-directory" not in data  # None values excluded
+
+
+class TestConfig:
+    """Test Config (top-level) dataclass."""
 
     def test_valid_config(self):
+        """Test creating a valid Config."""
+        config = Config(simulators={"noise": SimulatorConfig(class_="WhiteNoise", arguments={"seed": 42})})
+        assert "noise" in config.simulators
+        assert config.simulators["noise"].class_ == "WhiteNoise"
+        assert isinstance(config.globals, GlobalsConfig)
+
+    def test_config_with_globals(self):
+        """Test Config with explicit globals."""
+        config = Config(
+            globals=GlobalsConfig(working_directory="/data"),
+            simulators={"noise": SimulatorConfig(class_="WhiteNoise")},
+        )
+        assert config.globals.working_directory == "/data"
+
+    def test_config_missing_simulators(self):
+        """Test that simulators field is required."""
+        with pytest.raises(ValidationError):
+            Config()
+
+    def test_config_empty_simulators(self):
+        """Test that simulators cannot be empty."""
+        with pytest.raises(ValidationError, match=r"simulators.*cannot be empty"):
+            Config(simulators={})
+
+    def test_config_multiple_simulators(self):
+        """Test Config with multiple simulators."""
+        config = Config(
+            simulators={
+                "noise": SimulatorConfig(class_="WhiteNoise"),
+                "signal": SimulatorConfig(class_="SignalSimulator"),
+            }
+        )
+        assert len(config.simulators) == 2
+        assert "noise" in config.simulators
+        assert "signal" in config.simulators
+
+    def test_config_serialization(self):
+        """Test Config serialization for YAML export."""
+        config = Config(
+            globals=GlobalsConfig(
+                working_directory=".",
+                sampling_frequency=2048,
+            ),
+            simulators={"noise": SimulatorConfig(class_="WhiteNoise", arguments={"seed": 42})},
+        )
+        # Serialize with aliases
+        data = config.model_dump(by_alias=True, exclude_none=True)
+        assert data["globals"]["sampling-frequency"] == 2048
+        assert data["simulators"]["noise"]["class"] == "WhiteNoise"
+
+
+class TestLoadConfig:
+    """Test load_config function."""
+
+    def test_load_valid_config(self):
+        """Test loading a valid configuration file."""
+        config_yaml = """\
+globals:
+  working-directory: .
+  sampling-frequency: 2048
+simulators:
+  noise:
+    class: WhiteNoise
+    arguments:
+      seed: 42
+      detectors:
+        - H1
+        - L1
+    output:
+      file_name: "{{ detectors }}-{{ start_time }}-{{ duration }}.gwf"
+      arguments:
+        channel: STRAIN
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(config_yaml)
+            f.flush()
+            config_path = Path(f.name)
+
+        try:
+            config = load_config(config_path)
+            assert isinstance(config, Config)
+            assert config.globals.sampling_frequency == 2048
+            assert "noise" in config.simulators
+            assert config.simulators["noise"].class_ == "WhiteNoise"
+        finally:
+            config_path.unlink()
+
+    def test_load_config_file_not_found(self):
+        """Test loading non-existent config file raises error."""
+        with pytest.raises(FileNotFoundError):
+            load_config(Path("/nonexistent/config.yaml"))
+
+    def test_load_config_invalid_yaml(self):
+        """Test loading invalid YAML raises error."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write("invalid: yaml: content: [")
+            f.flush()
+            config_path = Path(f.name)
+
+        try:
+            with pytest.raises(ValueError, match="Failed to parse YAML"):
+                load_config(config_path)
+        finally:
+            config_path.unlink()
+
+    def test_load_config_missing_simulators(self):
+        """Test loading config without simulators raises error."""
+        config_yaml = "globals:\n  working-directory: .\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(config_yaml)
+            f.flush()
+            config_path = Path(f.name)
+
+        try:
+            with pytest.raises(ValueError, match="Configuration validation failed"):
+                load_config(config_path)
+        finally:
+            config_path.unlink()
+
+
+class TestSaveConfig:
+    """Test save_config function."""
+
+    def test_save_config_creates_file(self):
+        """Test that save_config creates a new file."""
+        config = Config(
+            globals=GlobalsConfig(working_directory="."),
+            simulators={"noise": SimulatorConfig(class_="WhiteNoise")},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            save_config(config_path, config)
+            assert config_path.exists()
+
+    def test_save_config_contains_correct_data(self):
+        """Test that saved config contains correct YAML data."""
+        config = Config(
+            globals=GlobalsConfig(
+                working_directory="/data",
+                sampling_frequency=4096,
+            ),
+            simulators={
+                "noise": SimulatorConfig(
+                    class_="WhiteNoise",
+                    arguments={"seed": 42},
+                )
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            save_config(config_path, config)
+
+            # Load and verify
+            with open(config_path) as f:
+                data = yaml.safe_load(f)
+            assert data["globals"]["working-directory"] == "/data"
+            assert data["globals"]["sampling-frequency"] == 4096
+            assert data["simulators"]["noise"]["class"] == "WhiteNoise"
+
+    def test_save_config_file_exists_without_overwrite(self):
+        """Test that save_config raises error if file exists and overwrite=False."""
+        config = Config(simulators={"noise": SimulatorConfig(class_="WhiteNoise")})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            config_path.touch()
+            with pytest.raises(FileExistsError):
+                save_config(config_path, config, overwrite=False)
+
+    def test_save_config_overwrites_with_flag(self):
+        """Test that save_config overwrites when overwrite=True."""
+        config = Config(simulators={"noise": SimulatorConfig(class_="WhiteNoise")})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            config_path.write_text("old content")
+            save_config(config_path, config, overwrite=True)
+            # Verify new content
+            content = config_path.read_text()
+            assert "WhiteNoise" in content
+            assert "old content" not in content
+
+    def test_save_config_creates_backup(self):
+        """Test that save_config creates backup when overwriting."""
+        config = Config(simulators={"noise": SimulatorConfig(class_="WhiteNoise")})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            config_path.write_text("old content")
+            save_config(config_path, config, overwrite=True, backup=True)
+            backup_path = config_path.with_suffix(".yaml.backup")
+            assert backup_path.exists()
+            assert backup_path.read_text() == "old content"
+
+
+class TestResolveClassPath:
+    """Test resolve_class_path function."""
+
+    def test_resolve_class_path_simple_name(self):
+        """Test resolving simple class name."""
+        path = resolve_class_path("WhiteNoise", "noise")
+        assert path == "gwsim.noise.WhiteNoise"
+
+    def test_resolve_class_path_simple_signal(self):
+        """Test resolving simple class name in signal section."""
+        path = resolve_class_path("SignalSimulator", "signal")
+        assert path == "gwsim.signal.SignalSimulator"
+
+    def test_resolve_class_path_full_path(self):
+        """Test resolving full import path."""
+        path = resolve_class_path("numpy.random.Generator", "noise")
+        assert path == "numpy.random.Generator"
+
+    def test_resolve_class_path_third_party(self):
+        """Test resolving third-party class path."""
+        path = resolve_class_path("scipy.stats.norm", "noise")
+        assert path == "scipy.stats.norm"
+
+
+class TestMergeParameters:
+    """Test merge_parameters function."""
+
+    def test_merge_parameters_empty_global(self):
+        """Test merging with empty global config."""
+        globals_cfg = GlobalsConfig()
+        sim_args = {"seed": 42}
+        merged = merge_parameters(globals_cfg, sim_args)
+        assert merged["seed"] == 42
+        assert merged["working-directory"] == "."  # Default from globals
+
+    def test_merge_parameters_with_values(self):
+        """Test merging with filled global config."""
+        globals_cfg = GlobalsConfig(
+            working_directory="/data",
+            sampling_frequency=4096,
+            seed=0,
+        )
+        sim_args = {"seed": 42}  # Override seed
+        merged = merge_parameters(globals_cfg, sim_args)
+        assert merged["seed"] == 42  # Simulator overrides
+        assert merged["sampling-frequency"] == 4096  # From globals
+        assert merged["working-directory"] == "/data"  # From globals
+
+    def test_merge_parameters_simulator_wins(self):
+        """Test that simulator parameters take precedence."""
+        globals_cfg = GlobalsConfig(
+            sampling_frequency=2048,
+            duration=64,
+        )
+        sim_args = {"sampling-frequency": 4096}
+        merged = merge_parameters(globals_cfg, sim_args)
+        # Simulator value should win
+        assert merged["sampling-frequency"] == 4096
+        assert merged["duration"] == 64
+
+
+class TestValidateConfig:
+    """Test validate_config function."""
+
+    def test_validate_config_valid(self):
         """Test validation of a valid configuration."""
         config = {
             "globals": {"sampling_frequency": 4096},
@@ -43,514 +428,187 @@ class TestValidateConfig:
         # Should not raise
         validate_config(config)
 
-    def test_missing_simulators_section(self):
+    def test_validate_config_missing_simulators(self):
         """Test validation fails when simulators section is missing."""
         config = {"globals": {}}
         with pytest.raises(ValueError, match="Must contain 'simulators' section"):
             validate_config(config)
 
-    def test_empty_simulators_section(self):
+    def test_validate_config_empty_simulators(self):
         """Test validation fails when simulators section is empty."""
         config = {"simulators": {}}
         with pytest.raises(ValueError, match="'simulators' section cannot be empty"):
             validate_config(config)
 
-    def test_invalid_simulators_type(self):
+    def test_validate_config_invalid_simulators_type(self):
         """Test validation fails when simulators is not a dict."""
         config = {"simulators": ["noise"]}
         with pytest.raises(ValueError, match="'simulators' must be a dictionary"):
             validate_config(config)
 
-    def test_invalid_simulator_config_type(self):
+    def test_validate_config_invalid_simulator_config_type(self):
         """Test validation fails when simulator config is not a dict."""
         config = {"simulators": {"noise": "invalid"}}
         with pytest.raises(ValueError, match="configuration must be a dictionary"):
             validate_config(config)
 
-    def test_missing_class_field(self):
+    def test_validate_config_missing_class_field(self):
         """Test validation fails when class field is missing."""
         config = {"simulators": {"noise": {"arguments": {}}}}
         with pytest.raises(ValueError, match="missing required 'class' field"):
             validate_config(config)
 
-    def test_invalid_class_field(self):
+    def test_validate_config_invalid_class_field(self):
         """Test validation fails when class field is invalid."""
         config = {"simulators": {"noise": {"class": ""}}}
         with pytest.raises(ValueError, match="'class' must be a non-empty string"):
             validate_config(config)
 
-    def test_invalid_arguments_field(self):
+    def test_validate_config_invalid_arguments_field(self):
         """Test validation fails when arguments field is invalid."""
         config = {"simulators": {"noise": {"class": "WhiteNoise", "arguments": "invalid"}}}
         with pytest.raises(ValueError, match="'arguments' must be a dictionary"):
             validate_config(config)
 
-    def test_invalid_output_field(self):
+    def test_validate_config_invalid_output_field(self):
         """Test validation fails when output field is invalid."""
         config = {"simulators": {"noise": {"class": "WhiteNoise", "output": "invalid"}}}
         with pytest.raises(ValueError, match="'output' must be a dictionary"):
             validate_config(config)
 
-    def test_invalid_globals_field(self):
+    def test_validate_config_invalid_globals_field(self):
         """Test validation fails when globals field is invalid."""
         config = {"globals": "invalid", "simulators": {"noise": {"class": "WhiteNoise"}}}
         with pytest.raises(ValueError, match="'globals' must be a dictionary"):
             validate_config(config)
 
 
-class TestLoadConfig:
-    """Test configuration loading."""
+class TestGetOutputDirectories:
+    """Test get_output_directories function."""
 
-    def test_load_valid_config(self):
-        """Test loading a valid configuration file."""
-        config_data = {
-            "globals": {"sampling_frequency": 4096},
-            "simulators": {"noise": {"class": "WhiteNoise"}},
-        }
+    def test_get_output_directories_defaults(self):
+        """Test directory resolution with all defaults."""
+        globals_cfg = GlobalsConfig(working_directory="/work")
+        sim_cfg = SimulatorConfig(class_="Noise")
+        out_dir, meta_dir = get_output_directories(globals_cfg, sim_cfg, "noise")
+        assert out_dir == Path("/work/output/noise")
+        assert meta_dir == Path("/work/metadata/noise")
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.safe_dump(config_data, f)
-            config_path = Path(f.name)
+    def test_get_output_directories_global_override(self):
+        """Test directory resolution with global override."""
+        globals_cfg = GlobalsConfig(
+            working_directory="/work",
+            output_directory="/global/output",
+            metadata_directory="/global/metadata",
+        )
+        sim_cfg = SimulatorConfig(class_="Noise")
+        out_dir, meta_dir = get_output_directories(globals_cfg, sim_cfg, "noise")
+        assert out_dir == Path("/global/output")
+        assert meta_dir == Path("/global/metadata")
 
-        try:
+    def test_get_output_directories_simulator_override(self):
+        """Test directory resolution with simulator-specific override."""
+        globals_cfg = GlobalsConfig(
+            working_directory="/work",
+            output_directory="/global/output",
+        )
+        sim_cfg = SimulatorConfig(
+            class_="Noise",
+            output=SimulatorOutputConfig(
+                file_name="noise.gwf",
+                output_directory="/custom/noise",
+                metadata_directory="/custom/noise/meta",
+            ),
+        )
+        out_dir, meta_dir = get_output_directories(globals_cfg, sim_cfg, "noise")
+        assert out_dir == Path("/custom/noise")
+        assert meta_dir == Path("/custom/noise/meta")
+
+    def test_get_output_directories_priority_order(self):
+        """Test three-level priority: simulator > global > default."""
+        globals_cfg = GlobalsConfig(
+            working_directory="/work",
+            output_directory="/global/output",
+        )
+        # Simulator only overrides metadata, not output
+        sim_cfg = SimulatorConfig(
+            class_="Noise",
+            output=SimulatorOutputConfig(
+                file_name="noise.gwf",
+                metadata_directory="/custom/metadata",
+            ),
+        )
+        out_dir, meta_dir = get_output_directories(globals_cfg, sim_cfg, "noise")
+        assert out_dir == Path("/global/output")  # From global
+        assert meta_dir == Path("/custom/metadata")  # From simulator
+
+
+class TestConfigRoundTrip:
+    """Integration tests for loading and saving configs."""
+
+    def test_round_trip_config(self):
+        """Test load -> save -> load round trip."""
+        config_yaml = """\
+globals:
+  working-directory: /data
+  sampling-frequency: 4096
+  output-directory: /output
+simulators:
+  noise:
+    class: WhiteNoise
+    arguments:
+      seed: 42
+      detectors:
+        - H1
+        - L1
+    output:
+      file_name: "{{ detectors }}-{{ start_time }}-{{ duration }}.gwf"
+      arguments:
+        channel: STRAIN
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Load
+            config_path = Path(tmpdir) / "config1.yaml"
+            config_path.write_text(config_yaml)
+            config1 = load_config(config_path)
+
+            # Save
+            config_path2 = Path(tmpdir) / "config2.yaml"
+            save_config(config_path2, config1)
+
+            # Load again
+            config2 = load_config(config_path2)
+
+            # Verify equivalence
+            assert config1.globals.sampling_frequency == config2.globals.sampling_frequency
+            assert config1.simulators["noise"].class_ == config2.simulators["noise"].class_
+            assert config1.simulators["noise"].arguments["seed"] == config2.simulators["noise"].arguments["seed"]
+
+    def test_multiple_simulators_round_trip(self):
+        """Test round trip with multiple simulators."""
+        config = Config(
+            globals=GlobalsConfig(
+                working_directory="/data",
+                sampling_frequency=2048,
+                duration=8,
+            ),
+            simulators={
+                "noise": SimulatorConfig(
+                    class_="WhiteNoise",
+                    arguments={"seed": 42},
+                ),
+                "signal": SimulatorConfig(
+                    class_="SignalSimulator",
+                    arguments={"mass1": 10, "mass2": 10},
+                ),
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            save_config(config_path, config)
             loaded = load_config(config_path)
-            assert loaded == config_data
-        finally:
-            config_path.unlink()
 
-    def test_load_nonexistent_file(self):
-        """Test loading fails for nonexistent file."""
-        config_path = Path("nonexistent.yaml")
-        with pytest.raises(FileNotFoundError):
-            load_config(config_path)
-
-    def test_load_invalid_yaml(self):
-        """Test loading fails for invalid YAML."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("invalid: yaml: content: [\n")
-            config_path = Path(f.name)
-
-        try:
-            with pytest.raises(yaml.YAMLError):
-                load_config(config_path)
-        finally:
-            config_path.unlink()
-
-    def test_load_invalid_config(self):
-        """Test loading fails for invalid configuration structure."""
-        invalid_config = {"invalid": "config"}
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.safe_dump(invalid_config, f)
-            config_path = Path(f.name)
-
-        try:
-            with pytest.raises(
-                ValueError, match="Invalid configuration: Must contain 'simulators' section with simulator definitions"
-            ):
-                load_config(config_path)
-        finally:
-            config_path.unlink()
-
-
-class TestSaveConfig:
-    """Test configuration saving."""
-
-    def test_save_new_file(self):
-        """Test saving configuration to a new file."""
-        config = {"globals": {}, "simulators": {"noise": {"class": "WhiteNoise"}}}
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            file_name = Path(temp_dir) / "config.yaml"
-            save_config(file_name=file_name, config=config, overwrite=False)
-            assert file_name.exists()
-
-            # Verify content
-            with open(file_name) as f:
-                saved = yaml.safe_load(f)
-            assert saved == config
-
-    def test_save_overwrite_existing(self):
-        """Test overwriting an existing configuration file."""
-        config1 = {"globals": {}, "simulators": {"noise": {"class": "WhiteNoise"}}}
-        config2 = {"globals": {}, "simulators": {"signal": {"class": "BBHInspiral"}}}
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / "config.yaml"
-
-            # Save first config
-            save_config(file_name=config_path, config=config1, overwrite=False)
-            assert config_path.exists()
-
-            # Overwrite with second config
-            save_config(file_name=config_path, config=config2, overwrite=True)
-
-            # Verify content
-            with open(config_path) as f:
-                saved = yaml.safe_load(f)
-            assert saved == config2
-
-    def test_save_no_overwrite_existing(self):
-        """Test saving fails when file exists and overwrite=False."""
-        config = {"globals": {}, "simulators": {"noise": {"class": "WhiteNoise"}}}
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / "config.yaml"
-
-            # Save first time
-            save_config(file_name=config_path, config=config, overwrite=False)
-            assert config_path.exists()
-
-            # Try to save again without overwrite
-            with pytest.raises(FileExistsError):
-                save_config(file_name=config_path, config=config, overwrite=False)
-
-    def test_save_with_backup(self):
-        """Test saving with backup creation."""
-        config1 = {"globals": {}, "simulators": {"noise": {"class": "WhiteNoise"}}}
-        config2 = {"globals": {}, "simulators": {"signal": {"class": "BBHInspiral"}}}
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / "config.yaml"
-
-            # Save first config
-            save_config(file_name=config_path, config=config1, overwrite=False)
-            backup_path = config_path.with_suffix(f"{config_path.suffix}.backup")
-            assert not backup_path.exists()
-
-            # Overwrite with backup
-            save_config(file_name=config_path, config=config2, overwrite=True, backup=True)
-            assert backup_path.exists()
-
-            # Verify backup content
-            with open(backup_path) as f:
-                backup_content = yaml.safe_load(f)
-            assert backup_content == config1
-
-            # Verify new content
-            with open(config_path) as f:
-                saved = yaml.safe_load(f)
-            assert saved == config2
-
-
-class TestResolveClassPath:
-    """Test class path resolution."""
-
-    @pytest.mark.parametrize(
-        ("class_spec", "section_name", "expected"),
-        [
-            ("WhiteNoise", "noise", "gwsim.noise.WhiteNoise"),
-            ("BBHInspiral", "signal", "gwsim.signal.BBHInspiral"),
-            ("numpy.random.Generator", "noise", "numpy.random.Generator"),
-            ("scipy.stats.norm", "noise", "scipy.stats.norm"),
-        ],
-    )
-    def test_resolve_class_path(self, class_spec, section_name, expected):
-        """Test class path resolution for various inputs."""
-        result = resolve_class_path(class_spec, section_name)
-        assert result == expected
-
-
-class TestMergeParameters:
-    """Test parameter merging."""
-
-    def test_merge_empty_globals(self):
-        """Test merging with empty globals."""
-        globals_config = {}
-        simulator_config = {"seed": 42, "duration": 4}
-        result = merge_parameters(globals_config, simulator_config)
-        assert result == {"seed": 42, "duration": 4}
-
-    def test_merge_empty_simulator_config(self):
-        """Test merging with empty simulator config."""
-        globals_config = {"sampling_frequency": 4096, "duration": 4}
-        simulator_config = {}
-        result = merge_parameters(globals_config, simulator_config)
-        assert result == {"sampling_frequency": 4096, "duration": 4}
-
-    def test_merge_overlapping_keys(self):
-        """Test merging when keys overlap (simulator takes precedence)."""
-        globals_config = {"sampling_frequency": 4096, "duration": 4, "seed": 0}
-        simulator_config = {"duration": 8, "amplitude": 1.0}
-        result = merge_parameters(globals_config, simulator_config)
-        expected = {"sampling_frequency": 4096, "duration": 8, "seed": 0, "amplitude": 1.0}
-        assert result == expected
-
-    def test_merge_no_overlap(self):
-        """Test merging with no overlapping keys."""
-        globals_config = {"sampling_frequency": 4096, "start_time": 0}
-        simulator_config = {"duration": 4, "seed": 42}
-        result = merge_parameters(globals_config, simulator_config)
-        expected = {"sampling_frequency": 4096, "start_time": 0, "duration": 4, "seed": 42}
-        assert result == expected
-
-
-class TestExpandTemplates:
-    """Test template expansion."""
-
-    def test_expand_simple_variable(self):
-        """Test expanding a simple template variable."""
-        text = "file-{{ duration }}.gwf"
-        context = {"duration": 4}
-        result = expand_templates(text, context)
-        assert result == "file-4.gwf"
-
-    def test_expand_multiple_variables(self):
-        """Test expanding multiple template variables."""
-        text = "{{ detector }}-{{ start_time }}-{{ duration }}.gwf"
-        context = {"detector": "H1", "start_time": 1234567890, "duration": 4}
-        result = expand_templates(text, context)
-        assert result == "H1-1234567890-4.gwf"
-
-    def test_expand_nested_variable(self):
-        """Test expanding nested template variables."""
-        text = "{{ globals.duration }}s-{{ detector }}.gwf"
-        context = {"globals": {"duration": 4}, "detector": "H1"}
-        result = expand_templates(text, context)
-        assert result == "4s-H1.gwf"
-
-    def test_expand_missing_variable(self):
-        """Test handling of missing template variables."""
-        text = "file-{{ missing_var }}.gwf"
-        context = {"duration": 4}
-        with patch("gwsim.cli.utils.config.logger") as mock_logger:
-            result = expand_templates(text, context)
-            assert result == "file-{{ missing_var }}.gwf"
-            mock_logger.warning.assert_called_once()
-
-    def test_expand_no_templates(self):
-        """Test text with no template variables."""
-        text = "simple-filename.gwf"
-        context = {"duration": 4}
-        result = expand_templates(text, context)
-        assert result == "simple-filename.gwf"
-
-
-class TestExpandDetectorTemplates:
-    """Test detector template expansion."""
-
-    def test_expand_string_no_detector_placeholder(self):
-        """Test string without detector placeholder is unchanged."""
-        config = "file-{{ duration }}.gwf"
-        detectors = ["H1", "L1"]
-        result = expand_detector_templates(config, detectors)
-        assert result == "file-{{ duration }}.gwf"
-
-    def test_expand_dict_with_detector_placeholder(self):
-        """Test dict with detector placeholder is preserved."""
-        config = {"channel": "{detector}:STRAIN", "duration": 4}
-        detectors = ["H1", "L1"]
-        result = expand_detector_templates(config, detectors)
-        assert result == {"channel": "{detector}:STRAIN", "duration": 4}
-
-    def test_expand_list_with_detector_placeholder(self):
-        """Test list with detector placeholder is preserved."""
-        config = ["{detector}:STRAIN", "H2:STRAIN"]
-        detectors = ["H1", "L1"]
-        result = expand_detector_templates(config, detectors)
-        assert result == ["{detector}:STRAIN", "H2:STRAIN"]
-
-    def test_expand_nested_structure(self):
-        """Test nested dict/list structures."""
-        config = {
-            "channels": ["{detector}:STRAIN", "H2:STRAIN"],
-            "metadata": {"detector": "{detector}"},
-        }
-        detectors = ["H1", "L1"]
-        result = expand_detector_templates(config, detectors)
-        expected = {
-            "channels": ["{detector}:STRAIN", "H2:STRAIN"],
-            "metadata": {"detector": "{detector}"},
-        }
-        assert result == expected
-
-    def test_expand_no_detectors(self):
-        """Test expansion with no detectors provided."""
-        config = {"channel": "{detector}:STRAIN"}
-        result = expand_detector_templates(config, None)
-        assert result == {"channel": "{detector}:STRAIN"}
-
-
-class TestExpandConfigTemplates:
-    """Test configuration template expansion."""
-
-    def test_expand_string(self):
-        """Test expanding templates in string."""
-        config = "file-{{ duration }}.gwf"
-        context = {"duration": 4}
-        result = expand_config_templates(config, context)
-        assert result == "file-4.gwf"
-
-    def test_expand_dict(self):
-        """Test expanding templates in dict."""
-        config = {"file_name": "data-{{ duration }}.gwf", "duration": "{{ duration }}"}
-        context = {"duration": 4}
-        result = expand_config_templates(config, context)
-        expected = {"file_name": "data-4.gwf", "duration": "4"}
-        assert result == expected
-
-    def test_expand_list(self):
-        """Test expanding templates in list."""
-        config = ["file-{{ duration }}.gwf", "{{ detector }}"]
-        context = {"duration": 4, "detector": "H1"}
-        result = expand_config_templates(config, context)
-        assert result == ["file-4.gwf", "H1"]
-
-    def test_expand_nested_structure(self):
-        """Test expanding templates in nested structures."""
-        config = {
-            "output": {"file_name": "{{ detector }}-{{ duration }}.gwf"},
-            "arguments": ["--duration={{ duration }}", "--seed={{ seed }}"],
-        }
-        context = {"detector": "H1", "duration": 4, "seed": 42}
-        result = expand_config_templates(config, context)
-        expected = {
-            "output": {"file_name": "H1-4.gwf"},
-            "arguments": ["--duration=4", "--seed=42"],
-        }
-        assert result == expected
-
-    def test_expand_no_templates(self):
-        """Test config with no templates."""
-        config = {"file_name": "data.gwf", "duration": 4}
-        context = {"detector": "H1"}
-        result = expand_config_templates(config, context)
-        assert result == config
-
-
-class TestNormalizeConfig:
-    """Test configuration normalization."""
-
-    def test_normalize_complete_config(self):
-        """Test normalizing a complete configuration."""
-        config = {
-            "globals": {"sampling_frequency": 4096},
-            "simulators": {
-                "noise": {
-                    "class": "WhiteNoise",
-                    "arguments": {"seed": 42},
-                    "output": {"file_name": "noise.gwf", "arguments": {"channel": "H1:STRAIN"}},
-                }
-            },
-        }
-        result = normalize_config(config)
-        assert result == config
-
-    def test_normalize_missing_globals(self):
-        """Test normalizing config missing globals section."""
-        config = {
-            "simulators": {
-                "noise": {
-                    "class": "WhiteNoise",
-                    "arguments": {"seed": 42},
-                }
-            },
-        }
-        result = normalize_config(config)
-        expected = {
-            "globals": {},
-            "simulators": {
-                "noise": {
-                    "class": "WhiteNoise",
-                    "arguments": {"seed": 42},
-                    "output": {"file_name": "noise-{{ counter }}.hdf5", "arguments": {}},
-                }
-            },
-        }
-        assert result == expected
-
-    def test_normalize_missing_simulator_fields(self):
-        """Test normalizing config with missing simulator fields."""
-        config = {
-            "simulators": {"noise": {"class": "WhiteNoise"}},
-        }
-        result = normalize_config(config)
-        expected = {
-            "globals": {},
-            "simulators": {
-                "noise": {
-                    "class": "WhiteNoise",
-                    "arguments": {},
-                    "output": {"file_name": "noise-{{ counter }}.hdf5", "arguments": {}},
-                }
-            },
-        }
-        assert result == expected
-
-    def test_normalize_invalid_config(self):
-        """Test normalizing invalid config raises error."""
-        config = {"globals": {}}
-        with pytest.raises(ValueError, match="must contain 'simulators' section"):
-            normalize_config(config)
-
-
-class TestProcessConfig:
-    """Test configuration processing."""
-
-    def test_process_complete_config(self):
-        """Test processing a complete configuration."""
-        config = {
-            "globals": {"sampling_frequency": 4096, "duration": 4},
-            "simulators": {
-                "noise": {
-                    "class": "WhiteNoise",
-                    "arguments": {"seed": 42, "duration": 8},  # duration overrides global
-                    "output": {"file_name": "noise.gwf", "arguments": {"channel": "H1:STRAIN"}},
-                }
-            },
-        }
-        result = process_config(config)
-        expected = {
-            "globals": {"sampling_frequency": 4096, "duration": 4},
-            "simulators": {
-                "noise": {
-                    "class": "WhiteNoise",
-                    "arguments": {"sampling_frequency": 4096, "duration": 8, "seed": 42},
-                    "output": {
-                        "file_name": "noise.gwf",
-                        "arguments": {"sampling_frequency": 4096, "duration": 4, "channel": "H1:STRAIN"},
-                    },
-                }
-            },
-        }
-        assert result == expected
-
-    def test_process_parameter_inheritance(self):
-        """Test that global parameters are inherited by simulators."""
-        config = {
-            "globals": {"sampling_frequency": 4096, "seed": 0},
-            "simulators": {
-                "noise": {
-                    "class": "WhiteNoise",
-                    "arguments": {"duration": 4},
-                    "output": {"arguments": {"channel": "H1:STRAIN"}},
-                }
-            },
-        }
-        result = process_config(config)
-        simulator_args = result["simulators"]["noise"]["arguments"]
-        output_args = result["simulators"]["noise"]["output"]["arguments"]
-
-        assert simulator_args["sampling_frequency"] == 4096
-        assert simulator_args["seed"] == 0
-        assert simulator_args["duration"] == 4
-        assert output_args["sampling_frequency"] == 4096
-        assert output_args["seed"] == 0
-        assert output_args["channel"] == "H1:STRAIN"
-
-    def test_process_simulator_override(self):
-        """Test that simulator parameters override globals."""
-        config = {
-            "globals": {"duration": 4, "seed": 0},
-            "simulators": {
-                "noise": {
-                    "class": "WhiteNoise",
-                    "arguments": {"duration": 8, "seed": 42},
-                }
-            },
-        }
-        result = process_config(config)
-        simulator_args = result["simulators"]["noise"]["arguments"]
-
-        assert simulator_args["duration"] == 8  # overridden
-        assert simulator_args["seed"] == 42  # overridden
+            assert len(loaded.simulators) == 2
+            assert "noise" in loaded.simulators
+            assert "signal" in loaded.simulators
+            assert loaded.globals.sampling_frequency == 2048
