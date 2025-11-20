@@ -100,6 +100,40 @@ class Config(BaseModel):
         return v
 
 
+def load_config(file_name: Path, encoding: str = "utf-8") -> Config:
+    """Load configuration file with validation.
+
+    Args:
+        file_name (Path): File name.
+        encoding (str, optional): File encoding. Defaults to "utf-8".
+
+    Returns:
+        Config: Validated configuration dataclass.
+
+    Raises:
+        FileNotFoundError: If the configuration file does not exist.
+        ValueError: If the configuration is invalid or cannot be parsed.
+    """
+    if not file_name.exists():
+        raise FileNotFoundError(f"Configuration file not found: {file_name}")
+    try:
+        with file_name.open(encoding=encoding) as f:
+            raw_config = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ValueError(f"Failed to parse YAML configuration: {e}") from e
+
+    if not isinstance(raw_config, dict):
+        raise ValueError("Configuration must be a YAML dictionary")
+
+    # Validate and convert to Config dataclass
+    try:
+        config = Config(**raw_config)
+        logger.info("Configuration loaded and validated: %s simulators", len(config.simulators))
+        return config
+    except ValueError as e:
+        raise ValueError(f"Configuration validation failed: {e}") from e
+
+
 def validate_config(config: dict) -> None:
     """Validate configuration structure and provide helpful error messages.
 
@@ -151,32 +185,6 @@ def validate_config(config: dict) -> None:
             raise ValueError("'globals' must be a dictionary")
 
     logger.info("Configuration validation passed")
-
-
-def load_config(file_name: Path, encoding: str = "utf-8") -> dict:
-    """Load configuration file with validation.
-
-    Args:
-        file_name (Path): File name.
-        encoding (str, optional): File encoding. Defaults to "utf-8".
-
-    Returns:
-        dict: A dictionary of the configuration.
-
-    Raises:
-        ValueError: If configuration is invalid
-        FileNotFoundError: If configuration file does not exist
-    """
-    if not file_name.exists():
-        raise FileNotFoundError(f"Configuration file not found: {file_name}")
-
-    with file_name.open(encoding=encoding) as f:
-        config = yaml.safe_load(f)
-
-    # Validate the loaded configuration
-    validate_config(config)
-
-    return config
 
 
 @check_file_overwrite()
