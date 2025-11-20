@@ -145,7 +145,6 @@ class ColoredNoise(BaseNoise):
         Raises:
             ValueError: If the shape of the psd or csd is different form (N, 2), raise ValueError
         """
-        # TODO: Allow different PSDs for different detectors
 
         # Load psd/csd
         psd = self._load_array(psd)
@@ -160,7 +159,7 @@ class ColoredNoise(BaseNoise):
                               fill_value="extrapolate")(freqs)
 
         # Add a roll-off at the edges
-        window = tukey(self._N_freq_chunk, alpha=5e-3)
+        window = tukey(self._N_freq_chunk, alpha=1e-3)
         self.psd = psd_interp * window
 
     def single_noise_realization(self, psd: np.ndarray) -> np.ndarray:

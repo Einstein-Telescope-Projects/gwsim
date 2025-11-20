@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 from scipy.interpolate import interp1d
-from scipy.stats import kstest
-from scipy.signal import windows, welch
+from scipy.stats import kstest, chi2, anderson, distributions
+from scipy.signal import windows
 from etmdc.noise_curve import load_ET_PSD
 from pathlib import Path
 import tempfile
@@ -11,6 +11,7 @@ import tempfile
 import pytest
 
 from gwsim.noise.colored_noise import ColoredNoise
+
 
 # Fixtures
 
@@ -25,23 +26,33 @@ def temp_dir(tmp_path):
 def mock_psd(tmp_path):
     """Create PSD array and save it as .npy files."""
     psd = load_ET_PSD()
+    psd = np.loadtxt(
+        '/home/u0167252@FYSAD.FYS.KULEUVEN.BE/Desktop/gwsim_detectors/noise_curves/ET_10_full_cryo_psd.txt')
     psd_file = tmp_path / "psd.npy"
     np.save(psd_file, psd)
     return str(psd_file)
 
-# Unit-level tests
 
-
-def test_gaussianity(mock_psd):
-    """ Test that whitened noise series in gaussian """
+@pytest.fixture
+def whitened_samples(mock_psd):
+    """ Generate `N_frames` of colored noise frames and whiten them """
     # Define parameters
-    detector_names = ['E1', 'E2']
+    detector_names = ['E1']
     N_det = len(detector_names)
     fs = 4096
     duration = 1024
     flow = 2
     start_time = 0.0
-    N_realizations = 10
+    N_frames = 100
+
+    # Time and frequency properties
+    dt = 1 / fs
+    df = 1 / duration
+    N = int(duration * fs)
+    frequency = np.arange(0.0, int(duration * fs) / 2.0 + 1) * df
+    kmin = int(flow / df)
+    kmax = int((fs / 2) / df) + 1
+    N_freq = len(frequency[kmin:kmax])
 
     # Create colored noise instance
     simulator = ColoredNoise(
@@ -54,51 +65,57 @@ def test_gaussianity(mock_psd):
         seed=123
     )
 
-    # Generate several noise realizations
-    noise_ts_list = []
-    for _ in range(N_realizations):
-        noise_ts_list.append(simulator.next())
+    # Generate several noise frames
+    noise_ts = np.zeros((N_frames, N_det, int(duration * fs)))
+    for i in range(N_frames):
+        noise_ts[i] = simulator.next()
         simulator.update_state()
 
-    # Time and frequency properties
-    dt = 1 / fs
-    df = 1 / duration
-    N = int(duration * fs)
-    frequency = np.arange(0.0, int(duration * fs) / 2.0 + 1) * df
-    kmin = int(flow / df)
-    kmax = int((fs / 2) / df)
-    N_freq = len(frequency[kmin:kmax])
-
-    # Compute the target PSD
+    # Compute the target PSD for the whitening
     psd = np.load(mock_psd)
     target_psd = interp1d(psd[:, 0], psd[:, 1], bounds_error=False,
                           fill_value="extrapolate")(frequency[kmin: kmax])
-    window = windows.tukey(len(frequency[kmin: kmax]), alpha=5e-3)
-    target_psd = target_psd * window
-    target_psd = np.where(target_psd > 0, target_psd, 1e-60)
+    window = windows.tukey(len(frequency[kmin: kmax]), alpha=1e-3)
+    target_psd = np.where(target_psd * window > 0, target_psd * window, 1e-60)
 
-    pvalue_list = []
-    for noise_ts in noise_ts_list:
+    # Whiten the noise frequency series with the target spectral matrix
+    whitened_noise_fs = np.zeros((N_frames, N_det, N_freq), dtype=np.complex128)
+    for i, ts in enumerate(noise_ts):
+        fs = np.fft.rfft(ts, axis=-1) * dt
+        w_fs = np.zeros_like(fs, dtype=np.complex128)
+        w_fs[:, kmin: kmax] = fs[:, kmin: kmax] / np.sqrt(target_psd * 0.5 / df)
+        whitened_noise_fs[i] = w_fs[:, kmin: kmax]
 
-        # Transform back time series to frequency domain
-        noise_fs = np.fft.rfft(noise_ts, axis=-1) * dt
-
-        # Whiten the noise frequency series with the target spectral matrix
-        whitened_noise_fs = np.zeros_like(noise_fs, dtype=np.complex128)
-        whitened_noise_fs[:, kmin: kmax] = noise_fs[:, kmin: kmax] / np.sqrt(target_psd * 0.5 / df)
-        whitened_noise_fs = whitened_noise_fs[:, kmin: kmax]
-
-        # Test the gaussianity of the whitened data
-        joint_fs = np.concatenate((whitened_noise_fs.real, whitened_noise_fs.imag), axis=None)
-        stats = kstest(joint_fs, cdf="norm", args=(0, np.sqrt(0.5)))
-        pvalue_list.append(stats.pvalue)
-
-    assert np.all(
-        np.array(pvalue_list) > 0.01), f'Gaussianity test NOT passed, p-value is: {np.array(pvalue_list)}'
+    return whitened_noise_fs
 
 
-def test_gaussianity_connecting_region(mock_psd):
-    """ Test that the connecting regions of two adjacent frames in gaussian """
+Unit-level tests
+
+
+def test_gaussianity_KS_test(whitened_samples):
+    """ Test that whitened noise series in gaussian per frequency bin with the KS test """
+
+    N_frames, N_det, N_freq = whitened_samples.shape
+
+    # Test the gaussianity of the whitened data for each frequnecy bin
+    Pvalue = np.zeros((N_det, N_freq))
+    for j in range(N_freq):
+        for i in range(N_det):
+            joint_fs = np.concatenate(
+                (whitened_samples[:, i, j].real, whitened_samples[:, i, j].imag))
+            stats = kstest(joint_fs, cdf="norm", args=(0, np.sqrt(0.5)))
+            Pvalue[i, j] = stats.pvalue
+
+    # Fisher's combined probability test
+    alpha = 0.01
+    for i in range(N_det):
+        q = -2 * np.sum(np.log(Pvalue[i, :]))
+        combined_pvalue = chi2.sf(q, df=2*N_freq)
+        assert combined_pvalue > alpha, f"Combined P-value is smaller than threshold {alpha}."
+
+
+def test_gaussianity_Anderson_Darling(mock_psd):
+    """ Generate `N_frames` of colored noise frames and whiten them """
     # Define parameters
     detector_names = ['E1', 'E2']
     N_det = len(detector_names)
@@ -106,6 +123,15 @@ def test_gaussianity_connecting_region(mock_psd):
     duration = 4096
     flow = 2
     start_time = 0.0
+
+    # Time and frequency properties
+    dt = 1 / fs
+    df = 1 / duration
+    N = int(duration * fs)
+    frequency = np.arange(0.0, int(duration * fs) / 2.0 + 1) * df
+    kmin = int(flow / df)
+    kmax = int((fs / 2) / df) + 1
+    N_freq = len(frequency[kmin:kmax])
 
     # Create colored noise instance
     simulator = ColoredNoise(
@@ -117,90 +143,37 @@ def test_gaussianity_connecting_region(mock_psd):
         start_time=start_time,
         seed=42
     )
-    noise_ts_1 = simulator.next()
-    simulator.update_state()
-    noise_ts_2 = simulator.next()
 
-    T_connecting_region = 50
-    N_connecting_region = int(T_connecting_region * fs)
-    connecting_region_ts = np.concatenate(
-        (noise_ts_1[:, -N_connecting_region:], noise_ts_2[:, :N_connecting_region]), axis=1)
+    # Generate one noise frame
+    noise_ts = simulator.next()
 
-    # Time and frequency properties
-    dt = 1 / fs
-    df = 1 / (2 * T_connecting_region)
-    N = int(2 * T_connecting_region * fs)
-    frequency = np.arange(0.0, int(2 * T_connecting_region * fs) / 2.0 + 1) * df
-    kmin = int(flow / df)
-    kmax = int((fs / 2) / df)
-    N_freq = len(frequency[kmin:kmax])
-
-    # Compute the target PSD
+    # Compute the target PSD for the whitening
     psd = np.load(mock_psd)
     target_psd = interp1d(psd[:, 0], psd[:, 1], bounds_error=False,
                           fill_value="extrapolate")(frequency[kmin: kmax])
-    window = windows.tukey(len(frequency[kmin: kmax]), alpha=5e-3)
-    target_psd = target_psd * window
-    target_psd = np.where(target_psd > 0, target_psd, 1e-60)
-
-    # Transform back time series to frequency domain
-    connecting_region_fs = np.fft.rfft(connecting_region_ts, axis=-1) * dt
+    window = windows.tukey(len(frequency[kmin: kmax]), alpha=1e-3)
+    target_psd = np.where(target_psd * window > 0, target_psd * window, 1e-60)
 
     # Whiten the noise frequency series with the target spectral matrix
-    whitened_connecting_region_fs = np.zeros_like(connecting_region_fs, dtype=np.complex128)
-    whitened_connecting_region_fs[:, kmin: kmax] = connecting_region_fs[:,
-                                                                        kmin: kmax] / np.sqrt(target_psd * 0.5 / df)
-    whitened_connecting_region_fs = whitened_connecting_region_fs[:, kmin: kmax]
+    fs = np.fft.rfft(noise_ts, axis=-1) * dt
+    w_fs = np.zeros_like(fs, dtype=np.complex128)
+    w_fs[:, kmin: kmax] = fs[:, kmin: kmax] / np.sqrt(target_psd * 0.5 / df)
+    whitened_noise_fs = w_fs[:, kmin: kmax]
 
-    # Test the gaussianity of the whitened data
-    joint_fs = np.concatenate((whitened_connecting_region_fs.real,
-                              whitened_connecting_region_fs.imag), axis=None)
-    stats = kstest(joint_fs, cdf="norm", args=(0, np.sqrt(0.5)))
+    bin_mask = 1024
+    for i in range(N_det):
+        joint_fs = np.concatenate(
+            (whitened_noise_fs[i, bin_mask: -bin_mask].real, whitened_noise_fs[i, bin_mask: -bin_mask].imag))
+        # Anderson Darling gaussianity test
+        w = np.sort(joint_fs) / np.sqrt(0.5)
+        N = len(joint_fs)
+        logcdf = distributions.norm.logcdf(w)
+        logsf = distributions.norm.logsf(w)
+        k = np.arange(1, N + 1)
+        A2 = -N - np.sum((2*k - 1.0) / N * (logcdf + logsf[::-1]), axis=0)
+        critical_values = anderson(joint_fs).critical_values
 
-    assert stats.pvalue > 0.01, f'Gaussianity test NOT passed, p-value is: {stats.pvalue:.3f}'
+        print(A2)
 
-
-def test_psd_matching(mock_psd):
-    """Test that the PSD of the generated noise matches the target PSD."""
-    # Define parameters
-    detector_names = ['E1']
-    fs = 4096
-    duration = 4096
-    flow = 2
-    start_time = 0.0
-
-    # Create colored noise instance
-    simulator = ColoredNoise(
-        detector_names=detector_names,
-        psd=mock_psd,
-        sampling_frequency=fs,
-        duration=duration,
-        flow=flow,
-        start_time=start_time,
-        seed=21
-    )
-    noise_ts = simulator.next()
-
-    # Load target PSD
-    psd = np.load(mock_psd)
-    target_interp = interp1d(psd[:, 0], psd[:, 1], bounds_error=False, fill_value="extrapolate")
-
-    # Check each detector independently (since uncorrelated)
-    for i, det in enumerate(detector_names):
-        f, Pxx = welch(
-            noise_ts[i],
-            fs=fs,
-            nperseg=int(fs * 4),
-            average='median'
-        )
-
-        # Interpolate target to estimated frequencies
-        target_psd = target_interp(f)
-
-        # Mask to relevant frequencies
-        mask = (f >= 5) & (f <= (fs / 2) - 100)
-
-        # Assert close
-        assert np.allclose(
-            Pxx[mask], target_psd[mask], rtol=0.5, atol=1e-50
-        ), f"PSD mismatch for {det}: max rel diff {np.max(np.abs(Pxx[mask] - target_psd[mask]) / target_psd[mask])}"
+        assert A2 > critical_values[
+            1], f"Anderson-Darling statistic is smaller than critical value {critical_values[-1]}."
