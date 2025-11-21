@@ -234,6 +234,7 @@ def create_plan_from_config(config: Config, checkpoint_dir: Path) -> SimulationP
     )
 
     # For each simulator, create batches (each simulator can generate multiple batches)
+    global_batch_index = 0
     for simulator_name, simulator_config in config.simulators.items():
         # Determine number of batches for this simulator
         # This comes from simulator_arguments in globals_config (max_samples parameter)
@@ -244,15 +245,16 @@ def create_plan_from_config(config: Config, checkpoint_dir: Path) -> SimulationP
 
         max_samples = local_sim_args.get("max_samples", global_sim_args.get("max_samples", 1))
 
-        for batch_idx in range(max_samples):
+        for _ in range(max_samples):
             batch = SimulationBatch(
                 simulator_name=simulator_name,
                 simulator_config=simulator_config,
                 globals_config=config.globals,
-                batch_index=batch_idx,
+                batch_index=global_batch_index,
                 source="config",
             )
             plan.add_batch(batch)
+            global_batch_index += 1
 
     logger.info("Created simulation plan from config: %d batches", plan.total_batches)
     return plan
