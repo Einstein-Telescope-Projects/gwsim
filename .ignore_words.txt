@@ -1,5 +1,6 @@
 approximants
 astropy
+butterworth
 coo
 dets
 freqs
