@@ -236,25 +236,28 @@ class TestCheckpointManager:
             loaded = manager.load_checkpoint()
             assert loaded["last_simulator_state"] == complex_state
 
-    def test_save_checkpoint_handles_io_errors(self):
+    def test_save_checkpoint_handles_io_errors(self, mocker):
         """Test that save handles IO errors gracefully."""
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = CheckpointManager(Path(tmpdir))
 
-            # Make checkpoint directory read-only to trigger write error
-            manager.checkpoint_directory.chmod(0o444)
+            # Mock Path.open to raise OSError when writing checkpoint temp file
+            original_path_open = Path.open
 
-            try:
-                with pytest.raises(OSError, match="Permission denied"):
-                    manager.save_checkpoint(
-                        completed_batch_indices=[0],
-                        last_simulator_name="signal",
-                        last_completed_batch_index=0,
-                        last_simulator_state={"counter": 1},
-                    )
-            finally:
-                # Restore permissions for cleanup
-                manager.checkpoint_directory.chmod(0o755)
+            def mock_path_open(self, mode="r", **kwargs):
+                if "simulation.checkpoint.json.tmp" in str(self) and "w" in mode:
+                    raise OSError("Permission denied")
+                return original_path_open(self, mode, **kwargs)
+
+            mocker.patch.object(Path, "open", mock_path_open)
+
+            with pytest.raises(OSError, match="Permission denied"):
+                manager.save_checkpoint(
+                    completed_batch_indices=[0],
+                    last_simulator_name="signal",
+                    last_completed_batch_index=0,
+                    last_simulator_state={"counter": 1},
+                )
 
     def test_multiple_simulators_in_checkpoint(self):
         """Test checkpoint tracking across multiple simulators."""
