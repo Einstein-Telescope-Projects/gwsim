@@ -16,6 +16,7 @@ import typer
 import yaml
 from tqdm import tqdm
 
+from gwsim.cli.utils.checkpoint import CheckpointManager
 from gwsim.cli.utils.config import SimulatorConfig, load_config, resolve_class_path
 from gwsim.cli.utils.simulation_plan import (
     SimulationBatch,
@@ -413,15 +414,23 @@ def execute_plan(  # pylint: disable=too-many-locals
     once and then generates multiple batches by calling next() repeatedly. State
     (RNG, counters, filters) accumulates across batches.
 
+    Checkpoint behavior:
+    1. After each successfully completed batch, save checkpoint with updated state
+    2. Checkpoint contains: completed batch indices, simulator state
+    3. On next run, already-completed batches are skipped (resumption)
+    4. On successful completion of all batches, checkpoint is cleaned up
+
     Workflow:
     1. Group batches by simulator name
-    2. For each simulator:
+    2. Load checkpoint to find already-completed batches
+    3. For each simulator:
        a. Create ONE simulator instance
        b. For each batch of that simulator:
+          - Skip if already completed (from checkpoint)
           - Restore state if reproducing from metadata
-          - Call next(simulator) to generate batch
+          - Call next(simulator) to generate batch (increments state)
           - Save batch output and metadata
-          - State is captured after generation for reproducibility
+          - Save checkpoint with updated state (for resumption)
 
     Args:
         plan: SimulationPlan to execute
@@ -434,6 +443,15 @@ def execute_plan(  # pylint: disable=too-many-locals
 
     validate_plan(plan)
     setup_signal_handlers([plan.checkpoint_directory] if plan.checkpoint_directory else [])
+
+    # Initialize checkpoint manager for resumption support
+    checkpoint_manager = CheckpointManager(plan.checkpoint_directory)
+    completed_batch_indices = checkpoint_manager.get_completed_batch_indices()
+
+    if completed_batch_indices:
+        logger.info("Loaded checkpoint: %d batches already completed", len(completed_batch_indices))
+    else:
+        logger.debug("No checkpoint found or no batches completed yet")
 
     # Group batches by simulator name to execute sequentially per simulator
     simulator_batches: dict[str, list[SimulationBatch]] = {}
@@ -455,6 +473,14 @@ def execute_plan(  # pylint: disable=too-many-locals
 
             # Process batches sequentially, maintaining state across them
             for batch_idx, batch in enumerate(batches):
+                # Skip batches that were already completed (for resumption after interrupt)
+                if checkpoint_manager.should_skip_batch(batch.batch_index):
+                    logger.info(
+                        "Skipping batch %d (already completed from checkpoint)",
+                        batch.batch_index,
+                    )
+                    continue
+
                 try:
                     logger.debug(
                         "Executing batch %d/%d for simulator %s",
@@ -520,6 +546,22 @@ def execute_plan(  # pylint: disable=too-many-locals
                         max_retries=max_retries,
                         state_restore_func=restore_state_for_retry,
                     )
+
+                    # After successful completion, save checkpoint with updated state
+                    # At this point, state has been incremented by next() -> update_state()
+                    # Save checkpoint to enable resumption if interrupted before next batch
+                    completed_batch_indices.add(batch.batch_index)
+                    checkpoint_manager.save_checkpoint(
+                        completed_batch_indices=sorted(completed_batch_indices),
+                        last_simulator_name=simulator_name,
+                        last_completed_batch_index=batch.batch_index,
+                        last_simulator_state=copy.deepcopy(simulator.state),
+                    )
+                    logger.debug(
+                        "Checkpoint saved after batch %d - state counter=%s",
+                        batch.batch_index,
+                        simulator.counter,
+                    )
                     p_bar.update(1)
 
                 except Exception as e:
@@ -531,6 +573,10 @@ def execute_plan(  # pylint: disable=too-many-locals
                         e,
                     )
                     raise
+
+    # All batches completed successfully - clean up checkpoint files
+    checkpoint_manager.cleanup()
+    logger.info("All batches completed successfully. Checkpoint files cleaned up.")
 
 
 def _simulate_impl(  # pylint: disable=too-many-locals, too-many-branches, too-many-statements
@@ -561,6 +607,7 @@ def _simulate_impl(  # pylint: disable=too-many-locals, too-many-branches, too-m
         None
     """
     checkpoint_dir = Path(".gwsim_checkpoints")
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         # ===== Normalize input: accept both string and list =====
