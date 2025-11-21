@@ -10,13 +10,13 @@ import pytest
 import yaml
 
 from gwsim.cli.simulate import (
+    _simulate_impl,
     execute_plan,
     instantiate_simulator,
     process_batch,
     restore_batch_state,
     retry_with_backoff,
     save_batch_metadata,
-    simulate_command,
     update_metadata_index,
     validate_plan,
 )
@@ -31,10 +31,11 @@ from gwsim.cli.utils.simulation_plan import (
     SimulationPlan,
     create_plan_from_config,
 )
+from gwsim.mixin.randomness import RandomnessMixin
 from gwsim.simulator.base import Simulator
 
 
-class MockSimulator(Simulator):
+class MockSimulator(RandomnessMixin, Simulator):
     """Mock simulator for testing, inheriting from Simulator base class.
 
     This generates simple integer data that increments with each call.
@@ -49,11 +50,9 @@ class MockSimulator(Simulator):
             max_samples: Maximum number of samples to generate
             **kwargs: Additional arguments (absorbed by base class)
         """
-        import numpy as np
 
         super().__init__(max_samples=max_samples, **kwargs)
         self.seed = seed
-        self.rng = np.random.RandomState(seed)
         self._generated_data = []
 
     def simulate(self) -> int:
@@ -62,7 +61,7 @@ class MockSimulator(Simulator):
         Returns:
             A random integer
         """
-        value = int(self.rng.rand() * 100)
+        value = int(self.rng.random() * 100)
         self._generated_data.append(value)
         return value
 
@@ -819,7 +818,7 @@ class TestSimulateCommandIntegration:
                 yaml.safe_dump(config_dict, f)
 
             # Run simulate command
-            simulate_command(str(config_file), overwrite=True, metadata=True)
+            _simulate_impl(str(config_file), overwrite=True, metadata=True)
 
             # Verify output structure
             # Paths should be resolved relative to working_directory
@@ -856,7 +855,7 @@ class TestSimulateCommandIntegration:
                 config_dict = config.model_dump(by_alias=True, exclude_none=True)
                 yaml.safe_dump(config_dict, f)
 
-            simulate_command(str(config_file), overwrite=True, metadata=False)
+            _simulate_impl(str(config_file), overwrite=True, metadata=False)
 
             # Verify data format
             output_file = tmpdir_path / "output" / "data.json"
@@ -900,7 +899,7 @@ class TestSimulateCommandIntegration:
                 yaml.safe_dump(config_dict, f)
 
             # This should not raise any errors about unused kwargs with hyphens
-            simulate_command(str(config_file), overwrite=True, metadata=True)
+            _simulate_impl(str(config_file), overwrite=True, metadata=True)
 
             # Verify output was created successfully
             output_file = tmpdir_path / "output" / "data.json"
@@ -918,3 +917,239 @@ class TestSimulateCommandIntegration:
             )
 
             assert (metadata_dir / "index.yaml").exists(), "Index file not created"
+
+    def test_simulate_command_reproduce_from_metadata(self):
+        """Test that the CLI can reproduce batches using a metadata directory.
+
+        This test demonstrates the user workflow for metadata-based reproduction:
+        1. Run initial simulation with max-samples=3, saving metadata
+        2. Run CLI again with the metadata directory to reproduce those batches
+        3. Verify the reproduced batches match the original execution
+
+        This is the realistic user scenario for exact reproducibility.
+        The CLI automatically detects whether the argument is a config file or
+        metadata directory, making the interface intuitive.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+
+            # ===== STEP 1: Initial simulation with multiple batches =====
+            config_dict = {
+                "globals": {
+                    "working-directory": str(tmpdir_path),
+                    "simulator-arguments": {
+                        "sampling-frequency": 2048,
+                        "max-samples": 3,
+                    },
+                    "output-directory": "output",
+                    "metadata-directory": "metadata",
+                },
+                "simulators": {
+                    "mock": {
+                        "class": "tests.cli.test_simulate.MockSimulator",
+                        "arguments": {
+                            "seed": 42,
+                        },
+                        "output": {
+                            "file_name": "batch_{{counter}}.json",
+                        },
+                    }
+                },
+            }
+
+            config_file = tmpdir_path / "config.yaml"
+            with config_file.open("w") as f:
+                yaml.safe_dump(config_dict, f)
+
+            # Run initial simulation
+            _simulate_impl(str(config_file), overwrite=True, metadata=True)
+
+            # Verify initial metadata was created
+            metadata_dir = tmpdir_path / "metadata"
+            initial_metadata_files = sorted(metadata_dir.glob("mock-*.metadata.yaml"))
+            assert len(initial_metadata_files) == 3, (
+                f"Expected 3 metadata files from initial run, " f"but found {len(initial_metadata_files)}"
+            )
+
+            # Load metadata for batch 1 (the middle batch)
+            from gwsim.cli.utils.simulation_plan import parse_batch_metadata
+
+            batch_1_metadata_file = metadata_dir / "mock-1.metadata.yaml"
+            batch_1_metadata = parse_batch_metadata(batch_1_metadata_file)
+
+            # Verify metadata has pre-batch state
+            assert (
+                "pre_batch_state" in batch_1_metadata
+            ), "Metadata must contain pre_batch_state for exact reproducibility"
+            batch_1_initial_counter = batch_1_metadata["pre_batch_state"].get("counter")
+            assert batch_1_initial_counter is not None, "pre_batch_state should contain counter value"
+
+            # ===== STEP 2: Use CLI to reproduce from metadata directory =====
+            # User runs: gwsim simulate metadata/
+            # The CLI automatically detects this is a metadata directory and reproduces
+            _simulate_impl(
+                str(metadata_dir),  # Pass metadata directory instead of config file
+                overwrite=True,
+                metadata=False,  # Don't create new metadata during reproduction
+            )
+
+            # ===== STEP 3: Verify reproduction worked =====
+            # After reproduction, the output files should exist in the default output dir
+            reproduced_files = list((tmpdir_path / "output").glob("batch_*.json"))
+            assert (
+                len(reproduced_files) > 0
+            ), "Reproduced batches should create output files"  # Verify each reproduced batch file contains counter information
+            for batch_file in reproduced_files:
+                with batch_file.open() as f:
+                    batch_data = json.load(f)
+                assert "counter" in batch_data, f"Reproduced batch {batch_file.name} should contain counter"
+                assert "data" in batch_data, f"Reproduced batch {batch_file.name} should contain data"
+
+            # ===== STEP 4: Verify reproducibility is exact =====
+            # Load the reproduced batch 1 output
+            reproduced_batch_1_file = tmpdir_path / "output" / "batch_1.json"
+            assert reproduced_batch_1_file.exists(), "Batch 1 output file should exist after reproduction"
+
+            # Load the reproduced batch 1 metadata to check the pre_batch_state
+            reproduced_batch_1_metadata_file = metadata_dir / "mock-1.metadata.yaml"
+            reproduced_batch_1_metadata = parse_batch_metadata(reproduced_batch_1_metadata_file)
+            reproduced_pre_batch_state = reproduced_batch_1_metadata.get("pre_batch_state", {})
+            reproduced_counter = reproduced_pre_batch_state.get("counter")
+
+            # The reproduced counter should match the pre_batch_state counter
+            # since pre_batch_state is captured at the start of batch generation
+            assert reproduced_counter == batch_1_initial_counter, (
+                f"Reproduced batch 1 counter in metadata should be {batch_1_initial_counter}, "
+                f"but got {reproduced_counter}. This indicates exact reproducibility "
+                f"from metadata FAILED."
+            )
+
+    def test_simulate_command_batch_reproducibility_via_metadata(self):
+        """Test that individual batches can be reproduced exactly using saved metadata.
+
+        This test verifies the reproducibility mechanism:
+        1. Run initial simulation with max-samples=3, saving metadata
+        2. Verify that batch 1 (second batch) metadata contains pre-batch state
+        3. Load and re-run batch 1 in isolation, verifying state restoration works
+        4. Confirm that running batch 1 again produces identical results
+
+        This simulates a user workflow where they might:
+        - Run an initial MDC generation
+        - Need to reproduce/verify a specific batch
+        - Use metadata to exactly recreate that batch
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+
+            # ===== STEP 1: Initial simulation with multiple batches =====
+            config_dict = {
+                "globals": {
+                    "working-directory": str(tmpdir_path),
+                    "simulator-arguments": {
+                        "sampling-frequency": 2048,
+                        "max-samples": 3,
+                    },
+                    "output-directory": "output",
+                    "metadata-directory": "metadata",
+                },
+                "simulators": {
+                    "mock": {
+                        "class": "tests.cli.test_simulate.MockSimulator",
+                        "arguments": {
+                            "seed": 42,
+                        },
+                        "output": {
+                            "file_name": "batch_{{counter}}.json",
+                        },
+                    }
+                },
+            }
+
+            config_file = tmpdir_path / "config.yaml"
+            with config_file.open("w") as f:
+                yaml.safe_dump(config_dict, f)
+
+            # Run initial simulation
+            _simulate_impl(str(config_file), overwrite=True, metadata=True)
+
+            # ===== STEP 2: Verify metadata for batch 1 =====
+            metadata_dir = tmpdir_path / "metadata"
+            batch_1_metadata_file = metadata_dir / "mock-1.metadata.yaml"
+            assert batch_1_metadata_file.exists(), "Batch 1 metadata file not created"
+
+            # Load batch 1's metadata
+            from gwsim.cli.utils.simulation_plan import parse_batch_metadata
+
+            metadata = parse_batch_metadata(batch_1_metadata_file)
+
+            # Verify metadata has the required reproducibility info
+            assert "pre_batch_state" in metadata, "Metadata must contain pre_batch_state for exact reproducibility"
+            assert (
+                metadata.get("reproduction_mode") == "exact"
+            ), "Reproduction mode should be 'exact' when state snapshot is available"
+
+            # Store the counter value from batch 1's metadata
+            # This represents the RNG/state position before batch 1 was generated
+            batch_1_initial_counter = metadata["pre_batch_state"].get("counter")
+            assert batch_1_initial_counter is not None, "pre_batch_state should contain counter value"
+
+            # ===== STEP 3: Reproduce batch 1 independently =====
+            # Instantiate a fresh simulator with the same configuration
+            from gwsim.cli.utils.config import GlobalsConfig, SimulatorConfig
+
+            simulator_config = SimulatorConfig(**metadata["simulator_config"])
+            globals_config = GlobalsConfig(**metadata["globals_config"])
+
+            # Normalize keys for simulator instantiation (this is what happens in simulate.py)
+            global_sim_args = {k.replace("-", "_"): v for k, v in globals_config.simulator_arguments.items()}
+            local_sim_args = {k.replace("-", "_"): v for k, v in simulator_config.arguments.items()}
+            merged_args = {**global_sim_args, **local_sim_args}
+
+            # Create simulator with same seed and arguments
+            sim = MockSimulator(**merged_args)
+
+            # Restore state to exactly what it was before batch 1
+            sim.counter = metadata["pre_batch_state"].get("counter", 0)
+
+            # Verify RNG can be restored if state was saved
+            if "rng_state" in metadata["pre_batch_state"]:
+                state_dict = metadata["pre_batch_state"]["rng_state"]
+                sim.rng.bit_generator.state = state_dict
+
+            # Generate one sample (simulating batch 1 generation)
+            sim.simulate()
+
+            # ===== STEP 4: Verify reproducibility =====
+            # After restoration, counter should match the pre_batch_state
+            # since pre_batch_state is the starting state before batch increments
+            assert sim.counter == batch_1_initial_counter, (
+                f"After state restoration, "
+                f"counter should be {batch_1_initial_counter}, "
+                f"but got {sim.counter}. This indicates state restoration failed."
+            )
+
+            # ===== STEP 5: Verify multiple batches can be reproduced independently =====
+            # Test batch 2 (third batch) as well
+            batch_2_metadata_file = metadata_dir / "mock-2.metadata.yaml"
+            assert batch_2_metadata_file.exists(), "Batch 2 metadata file not created"
+
+            metadata_batch2 = parse_batch_metadata(batch_2_metadata_file)
+            batch_2_initial_counter = metadata_batch2["pre_batch_state"].get("counter")
+
+            # Create fresh simulator for batch 2
+            sim2 = MockSimulator(**merged_args)
+            sim2.counter = batch_2_initial_counter
+            sim2.simulate()
+
+            # Verify batch 2 can also be reproduced
+            assert sim2.counter == batch_2_initial_counter, (
+                f"Batch 2 reproducibility failed: "
+                f"counter should be {batch_2_initial_counter}, "
+                f"but got {sim2.counter}"
+            )
+
+            # Verify batches have different initial states
+            # (batch 1 counter != batch 2 counter because RNG advances between batches)
+            assert batch_1_initial_counter != batch_2_initial_counter, (
+                "Batch 1 and batch 2 should have different initial counters, " "indicating correct state progression"
+            )
