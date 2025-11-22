@@ -10,6 +10,7 @@ from typing import Any
 import yaml
 
 from gwsim.cli.utils.config import Config, GlobalsConfig, SimulatorConfig
+from gwsim.utils.log import get_dependency_versions
 
 logger = logging.getLogger("gwsim")
 
@@ -177,6 +178,7 @@ def create_batch_metadata(
     This metadata can be used to reproduce a specific batch. It includes:
     1. Configuration: Simulator and global configs for reproducibility
     2. State snapshot: Pre-batch state (RNG, etc.) for exact reproduction
+    3. Version information: gwsim and key dependency versions for traceability
 
     Args:
         simulator_name: Name of the simulator
@@ -193,6 +195,7 @@ def create_batch_metadata(
         "batch_index": batch_index,
         "simulator_config": simulator_config.model_dump(mode="python"),
         "globals_config": globals_config.model_dump(mode="python"),
+        "versions": get_dependency_versions(),
     }
 
     if pre_batch_state is not None:
