@@ -3,17 +3,15 @@ Basic Usage
 ===========
 
 The ``gwsim`` command-line tool can be used to generate synthetic data for gravitational-wave simulations.
-This guide explains how to use the tool to generate data, including metadata,
-with support for checkpointing and file overwriting.
+This guide explains how to use the tool to generate data, including metadata, with support for checkpointing and file overwriting.
 
 To generate data using a configuration file:
 
 .. code-block:: console
 
-    $ gwsim generate config.yaml --metadata
+    $ gwsim simulate config.yaml
 
 This command reads the configuration from ``config.yaml`` and generates the specified data along with metadata files.
-The ``--metadata`` flag ensures that metadata describing the generated output is also created.
 
 --------------------------
 Overwriting Existing Files
@@ -26,7 +24,7 @@ To force overwriting of existing files, use the ``--overwrite`` flag:
 
 .. code-block:: console
 
-    $ gwsim generate config.yaml --metadata --overwrite
+    $ gwsim simulate config.yaml --overwrite
 
 --------------------------
 Checkpointing and Resuming
@@ -41,39 +39,18 @@ To resume a previously interrupted generation process, simply rerun the same com
 
 .. code-block:: console
 
-    $ gwsim generate config.yaml --metadata
+    $ gwsim simulate config.yaml --metadata
 
 If a valid ``checkpoint.json`` exists, the tool will continue from where it left off.
 
---------------------------
-Example Configuration File
---------------------------
+-----------------------------------
+Reproduce a subset of data segments
+-----------------------------------
 
-Below is an example ``config.yaml`` file used for generating white noise data:
+GWSim is designed for reproducible, resumable, and metadata-rich synthetic data generation workflows.
 
-.. code-block:: yaml
+It is possible to reproduce a subset of data segments using the metadata files as
 
-    generator:
-      class: gwsim.noise.white_noise.WhiteNoise
-      arguments:
-        duration: 4
-        loc: 0.0
-        max_samples: 10
-        sampling_frequency: 16
-        scale: 1.0
-        seed: 0
-        start_time: 123
-    output:
-      file_name: E1-MDC-{{ start_time }}-{{ duration }}.gwf
-      arguments:
-        channel: STRAIN
-    working-directory: .
+.. code-block:: console
 
------
-Notes
------
-
-- The template syntax (e.g., ``{{ start_time }}``) in the output filename allows dynamic naming based on generation parameters.
-- Ensure the working directory is writable and that sufficient disk space is available for output files and checkpointing.
-
-``gwsim`` is designed for reproducible, resumable, and metadata-rich synthetic data generation workflows.
+    $ gwsim simulate some_metadata.yaml –output_dir output –metadata_dir metadata

@@ -1,4 +1,4 @@
-Welcome to gwsim's documentation!
+Welcome to GWSim's documentation!
 ======================================
 
 .. automodule:: gwsim
@@ -10,6 +10,13 @@ Welcome to gwsim's documentation!
 
    Installation <installation>
    Basic Usage <basic_usage>
+   Generating ET data <generate_ET_data>
+   Reading frame files <reading_frames>
+   Metadata <metadata>
+   Example configuration files <example_config>
+   Writing configuration files <writing_config>
+   Request new features <new_feature>
+   Contributing to GWSim <contribution_guide>
 
 API:
 ----
