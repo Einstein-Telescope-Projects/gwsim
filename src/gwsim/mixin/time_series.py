@@ -127,8 +127,12 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
         }
         return metadata
 
-    def _save_data(
-        self, data: TimeSeries, file_name: str | Path | np.ndarray[Any, np.dtype[np.object_]], **kwargs
+    def _save_data(  # pylint: disable=unused-argument
+        self,
+        data: TimeSeries,
+        file_name: str | Path | np.ndarray[Any, np.dtype[np.object_]],
+        channel_names: str | None = None,
+        **kwargs,
     ) -> None:
         """Save time series data to a file.
 
