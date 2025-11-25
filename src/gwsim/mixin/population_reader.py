@@ -2,11 +2,64 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import h5py
 import numpy as np
 import pandas as pd
+import yaml
+
+logger = logging.getLogger("gwsim")
+
+
+class PopulationIterationState:  # pylint: disable=too-few-public-methods
+    """Manages state for population file iteration with checkpoint support."""
+
+    def __init__(self, checkpoint_file: str | Path | None = None, encoding: str = "utf-8") -> None:
+        self.checkpoint_file = checkpoint_file
+        self.encoding = encoding
+        self.current_index = 0
+        self.injected_indices: list[int] = []
+        self.segment_map: dict[int, list[int]] = {}
+        self._load_checkpoint()
+
+    @property
+    def checkpoint_file(self) -> Path | None:
+        """Get the checkpoint file path.
+
+        Returns:
+            Path to the checkpoint file or None if not set.
+        """
+        return self._checkpoint_file
+
+    @checkpoint_file.setter
+    def checkpoint_file(self, value: str | Path | None) -> None:
+        """Set the checkpoint file path.
+
+        Args:
+            value: Path to the checkpoint file or None to unset.
+        """
+        if value is None:
+            self._checkpoint_file = None
+        else:
+            self._checkpoint_file = Path(value)
+
+    def _load_checkpoint(self) -> None:
+        if self.checkpoint_file and self.checkpoint_file.is_file():
+            try:
+                with open(self.checkpoint_file, encoding=self.encoding) as f:
+                    data = yaml.safe_load(f)["population"]
+                    self.current_index = data.get("current_index", 0)
+                    self.injected_indices = data.get("injected_indices", [])
+                    self.segment_map = data.get("segment_map", {})
+                logger.info(
+                    "Loaded checkpoint: current_index=%s, injected=%s",
+                    self.current_index,
+                    self.injected_indices,
+                )
+            except (OSError, yaml.YAMLError, KeyError) as e:
+                logger.warning("Failed to load checkpoint %s: %s. Starting fresh.", self.checkpoint_file, e)
 
 
 class PopulationReaderMixin:  # pylint: disable=too-few-public-methods
