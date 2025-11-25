@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import cast
 
 from pycbc.detector import Detector as PyCBCDetector
+from pycbc.detector import get_available_detectors
 
 from gwsim.detector.utils import DEFAULT_DETECTOR_BASE_PATH, load_interferometer_config
 
@@ -118,6 +119,8 @@ def extended_get_available_detectors(config_dir: str = detectors_dir) -> list[st
     config_files = [f.stem for f in path.glob("*.interferometer")]
 
     return sorted(set(built_in_dets + config_files))
+
+
 logger = logging.getLogger("gwsim")
 
 
