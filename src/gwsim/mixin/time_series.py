@@ -117,6 +117,15 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
         """
         return self.start_time + self.duration
 
+    @property
+    def final_end_time(self) -> float:
+        """Calculate the final end time of the entire simulation.
+
+        Returns:
+            Final end time in GPS seconds.
+        """
+        return self.start_time + self.total_duration
+
     def _simulate(self, *args, **kwargs) -> TimeSeriesList:
         """Generate time series data chunks.
 
@@ -154,6 +163,25 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
 
         # Add the remaining chunks to the cache
         self.cached_data_chunks.extend(remaining_chunks)
+
+        # Check whether there are chunks that are outside the whole dataset duration
+        # Remove the chunks that are outside the total duration
+        for i in reversed(range(len(self.cached_data_chunks))):
+            chunk = self.cached_data_chunks[i]
+            if chunk.start_time >= self.final_end_time:
+                logger.info(
+                    "Removing cached chunk starting at %s which is outside the total duration ending at %s.",
+                    chunk.start_time,
+                    self.final_end_time,
+                )
+                self.cached_data_chunks.pop(i)
+            elif chunk.end_time <= self.start_time:
+                logger.info(
+                    "Removing cached chunk ending at %s which is before the current segment starting at %s.",
+                    chunk.end_time,
+                    self.start_time,
+                )
+                self.cached_data_chunks.pop(i)
 
         return segment
 
