@@ -157,9 +157,6 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
         Returns:
             End time in GPS seconds.
         """
-        print(self.start_time, type(self.start_time))
-        print(self.duration, type(self.duration))
-
         return cast(Quantity, self.start_time + self.duration)
 
     @property
