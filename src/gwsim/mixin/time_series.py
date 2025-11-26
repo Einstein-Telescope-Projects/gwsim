@@ -7,23 +7,25 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+from astropy.units.quantity import Quantity
 from gwpy.timeseries import TimeSeries as GWPyTimeSeries
 
 from gwsim.data.time_series import TimeSeries
 from gwsim.data.time_series.time_series_list import TimeSeriesList
+from gwsim.simulator.state import StateAttribute
 from gwsim.utils.datetime_parser import parse_duration_to_seconds
 
 logger = logging.getLogger("gwsim")
 
 
-class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
+class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Mixin providing timing and duration management.
 
     This mixin adds time-based parameters commonly used
     in gravitational wave simulations.
     """
 
-    start_time = 0
+    start_time = StateAttribute(Quantity(0, unit="s"))
     cached_data_chunks = TimeSeriesList()
 
     def __init__(
@@ -48,7 +50,7 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
         """
         super().__init__(**kwargs)
         # TimeSeriesMixin is the last mixin in the hierarchy, so no super().__init__() call needed
-        self.start_time = start_time
+        self.start_time = Quantity(start_time, unit="s")
         self.duration = duration
         self.total_duration = total_duration
         self.sampling_frequency = sampling_frequency
@@ -66,7 +68,47 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
             self.num_of_channels = 1
 
     @property
-    def total_duration(self) -> float:
+    def duration(self) -> Quantity:
+        """Get the duration of each simulation segment.
+
+        Returns:
+            Duration in seconds.
+        """
+        return self._duration
+
+    @duration.setter
+    def duration(self, value: float) -> None:
+        """Set the duration of each simulation segment.
+
+        Args:
+            value: Duration in seconds.
+        """
+        if value <= 0:
+            raise ValueError("duration must be positive.")
+        self._duration = Quantity(value, unit="s")
+
+    @property
+    def sampling_frequency(self) -> Quantity:
+        """Get the sampling frequency.
+
+        Returns:
+            Sampling frequency in Hz.
+        """
+        return self._sampling_frequency
+
+    @sampling_frequency.setter
+    def sampling_frequency(self, value: float) -> None:
+        """Set the sampling frequency.
+
+        Args:
+            value: Sampling frequency in Hz.
+        """
+        if value <= 0:
+            raise ValueError("sampling_frequency must be positive.")
+        self._sampling_frequency = Quantity(value, unit="Hz")
+
+    @property
+    def total_duration(self) -> Quantity:
         """Get the total duration of the simulation.
 
         Returns:
@@ -83,9 +125,9 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
         """
         if value is not None:
             if isinstance(value, (float, int)):
-                self._total_duration = float(value)
+                self._total_duration = Quantity(value, unit="s")
             elif isinstance(value, str):
-                self._total_duration = parse_duration_to_seconds(value)
+                self._total_duration = Quantity(parse_duration_to_seconds(value), unit="s")
             else:
                 raise ValueError("total_duration must be a float, int, or str representing duration.")
 
@@ -96,35 +138,38 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
                 raise ValueError("total_duration must be greater than or equal to duration.")
 
             # Round the total_duration to the nearest multiple of duration
-            num_segments = round(self.total_duration / self.duration)
-            self._total_duration = num_segments * self.duration
+            num_segments = round(self.total_duration.value / self.duration.value)
+            self._total_duration = Quantity(num_segments * self.duration, unit="s")
 
             logger.info("Total duration set to %s seconds.", self.total_duration)
 
             # Set the max_samples based on total_duration and duration
-            self.max_samples = int(self.total_duration / self.duration)
+            self.max_samples = int(self.total_duration.value / self.duration.value)
             logger.info("Setting max_samples to %s based on total_duration and duration.", self.max_samples)
         else:
             self._total_duration = self.duration * self.max_samples
             logger.info("total_duration not set, using duration * max_samples = %f seconds.", self.total_duration)
 
     @property
-    def end_time(self) -> float:
+    def end_time(self) -> Quantity:
         """Calculate the end time of the current segment.
 
         Returns:
             End time in GPS seconds.
         """
-        return self.start_time + self.duration
+        print(self.start_time, type(self.start_time))
+        print(self.duration, type(self.duration))
+
+        return cast(Quantity, self.start_time + self.duration)
 
     @property
-    def final_end_time(self) -> float:
+    def final_end_time(self) -> Quantity:
         """Calculate the final end time of the entire simulation.
 
         Returns:
             Final end time in GPS seconds.
         """
-        return self.start_time + self.total_duration
+        return cast(Quantity, self.start_time + self.total_duration)
 
     def _simulate(self, *args, **kwargs) -> TimeSeriesList:
         """Generate time series data chunks.
@@ -147,7 +192,9 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
         """
         # First create a new segment
         segment = TimeSeries(
-            data=np.zeros((self.num_of_channels, int(self.duration * self.sampling_frequency)), dtype=self.dtype),
+            data=np.zeros(
+                (self.num_of_channels, int(self.duration.value * self.sampling_frequency.value)), dtype=self.dtype
+            ),
             start_time=self.start_time,
             sampling_frequency=self.sampling_frequency,
         )
