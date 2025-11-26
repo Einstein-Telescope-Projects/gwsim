@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, cast
 
@@ -10,6 +11,9 @@ from gwpy.timeseries import TimeSeries as GWPyTimeSeries
 
 from gwsim.data.time_series import TimeSeries
 from gwsim.data.time_series.time_series_list import TimeSeriesList
+from gwsim.utils.datetime_parser import parse_duration_to_seconds
+
+logger = logging.getLogger("gwsim")
 
 
 class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
@@ -26,6 +30,7 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
         self,
         start_time: int = 0,
         duration: float = 4,
+        total_duration: float | str | None = None,
         sampling_frequency: float = 4096,
         num_of_channels: int | None = None,
         dtype: type = np.float64,
@@ -36,6 +41,7 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
         Args:
             start_time: Start time in GPS seconds. Default is 0.
             duration: Duration of simulation in seconds. Default is 4.
+            total_duration
             sampling_frequency: Sampling frequency in Hz. Default is 4096.
             dtype: Data type for the time series data. Default is np.float64.
             **kwargs: Additional arguments passed to parent classes.
@@ -44,6 +50,7 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
         # TimeSeriesMixin is the last mixin in the hierarchy, so no super().__init__() call needed
         self.start_time = start_time
         self.duration = duration
+        self.total_duration = total_duration
         self.sampling_frequency = sampling_frequency
         self.dtype = dtype
 
@@ -57,6 +64,49 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods
             self.num_of_channels = len(kwargs["detectors"])
         else:
             self.num_of_channels = 1
+
+    @property
+    def total_duration(self) -> float:
+        """Get the total duration of the simulation.
+
+        Returns:
+            Total duration in seconds.
+        """
+        return self._total_duration
+
+    @total_duration.setter
+    def total_duration(self, value: int | float | str | None) -> None:
+        """Set the total duration of the simulation.
+
+        Args:
+            value: Total duration in seconds.
+        """
+        if value is not None:
+            if isinstance(value, (float, int)):
+                self._total_duration = float(value)
+            elif isinstance(value, str):
+                self._total_duration = parse_duration_to_seconds(value)
+            else:
+                raise ValueError("total_duration must be a float, int, or str representing duration.")
+
+            if self.total_duration < 0:
+                raise ValueError("total_duration must be non-negative.")
+
+            if self.total_duration < self.duration:
+                raise ValueError("total_duration must be greater than or equal to duration.")
+
+            # Round the total_duration to the nearest multiple of duration
+            num_segments = round(self.total_duration / self.duration)
+            self._total_duration = num_segments * self.duration
+
+            logger.info("Total duration set to %s seconds.", self.total_duration)
+
+            # Set the max_samples based on total_duration and duration
+            self.max_samples = int(self.total_duration / self.duration)
+            logger.info("Setting max_samples to %s based on total_duration and duration.", self.max_samples)
+        else:
+            self._total_duration = self.duration * self.max_samples
+            logger.info("total_duration not set, using duration * max_samples = %f seconds.", self.total_duration)
 
     @property
     def end_time(self) -> float:
