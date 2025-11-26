@@ -211,18 +211,22 @@ class TimeSeries(JSONSerializable):
             raise ValueError("Number of channels in chunk must match number of channels in segment.")
 
         if other.end_time < self.start_time:
-            raise ValueError(
-                "The time series to inject ends before the current time series starts."
-                f"The start time of this segment is {self.start_time}, "
-                f"while the end time of the other segment is {other.end_time}"
+            logger.warning(
+                "The time series to inject ends before the current time series starts. No injection performed."
+                "The start time of this segment is %s, while the end time of the other segment is %s",
+                self.start_time,
+                other.end_time,
             )
+            return other
 
         if other.start_time > self.end_time:
-            raise ValueError(
-                "The time series to inject starts after the current time series ends."
-                f"The end time of this segment is {self.end_time}, "
-                f"while the start time of the other segment is {other.start_time}"
+            logger.warning(
+                "The time series to inject starts after the current time series ends. No injection performed."
+                "The end time of this segment is %s, while the start time of the other segment is %s",
+                self.end_time,
+                other.start_time,
             )
+            return other
 
         # Check whether there is any offset in times
         other_start_time = other.start_time.to(self.start_time.unit)
