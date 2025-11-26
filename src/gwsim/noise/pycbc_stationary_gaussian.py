@@ -87,7 +87,7 @@ class PyCBCStationaryGaussianNoiseSimulator(
             self.psd = pycbc.psd.from_string(
                 psd_name=self.label,
                 length=int(self.duration * self.sampling_frequency // 2 + 1),
-                delta_f=1.0 / self.duration,
+                delta_f=1.0 / self.duration.value,
                 low_freq_cutoff=self.low_frequency_cutoff,
             )
         else:
@@ -103,7 +103,7 @@ class PyCBCStationaryGaussianNoiseSimulator(
             raise RuntimeError("Random number generator not initialized. Set seed in constructor.")
         data: np.ndarray = noise_from_psd(
             length=int(self.duration * self.sampling_frequency),
-            delta_t=1.0 / self.sampling_frequency,
+            delta_t=1.0 / self.sampling_frequency.value,
             psd=self.psd,
             seed=int(self.rng.integers(0, 2**31 - 1)),
         ).numpy()[None, :]
