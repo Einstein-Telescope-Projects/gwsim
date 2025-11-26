@@ -7,91 +7,23 @@ from pathlib import Path
 from typing import cast
 
 from pycbc.detector import Detector as PyCBCDetector
-from pycbc.detector import get_available_detectors
 
 from gwsim.detector.utils import DEFAULT_DETECTOR_BASE_PATH, load_interferometer_config
 
-# Store the original for reference
-_original_get_available_detectors = get_available_detectors
-
-
-# Define the path to the available .interferometer config files
-detectors_dir = str(Path(__file__).parent / "detectors")
-det_dir_path = Path(detectors_dir)
-if not det_dir_path.exists() or not det_dir_path.is_dir():
-    print(
-        f"\n *** Warning: Detector config directory {det_dir_path.absolute()} does not exist or is not a directory. ***"
-    )
-
-
-def load_interferometer_config(config_name: str, config_dir: str = detectors_dir) -> str:
-    """
-    Load a .interferometer config file and add its detector using pycbc.detector.add_detector_on_earth.
-
-    Args:
-        config_name (str): The base name of the config file (e.g., "E1_Triangle_Sardinia").
-        config_dir (str, optional): Directory where .interferometer files are stored. Default is detectors_dir.
-
-    Returns:
-        str: Added detector name (e.g., "E1").
-    """
-    # Load the .interferometer config file
-    path = Path(config_dir)
-    file_path = path / f"{config_name}.interferometer"
-    if not file_path.exists():
-        raise FileNotFoundError(f"Config file {file_path} not found.")
-
-    # Extract the parameters
-    bilby_params = dict()
-    with open(file_path) as parameter_file:
-        lines = parameter_file.readlines()
-        for line in lines:
-            if line[0] == "#" or line[0] == "\n":
-                continue
-            split_line = line.split("=")
-            key = split_line[0].strip()
-            value = eval("=".join(split_line[1:]))
-            bilby_params[key] = value
-
-    params = _bilby_to_pycbc_parameters(bilby_params)
-    det_name = params["name"]
-
-    # Add detector configuration
-    add_detector_on_earth(
-        name=det_name,
-        latitude=params["latitude"],
-        longitude=params["longitude"],
-        height=params["height"],
-        xangle=params["xangle"],
-        yangle=params["yangle"],
-        xaltitude=params["xaltitude"],
-        yaltitude=params["yaltitude"],
-        xlength=params["xlength"],
-        ylength=params["ylength"],
-    )
-
-    return det_name
-
-
-def extended_get_available_detectors(config_dir: str = detectors_dir) -> list[str]:
-    """
-    Extended version of pycbc.detector.get_available_detectors that includes both built-in detectors
-    and available .interferometer config names.
-
-    Args:
-        config_dir (str, optional): Directory where .interferometer files are stored (default: detectors_dir).
-
-    Returns:
-        list[str]: Sorted list of available detector names, including configs.
-    """
-    built_in_dets = _original_get_available_detectors()
-    path = Path(config_dir)
-    config_files = [f.stem for f in path.glob("*.interferometer")]
-
-    return sorted(set(built_in_dets + config_files))
-
-
 logger = logging.getLogger("gwsim")
+
+
+def _load_all_detector_configuration_files(config_dir: Path = DEFAULT_DETECTOR_BASE_PATH) -> None:
+    # Glob all files in the config_dir with .interferometer extension
+    for config_file in config_dir.glob("*.interferometer"):
+        try:
+            load_interferometer_config(config_file)
+            logger.debug("Loaded detector configuration from %s", config_file)
+        except (OSError, ValueError) as e:
+            logger.warning("Failed to load detector configuration from %s: %s", config_file, e)
+
+
+_load_all_detector_configuration_files(config_dir=DEFAULT_DETECTOR_BASE_PATH)
 
 
 class Detector:
