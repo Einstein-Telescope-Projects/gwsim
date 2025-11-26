@@ -8,7 +8,7 @@
 # Both vertices have the same height of the Virgo V1 vertex (51.88399887084961 m).
 # Each detector is oriented w.r.t. its local North. The aligned configuration corresponds to a relative angle of 0◦ between E1 and E2 (North to East), from the COBA paper.
 # The detector sensitivity follows the COBA paper.
-name = 'E1'
+name = 'E1_2L_aligned_sardinia'
 power_spectral_density = PowerSpectralDensity(psd_file='./noise_curves/ET_15_full_cryo_psd.txt')
 length = 15
 minimum_frequency = 2
