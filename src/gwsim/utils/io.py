@@ -63,7 +63,10 @@ def check_file_exist():
 
 
 def get_file_name_from_template(  # pylint: disable=too-many-locals
-    template: str, instance: object, output_directory: str | Path | None = None, exclude: set[str] | None = None
+    template: str,
+    instance: object | None = None,
+    output_directory: str | Path | None = None,
+    exclude: set[str] | None = None,
 ) -> Path | NDArray[Path]:
     """Get the file name(s) from a template string.
 
