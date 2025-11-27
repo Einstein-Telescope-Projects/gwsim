@@ -14,6 +14,7 @@ from gwpy.types.index import Index
 from scipy.interpolate import interp1d
 
 from gwsim.data.serialize.serializable import JSONSerializable
+from gwsim.data.time_series.inject import inject
 
 logger = logging.getLogger("gwsim")
 
@@ -254,7 +255,7 @@ class TimeSeries(JSONSerializable):
             )
 
         for i in range(self.num_of_channels):
-            self[i] = self[i].inject(other[i])
+            self[i] = inject(self[i], other[i])
 
         if other.end_time > self.end_time:
             return other.crop(start_time=self.end_time)
