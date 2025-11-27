@@ -6,6 +6,8 @@ import importlib
 import json
 from typing import Any
 
+from astropy.units import Quantity
+
 
 class Decoder(json.JSONDecoder):
     """Custom JSON decoder for JSONSerializable objects.
@@ -35,6 +37,9 @@ class Decoder(json.JSONDecoder):
         """
         if "__type__" in obj:
             type_name = obj["__type__"]
+
+            if type_name == "Quantity":
+                return Quantity(value=obj["value"], unit=obj["unit"])
 
             # Assume all serializable classes are in gwsim.data module
             module = importlib.import_module("gwsim.data")
