@@ -71,6 +71,7 @@ def retry_with_backoff(
                     max_retries + 1,
                     str(e),
                     delay,
+                    exc_info=e,
                 )
                 time.sleep(delay)
                 delay *= backoff_factor
@@ -514,7 +515,7 @@ def execute_plan(  # pylint: disable=too-many-locals
                         """Execute a single batch with state management."""
                         # Generate data by calling next() - this advances simulator state
                         logger.debug("[BATCH] %s: Before next() - counter=%s", _batch.batch_index, _simulator.counter)
-                        batch_data = next(_simulator)
+                        batch_data = _simulator.simulate()
                         logger.debug("[BATCH] %s: After next() - counter=%s", _batch.batch_index, _simulator.counter)
 
                         # Save the generated data and get all output file paths
@@ -535,6 +536,8 @@ def execute_plan(  # pylint: disable=too-many-locals
                             output_files,
                             pre_batch_state=_pre_batch_state,
                         )
+                        # Update the state after successful save
+                        _simulator.update_state()
 
                     def restore_state_for_retry(_simulator=simulator, _pre_batch_state=pre_batch_state):
                         """Restore simulator state to pre-batch state before retry."""
