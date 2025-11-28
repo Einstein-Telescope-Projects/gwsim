@@ -22,6 +22,7 @@ retryable
 SEOBN
 submatrix
 Uncatched
+Uninjected
 xaltitude
 xangle
 xarm
