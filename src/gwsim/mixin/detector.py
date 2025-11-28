@@ -123,23 +123,16 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
         # Convert TimeSeries data to numpy arrays for computation
         # Interpolate the hp and hc data to ensure smooth evaluation
         time_array = cast(np.ndarray, hp.times.to_value())
-        hp_func = interp1d(time_array, hp.to_value(), kind="cubic", bounds_error=False, fill_value=0.0)
-        hc_func = interp1d(time_array, hc.to_value(), kind="cubic", bounds_error=False, fill_value=0.0)
+        reference_time = 0.5 * (time_array[0] + time_array[-1])
+
+        # Compute the time_array minus the reference_time to avoid the systematic large time values
+        time_array_wrt_reference = time_array - reference_time
+
+        hp_func = interp1d(time_array_wrt_reference, hp.to_value(), kind="cubic", bounds_error=False, fill_value=0.0)
+        hc_func = interp1d(time_array_wrt_reference, hc.to_value(), kind="cubic", bounds_error=False, fill_value=0.0)
 
         if earth_rotation:
-            # Calculate the antenna patterns at multiple times
-            antenna_patterns = [
-                det.antenna_pattern(
-                    right_ascension=right_ascension,
-                    declination=declination,
-                    polarization=polarization_angle,
-                    t_gps=time_array,
-                    polarization_type="tensor",
-                )
-                for det in self.detectors
-            ]
-
-            # Calculate the time delays
+            # Calculate the time delays first
             time_delays = [
                 det.time_delay_from_earth_center(
                     right_ascension=right_ascension, declination=declination, t_gps=time_array
@@ -171,11 +164,24 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
 
         # Evaluate the detector responses
         detector_responses = np.zeros((len(self.detectors), len(time_array)))
-        for i, (fp_vals, fc_vals) in enumerate(antenna_patterns):
+        for i, det in enumerate(self.detectors):
             time_delay = time_delays[i]
 
             # Shift the waveform data according to time delays
-            shifted_times = time_array + time_delay
+            shifted_times = time_array_wrt_reference + time_delay
+
+            if earth_rotation:
+                # Evaluate antenna patterns exactly at the delayed times
+                fp_vals, fc_vals = det.antenna_pattern(
+                    right_ascension=right_ascension,
+                    declination=declination,
+                    polarization=polarization_angle,
+                    t_gps=time_array + time_delay,
+                    polarization_type="tensor",
+                )
+            else:
+                # Use constant antenna patterns (from earlier calculation)
+                fp_vals, fc_vals = antenna_patterns[i]
 
             hp_shifted = hp_func(shifted_times)
             hc_shifted = hc_func(shifted_times)
