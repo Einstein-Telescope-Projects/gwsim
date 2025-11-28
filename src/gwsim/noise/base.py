@@ -8,11 +8,11 @@ from typing import cast
 import numpy as np
 
 from gwsim.cli.utils.utils import get_file_name_from_template_with_dict
+from gwsim.mixin.detector import DetectorMixin
+from gwsim.mixin.gwf import GWFOutputMixin
+from gwsim.mixin.randomness import RandomnessMixin
+from gwsim.mixin.time_series import TimeSeriesMixin
 from gwsim.simulator.base import Simulator
-from gwsim.simulator.mixin.detector import DetectorMixin
-from gwsim.simulator.mixin.gwf import GWFOutputMixin
-from gwsim.simulator.mixin.randomness import RandomnessMixin
-from gwsim.simulator.mixin.time_series import TimeSeriesMixin
 from gwsim.simulator.state import StateAttribute
 from gwsim.utils.random import get_state
 

@@ -34,7 +34,7 @@ class TestTimeSeriesInitialization:
 
     def test_init_with_valid_data(self, sample_timeseries: TimeSeries):
         """Test initialization with valid 2D array."""
-        assert sample_timeseries.num_channels == 2
+        assert sample_timeseries.num_of_channels == 2
         assert sample_timeseries.dtype == np.float64
         assert len(sample_timeseries) == 2
 
@@ -132,26 +132,6 @@ class TestTimeSeriesInject:
         # Check that injection modified the data (assuming small_timeseries has ones)
         assert sample_timeseries[0].value[512] != original_value
 
-    def test_inject_non_overlapping_right_raises(self, sample_timeseries: TimeSeries):
-        """Test that non-overlapping injection raises ValueError."""
-        far_ts = TimeSeries(
-            np.ones((2, 100)),
-            start_time=Quantity(2000000000, unit="s"),  # Far in future
-            sampling_frequency=Quantity(4096, unit="Hz"),
-        )
-        with pytest.raises(ValueError, match="The time series to inject starts after the current time series ends"):
-            sample_timeseries.inject(far_ts)
-
-    def test_inject_non_overlapping_left_raises(self, sample_timeseries: TimeSeries):
-        """Test that non-overlapping injection raises ValueError."""
-        far_ts = TimeSeries(
-            np.ones((2, 100)),
-            start_time=Quantity(0, unit="s"),  # Far in future
-            sampling_frequency=Quantity(4096, unit="Hz"),
-        )
-        with pytest.raises(ValueError, match="The time series to inject ends before the current time series starts"):
-            sample_timeseries.inject(far_ts)
-
     def test_inject_mismatched_channels_raises(self, sample_timeseries: TimeSeries):
         """Test that mismatched channel count raises ValueError."""
         wrong_channels = TimeSeries(
@@ -197,13 +177,13 @@ class TestTimeSeriesSerialization:
         assert "sampling_frequency" in data
         assert "sampling_frequency_unit" in data
         assert isinstance(data["data"], list)
-        assert len(data["data"]) == sample_timeseries.num_channels
+        assert len(data["data"]) == sample_timeseries.num_of_channels
 
     def test_from_json_dict_round_trip(self, sample_timeseries: TimeSeries):
         """Test round-trip serialization."""
         json_data = sample_timeseries.to_json_dict()
         reconstructed = TimeSeries.from_json_dict(json_data)
-        assert reconstructed.num_channels == sample_timeseries.num_channels
+        assert reconstructed.num_of_channels == sample_timeseries.num_of_channels
         assert reconstructed.start_time == sample_timeseries.start_time
         assert reconstructed.sampling_frequency == sample_timeseries.sampling_frequency
         np.testing.assert_array_equal(reconstructed[0].value, sample_timeseries[0].value)

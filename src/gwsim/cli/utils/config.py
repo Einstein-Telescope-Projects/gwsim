@@ -5,16 +5,180 @@ Utility functions to load and save configuration files.
 from __future__ import annotations
 
 import logging
-import re
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import yaml
-
-from gwsim.utils.io import check_file_overwrite
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger("gwsim")
+
+
+class SimulatorOutputConfig(BaseModel):
+    """Configuration for simulator output handling."""
+
+    file_name: str = Field(..., description="Output file name template (supports {{ variable }} placeholders)")
+    arguments: dict[str, Any] = Field(
+        default_factory=dict, description="Output-specific arguments (e.g., channel name)"
+    )
+    output_directory: str | None = Field(
+        default=None, description="Optional directory override for this simulator's output"
+    )
+    metadata_directory: str | None = Field(
+        default=None, description="Optional directory override for this simulator's metadata"
+    )
+
+    # Allow unknown fields
+    model_config = ConfigDict(extra="allow")
+
+
+class SimulatorConfig(BaseModel):
+    """Configuration for a single simulator."""
+
+    class_: str = Field(alias="class", description="Simulator class name or full import path")
+    arguments: dict[str, Any] = Field(default_factory=dict, description="Arguments passed to simulator constructor")
+    output: SimulatorOutputConfig = Field(
+        default_factory=lambda: SimulatorOutputConfig(file_name="output-{{counter}}.hdf5"),
+        description="Output configuration for this simulator",
+    )
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    @field_validator("class_", mode="before")
+    @classmethod
+    def validate_class_name(cls, v: str) -> str:
+        """Validate class specification is non-empty."""
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("'class' must be a non-empty string")
+        return v
+
+
+class GlobalsConfig(BaseModel):
+    """Global configuration applying to all simulators.
+
+    This configuration provides universal directory settings and fallback arguments
+    for simulators and output handlers. The simulator_arguments and output_arguments
+    are agnostic to simulator type, supporting both time-series and population simulators.
+    """
+
+    working_directory: str = Field(
+        default=".", alias="working-directory", description="Base working directory for all output"
+    )
+    output_directory: str | None = Field(
+        default=None, alias="output-directory", description="Default output directory (can be overridden per simulator)"
+    )
+    metadata_directory: str | None = Field(
+        default=None,
+        alias="metadata-directory",
+        description="Default metadata directory (can be overridden per simulator)",
+    )
+    simulator_arguments: dict[str, Any] = Field(
+        default_factory=dict,
+        alias="simulator-arguments",
+        description="Global default arguments for simulators (e.g., sampling-frequency, duration, seed). "
+        "Simulator-specific arguments override these.",
+    )
+    output_arguments: dict[str, Any] = Field(
+        default_factory=dict,
+        alias="output-arguments",
+        description="Global default arguments for output handlers (e.g., channel names). "
+        "Simulator-specific output arguments override these.",
+    )
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+class Config(BaseModel):
+    """Top-level configuration model."""
+
+    globals: GlobalsConfig = Field(default_factory=GlobalsConfig, description="Global configuration")
+    simulators: dict[str, SimulatorConfig] = Field(..., description="Dictionary of simulators")
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    @field_validator("simulators", mode="before")
+    @classmethod
+    def validate_simulators_not_empty(cls, v: dict[str, Any]) -> dict[str, Any]:
+        """Ensure simulators section is not empty."""
+        if not v:
+            raise ValueError("'simulators' section cannot be empty")
+        return v
+
+
+def load_config(file_name: Path, encoding: str = "utf-8") -> Config:
+    """Load configuration file with validation.
+
+    Args:
+        file_name (Path): File name.
+        encoding (str, optional): File encoding. Defaults to "utf-8".
+
+    Returns:
+        Config: Validated configuration dataclass.
+
+    Raises:
+        FileNotFoundError: If the configuration file does not exist.
+        ValueError: If the configuration is invalid or cannot be parsed.
+    """
+    if not file_name.exists():
+        raise FileNotFoundError(f"Configuration file not found: {file_name}")
+    try:
+        with file_name.open(encoding=encoding) as f:
+            raw_config = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ValueError(f"Failed to parse YAML configuration: {e}") from e
+
+    if not isinstance(raw_config, dict):
+        raise ValueError("Configuration must be a YAML dictionary")
+
+    # Validate and convert to Config dataclass
+    try:
+        config = Config(**raw_config)
+        logger.info("Configuration loaded and validated: %s simulators", len(config.simulators))
+        return config
+    except ValueError as e:
+        raise ValueError(f"Configuration validation failed: {e}") from e
+
+
+def save_config(
+    file_name: Path, config: Config, overwrite: bool = False, encoding: str = "utf-8", backup: bool = True
+) -> None:
+    """Save configuration to YAML file safely.
+
+    Args:
+        file_name: Path to save configuration to
+        config: Config dataclass instance
+        overwrite: If True, overwrite existing file
+        encoding: File encoding (default: utf-8)
+        backup: If True and overwriting, create backup
+
+    Raises:
+        FileExistsError: If file exists and overwrite=False
+    """
+    if file_name.exists() and not overwrite:
+        raise FileExistsError(f"File already exists: {file_name}. Use overwrite=True to overwrite.")
+
+    # Create backup if needed
+    if file_name.exists() and overwrite and backup:
+        backup_path = file_name.with_suffix(f"{file_name.suffix}.backup")
+        logger.info("Creating backup: %s", backup_path)
+        backup_path.write_text(file_name.read_text(encoding=encoding), encoding=encoding)
+
+    # Atomic write
+    temp_file = file_name.with_suffix(f"{file_name.suffix}.tmp")
+    try:
+        # Convert to dict, excluding internal fields
+        config_dict = config.model_dump(by_alias=True, exclude_none=False)
+
+        with temp_file.open("w", encoding=encoding) as f:
+            yaml.safe_dump(config_dict, f, default_flow_style=False, sort_keys=False)
+
+        temp_file.replace(file_name)
+        logger.info("Configuration saved to: %s", file_name)
+
+    except Exception as e:
+        if temp_file.exists():
+            temp_file.unlink()
+        raise ValueError(f"Failed to save configuration: {e}") from e
 
 
 def validate_config(config: dict) -> None:
@@ -70,74 +234,7 @@ def validate_config(config: dict) -> None:
     logger.info("Configuration validation passed")
 
 
-def load_config(file_name: Path, encoding: str = "utf-8") -> dict:
-    """Load configuration file with validation.
-
-    Args:
-        file_name (Path): File name.
-        encoding (str, optional): File encoding. Defaults to "utf-8".
-
-    Returns:
-        dict: A dictionary of the configuration.
-
-    Raises:
-        ValueError: If configuration is invalid
-        FileNotFoundError: If configuration file does not exist
-    """
-    if not file_name.exists():
-        raise FileNotFoundError(f"Configuration file not found: {file_name}")
-
-    with open(file_name, encoding=encoding) as f:
-        config = yaml.safe_load(f)
-
-    # Validate the loaded configuration
-    validate_config(config)
-
-    return config
-
-
-@check_file_overwrite()
-def save_config(
-    file_name: Path, config: dict, overwrite: bool = False, encoding: str = "utf-8", backup: bool = True
-) -> None:
-    """Save configuration file safely with optional backup.
-
-    Args:
-        file_name (Path): File name.
-        config (dict): A dictionary of configuration.
-        overwrite (bool, optional): If True, overwrite the existing file, or otherwise raise an error.
-            Defaults to False.
-        encoding (str, optional): File encoding. Defaults to "utf-8".
-        backup (bool, optional): If True and overwriting, create a backup of the existing file.
-            Defaults to True.
-
-    Raises:
-        FileExistsError: If file_name exists and overwrite is False, raise an error.
-    """
-    # Create backup if file exists and we're overwriting
-    if file_name.exists() and overwrite and backup:
-        backup_path = file_name.with_suffix(f"{file_name.suffix}.backup")
-        logger.info("Creating backup: %s", backup_path)
-        backup_path.write_text(file_name.read_text(encoding=encoding), encoding=encoding)
-
-    # Atomic write using temporary file
-    temp_file = file_name.with_suffix(f"{file_name.suffix}.tmp")
-    try:
-        with open(temp_file, "w", encoding=encoding) as f:
-            yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
-
-        # Atomic move (rename) - this is atomic on most filesystems
-        temp_file.replace(file_name)
-        logger.info("Configuration saved to: %s", file_name)
-
-    except Exception:
-        # Clean up temp file if something went wrong
-        if temp_file.exists():
-            temp_file.unlink()
-        raise
-
-
-def resolve_class_path(class_spec: str, section_name: str) -> str:
+def resolve_class_path(class_spec: str, section_name: str | None) -> str:
     """Resolve class specification to full module path.
 
     Args:
@@ -151,190 +248,100 @@ def resolve_class_path(class_spec: str, section_name: str) -> str:
         resolve_class_path("WhiteNoise", "noise") -> "gwsim.noise.WhiteNoise"
         resolve_class_path("numpy.random.Generator", "noise") -> "numpy.random.Generator"
     """
-    if "." not in class_spec:
+    if "." not in class_spec and section_name:
         # Just a class name - use section_name as submodule, class imported in __init__.py
         return f"gwsim.{section_name}.{class_spec}"
     # Contains dots - assume it's a third-party package, use as-is
     return class_spec
 
 
-def merge_parameters(globals_config: dict, simulator_config: dict) -> dict:
+def merge_parameters(globals_config: GlobalsConfig, simulator_args: dict[str, Any]) -> dict[str, Any]:
     """Merge global and simulator-specific parameters.
 
+    Flattens simulator_arguments from globals into the result, then applies
+    simulator-specific overrides.
+
     Args:
-        globals_config: Global configuration parameters
-        simulator_config: Simulator-specific configuration
+        globals_config: GlobalsConfig dataclass instance
+        simulator_args: Simulator-specific arguments dict
 
     Returns:
-        Merged parameters with simulator config taking precedence
+        Merged parameters with simulator args taking precedence
 
     Note:
-        All global parameters are passed to simulators. Simulator-specific
-        arguments override global parameters when the same key exists.
+        Simulator_arguments from globals_config are flattened into the result.
+        Directory settings (working-directory, output-directory, metadata-directory)
+        are included. Output_arguments are not included (handled separately).
     """
-    # Start with all global parameters
-    merged = globals_config.copy() if globals_config else {}
-    merged.update(simulator_config)
+    # Start with directory settings from globals
+    merged = {}
+    if globals_config.working_directory:
+        merged["working-directory"] = globals_config.working_directory
+    if globals_config.output_directory:
+        merged["output-directory"] = globals_config.output_directory
+    if globals_config.metadata_directory:
+        merged["metadata-directory"] = globals_config.metadata_directory
+
+    # Flatten simulator_arguments from globals
+    merged.update(globals_config.simulator_arguments)
+
+    # Override with simulator-specific arguments (takes precedence)
+    merged.update(simulator_args)
+
     return merged
 
 
-def expand_templates(text: str, context: dict) -> str:
-    """Expand template variables in text strings.
+def get_output_directories(
+    globals_config: GlobalsConfig,
+    simulator_config: SimulatorConfig,
+    simulator_name: str,
+    working_directory: Path | None = None,
+) -> tuple[Path, Path]:
+    """Get output and metadata directories for a simulator.
 
     Args:
-        text: String that may contain template variables like {{ key }}
-        context: Dictionary containing template variable values
+        globals_config: Global configuration
+        simulator_config: Simulator-specific configuration
+        simulator_name: Name of the simulator
+        working_directory: Override working directory (for testing)
 
     Returns:
-        String with template variables expanded
+        Tuple of (output_directory, metadata_directory)
+
+    Priority (highest to lowest):
+        1. Simulator output.output_directory / output.metadata_directory
+        2. Global output-directory / metadata-directory
+        3. working-directory / output / {simulator_name}
 
     Examples:
-        expand_templates("file-{{ duration }}.gwf", {"duration": 4}) -> "file-4.gwf"
+        >>> globals_cfg = GlobalsConfig(working_directory="/data")
+        >>> sim_cfg = SimulatorConfig(class_="Noise")
+        >>> get_output_directories(globals_cfg, sim_cfg, "noise")
+        (Path("/data/output/noise"), Path("/data/output/noise"))
     """
+    working_dir = working_directory or Path(globals_config.working_directory)
 
-    def replace_var(match):
-        var_name = match.group(1).strip()
-        # Support nested access like globals.duration
-        keys = var_name.split(".")
-        value = context
-        try:
-            for key in keys:
-                value = value[key]
-            return str(value)
-        except (KeyError, TypeError):
-            logger.warning("Template variable '%s' not found in context", var_name)
-            return match.group(0)  # Return original if not found
+    # Simulator-specific overrides
+    if simulator_config.output.output_directory:
+        output_path = Path(simulator_config.output.output_directory)
+        # Prepend working_dir if path is relative
+        output_directory = output_path if output_path.is_absolute() else working_dir / output_path
+    elif globals_config.output_directory:
+        output_path = Path(globals_config.output_directory)
+        # Prepend working_dir if path is relative
+        output_directory = output_path if output_path.is_absolute() else working_dir / output_path
+    else:
+        output_directory = working_dir / "output" / simulator_name
 
-    # Match {{ variable }} or {{ nested.variable }}
-    pattern = r"\{\{\s*([^}]+)\s*\}\}"
-    return re.sub(pattern, replace_var, text)
+    if simulator_config.output.metadata_directory:
+        metadata_path = Path(simulator_config.output.metadata_directory)
+        # Prepend working_dir if path is relative
+        metadata_directory = metadata_path if metadata_path.is_absolute() else working_dir / metadata_path
+    elif globals_config.metadata_directory:
+        metadata_path = Path(globals_config.metadata_directory)
+        # Prepend working_dir if path is relative
+        metadata_directory = metadata_path if metadata_path.is_absolute() else working_dir / metadata_path
+    else:
+        metadata_directory = working_dir / "metadata" / simulator_name
 
-
-def expand_detector_templates(config: Any, detectors: list[str] | None = None) -> Any:
-    """Expand {detector} placeholders in configuration.
-
-    Args:
-        config: Configuration value (dict, list, str, or other)
-        detectors: List of detector names to expand for
-
-    Returns:
-        Configuration with expanded detector templates
-
-    Note:
-        This function handles {detector} placeholders which are different from
-        {{ variable }} template variables. The {detector} placeholder is used
-        for multi-detector file naming patterns.
-    """
-    if detectors is None:
-        detectors = []
-
-    if isinstance(config, str):
-        # Preserve all strings unchanged - {detector} placeholders are handled at runtime
-        return config
-    if isinstance(config, dict):
-        return {key: expand_detector_templates(value, detectors) for key, value in config.items()}
-    if isinstance(config, list):
-        return [expand_detector_templates(item, detectors) for item in config]
-    return config
-
-
-def expand_config_templates(config: Any, context: dict) -> Any:
-    """Recursively expand template variables in configuration.
-
-    Args:
-        config: Configuration value (dict, list, str, or other)
-        context: Template variable context
-
-    Returns:
-        Configuration with expanded templates
-    """
-    if isinstance(config, str):
-        return expand_templates(config, context)
-    if isinstance(config, dict):
-        return {key: expand_config_templates(value, context) for key, value in config.items()}
-    if isinstance(config, list):
-        return [expand_config_templates(item, context) for item in config]
-    return config
-
-
-def normalize_config(config: dict) -> dict:
-    """Normalize configuration ensuring proper structure.
-
-    Args:
-        config: Raw configuration dictionary
-
-    Returns:
-        Normalized configuration with 'globals' and 'simulators' sections
-    """
-    # Ensure we have the required structure
-    if "simulators" not in config:
-        raise ValueError("Configuration must contain 'simulators' section")
-
-    # Make a copy to avoid modifying the input
-    normalized = deepcopy(config)
-
-    # Ensure we have a globals section (can be empty)
-    if "globals" not in normalized:
-        normalized["globals"] = {}
-
-    # Check each simulator has required fields
-    for name, sim_config in normalized["simulators"].items():
-        if "class" not in sim_config:
-            raise ValueError(f"Simulator '{name}' missing required 'class' field")
-        if "arguments" not in sim_config:
-            sim_config["arguments"] = {}
-        if "output" not in sim_config:
-            sim_config["output"] = {}
-        if "file_name" not in sim_config["output"]:
-            sim_config["output"]["file_name"] = f"{name}-{{{{ counter }}}}.hdf5"
-        if "arguments" not in sim_config["output"]:
-            sim_config["output"]["arguments"] = {}
-
-    return normalized
-
-
-def process_config(config: dict) -> dict:
-    """Process configuration with parameter inheritance but preserve runtime templates.
-
-    Args:
-        config: Raw configuration dictionary
-
-    Returns:
-        Processed configuration ready for use
-    """
-    # Normalize configuration structure
-    normalized = normalize_config(config)
-
-    # Extract globals
-    globals_config = normalized.get("globals", {})
-
-    # Process each simulator
-    processed_simulators = {}
-    for name, simulator_config in normalized["simulators"].items():
-        # Get existing arguments or empty dict
-        existing_args = simulator_config.get("arguments", {})
-
-        # Get existing output arguments or empty dict
-        existing_output = simulator_config.get("output", {})
-        existing_output_args = existing_output.get("arguments", {})
-
-        # Merge parameters for simulator arguments
-        merged_args = merge_parameters(globals_config, existing_args)
-
-        # Merge parameters for output arguments
-        merged_output_args = merge_parameters(globals_config, existing_output_args)
-
-        # Keep the original simulator config structure but update arguments
-        processed_config = simulator_config.copy()
-
-        # Update arguments with merged parameters
-        processed_config["arguments"] = merged_args
-
-        # Update output arguments with merged parameters
-        if "output" not in processed_config:
-            processed_config["output"] = {}
-        processed_config["output"]["arguments"] = merged_output_args
-
-        processed_simulators[name] = processed_config
-
-    return {"globals": globals_config, "simulators": processed_simulators}
+    return output_directory, metadata_directory

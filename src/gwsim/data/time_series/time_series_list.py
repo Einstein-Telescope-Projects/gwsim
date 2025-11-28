@@ -60,6 +60,12 @@ class TimeSeriesList(Iterable[TimeSeries]):
         else:
             raise TypeError("Index must be an int or slice.")
 
+    @overload
+    def __getitem__(self, index: int) -> TimeSeries: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[TimeSeries]: ...
+
     def __getitem__(self, index: int | slice) -> TimeSeries | list[TimeSeries]:
         """Get item.
 

@@ -1,7 +1,7 @@
 all:
-	gwsim --verbose DEBUG simulate config.yaml
+	gwsim simulate config.yaml
 
 .PHONY: clean
 
 clean:
-	rm -rf output/ metadata/ checkpoints/
+	rm -rf output/ metadata/ .gwsim_checkpoints/

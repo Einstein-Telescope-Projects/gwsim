@@ -1,0 +1,19 @@
+# Configuration for detector E1 of the ET Triangle network located in Sardinia, following Bilby convention.
+# The coordinates of the Sardinia location (latitude 40◦31’, longitude 9◦25’) follows the COBA paper [Marica Branchesi et al JCAP07(2023)068].
+# The ET triangular configuration is derived from T1400308.
+# The arms 1 and 2 of E1 are defined on the tangent plane at the E1 vertex position.
+# The arm 1 of E1 has the same azimuth angle (0.33916285632 rad) and altitude (0.0 rad) of the Virgo arm 1 in the local horizontal coordinate system center at the E1 vertex.
+# The E1 vertex has the same height of the Virgo V1 vertex (51.88399887084961 m)
+# The detector sensitivity follows the COBA paper.
+name = 'E1_triangle_sardinia'
+power_spectral_density = PowerSpectralDensity(psd_file='./noise_curves/ET_10_full_cryo_psd.txt')
+length = 10
+minimum_frequency = 2
+maximum_frequency = 10000
+latitude = 40.5166666668747
+longitude = 9.416666666888249
+elevation = 51.884
+xarm_azimuth = 70.56739976526205
+yarm_azimuth = 130.56739976543332
+xarm_tilt = 2.64278457158e-10
+yarm_tilt = 2.64278469515e-10

@@ -1,0 +1,44 @@
+
+import os
+from pathlib import Path
+import pandas as pd
+import h5py
+
+def read_pycbc_population_file(file_name):
+    """
+    Read a PyCBC population file (.hdf, .h5) and return a pandas DataFrame.
+
+    Supports:
+      - HDF5 population files from pycbc_population
+    Parameters
+    ----------
+    file_name : Path or str
+        Path to the PyCBC population file.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing population parameters.
+    """
+    file_path = Path(file_name)
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    suffix = file_path.suffix.lower()
+
+    # --- HDF5 (.hdf or .h5) ---
+    if suffix in {".hdf", ".h5"}:
+        with h5py.File(file_path, "r") as f:
+
+            # PyCBC stores parameters as datasets
+            data = {key: f[key][()] for key in f.keys()}
+
+            # Collect attributes (Include static parameters in config files)
+            attrs = dict(f.attrs.items())
+
+        df = pd.DataFrame(data)
+        df.attrs.update(attrs)  # Attach metadata
+    else:
+        raise ValueError(f"Unsupported file type: {suffix}")
+
+    return df

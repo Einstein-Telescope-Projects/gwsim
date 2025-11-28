@@ -1,484 +1,770 @@
 """
-A sub-command to handle data generation.
+A sub-command to handle data generation using simulation plans.
 """
 
 from __future__ import annotations
 
 import atexit
+import copy
 import logging
 import signal
-from dataclasses import dataclass
-from functools import partial
+import time
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+import yaml
 from tqdm import tqdm
 
-from gwsim.cli.utils.config import load_config, process_config, resolve_class_path
-from gwsim.cli.utils.retry import RetryManager
-from gwsim.cli.utils.template import TemplateValidator
-from gwsim.cli.utils.utils import get_file_name_from_template, handle_signal, import_attribute, save_file_safely
+from gwsim.cli.utils.checkpoint import CheckpointManager
+from gwsim.cli.utils.config import SimulatorConfig, load_config, resolve_class_path
+from gwsim.cli.utils.simulation_plan import (
+    SimulationBatch,
+    SimulationPlan,
+    create_batch_metadata,
+    create_plan_from_config,
+    create_plan_from_metadata_files,
+)
+from gwsim.cli.utils.utils import handle_signal, import_attribute
 from gwsim.simulator.base import Simulator
+from gwsim.utils.io import get_file_name_from_template
 
 logger = logging.getLogger("gwsim")
+logger.setLevel(logging.DEBUG)
 
 
-@dataclass
-class BatchProcessingConfig:
-    """Configuration for batch processing operations."""
-
-    file_name_template: str
-    output_directory: Path
-    metadata_directory: Path
-    output_arguments: dict[str, Any]
-    overwrite: bool
-    metadata: bool
-    checkpoint_file: Path
-    checkpoint_file_backup: Path
-
-
-def get_simulator(simulator_name: str, simulator_config: dict, resolved_class_path: str) -> Simulator:
-    """Get the simulator from a dictionary of configuration.
+def retry_with_backoff(
+    func,
+    max_retries: int = 3,
+    initial_delay: float = 0.1,
+    backoff_factor: float = 2.0,
+    state_restore_func: Any = None,
+) -> Any:
+    """Retry a function with exponential backoff and optional state restoration.
 
     Args:
-        simulator_name (str): Name of the simulator for logging.
-        simulator_config (dict): Simulator-specific configuration.
-        resolved_class_path (str): Fully resolved class path.
+        func: Callable to retry
+        max_retries: Maximum number of retries
+        initial_delay: Initial delay in seconds
+        backoff_factor: Multiplier for delay after each retry
+        state_restore_func: Optional callable to restore state before each retry.
+                           Called before each retry attempt (not before first attempt).
+
+    Returns:
+        Result of function call
 
     Raises:
-        KeyError: If 'class' is not in simulator_config.
-        KeyError: If 'arguments' is not in simulator_config.
-
-    Returns:
-        Simulator: An instance of a simulator.
+        Exception: If all retries fail
     """
-    if "class" not in simulator_config:
-        raise KeyError(
-            f"Failed to initialize simulator '{simulator_name}'. "
-            "'class' is not found in the simulator configuration."
-        )
+    delay = initial_delay
+    last_exception: Exception | None = None
 
-    if "arguments" not in simulator_config:
-        raise KeyError(
-            f"Failed to initialize simulator '{simulator_name}'. "
-            "'arguments' is not found in the simulator configuration."
-        )
-
-    simulator_cls = import_attribute(resolved_class_path)
-    simulator = simulator_cls(**simulator_config["arguments"])
-
-    # Print the information.
-    logger.info("Simulator '%s' class: %s", simulator_name, resolved_class_path)
-    logger.info("Simulator '%s' arguments: %s", simulator_name, simulator_config["arguments"])
-
-    return simulator
-
-
-def clean_up_generate(checkpoint_file: Path, checkpoint_file_backup: Path) -> None:
-    """Clean-up function to be called when the signal is received.
-
-    Args:
-        checkpoint_file (Path): Path to the checkpoint file.
-        checkpoint_file_backup (Path): Path to the backup checkpoint file.
-
-    Returns:
-        None
-    """
-
-    # Check whether a backup checkpoint file exists.
-    if checkpoint_file_backup.is_file():
-        logger.warning("Interrupted while creating a checkpoint file. Restoring the checkpoint file from a backup.")
-
+    for attempt in range(max_retries + 1):
         try:
-            checkpoint_file_backup.rename(checkpoint_file)
-            logger.info("Checkpoint file restored from backup.")
-        except (OSError, FileNotFoundError, PermissionError) as e:
-            logger.error("Failed to restore checkpoint from backup: %s", e)
-            logger.warning("Continuing without checkpoint restoration.")
-    else:
-        logger.debug("No backup checkpoint file found. Nothing to clean up.")
+            return func()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            last_exception = e
+            if attempt < max_retries:
+                logger.warning(
+                    "Attempt %d/%d failed: %s. Retrying in %.2fs...",
+                    attempt + 1,
+                    max_retries + 1,
+                    str(e),
+                    delay,
+                    exc_info=e,
+                )
+                time.sleep(delay)
+                delay *= backoff_factor
+
+                # Restore state before retry if function provided
+                if state_restore_func is not None:
+                    try:
+                        state_restore_func()
+                        logger.debug("State restored before retry attempt %d", attempt + 2)
+                    except Exception as restore_error:
+                        logger.error("Failed to restore state before retry: %s", restore_error)
+                        raise RuntimeError(f"Cannot retry: failed to restore state: {restore_error}") from restore_error
+            else:
+                logger.error("All %d attempts failed for batch: %s", max_retries + 1, str(e))
+
+    if last_exception is not None:
+        raise last_exception
+    raise RuntimeError("Unexpected retry failure")
 
 
-def setup_signal_handlers(checkpoint_file: Path, checkpoint_file_backup: Path) -> None:
-    """Set up signal handlers for graceful shutdown.
-
-    Args:
-        checkpoint_file (Path): Path to checkpoint file.
-        checkpoint_file_backup (Path): Path to backup checkpoint file.
-    """
-    clean_up_fn = partial(clean_up_generate, checkpoint_file, checkpoint_file_backup)
-
-    # Register clean-up for normal exit
-    atexit.register(clean_up_fn)
-
-    # Register cleanup for Ctrl+C and termination
-    signal.signal(signal.SIGINT, handle_signal(clean_up_fn))
-    signal.signal(signal.SIGTERM, handle_signal(clean_up_fn))
-
-
-def process_batch_with_rollback(
-    simulator: Simulator, batch: object, config: BatchProcessingConfig, detector: str | None = None
+def update_metadata_index(
+    metadata_directory: Path,
+    output_files: list[Path],
+    metadata_file_name: str,
+    encoding: str = "utf-8",
 ) -> None:
-    """Process a single batch of generated data with rollback capability.
+    """Update the central metadata index file.
+
+    The index maps data file names to their corresponding metadata files,
+    enabling O(1) lookup to find metadata for a given data file.
 
     Args:
-        simulator: The data simulator.
-        batch: Generated data batch.
-        config: Configuration object containing all processing parameters.
-        detector: Optional detector name for multi-detector scenarios.
+        metadata_directory: Directory where metadata files are stored
+        output_files: List of output data file Paths
+        metadata_file_name: Name of the metadata file (e.g., "signal-0.metadata.yaml")
+        encoding: File encoding for reading/writing the index file
     """
-    # Capture state before processing for rollback capability
-    pre_processing_state = simulator.state.copy()
+    index_file = metadata_directory / "index.yaml"
 
+    # Load existing index or create new
+    if index_file.exists():
+        try:
+            with index_file.open(encoding=encoding) as f:
+                index = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError) as e:
+            logger.warning("Failed to load metadata index: %s. Creating new index.", e)
+            index = {}
+    else:
+        index = {}
+
+    # Add entries for all output files
+    for output_file in output_files:
+        index[output_file.name] = metadata_file_name
+        logger.debug("Index entry: %s -> %s", output_file.name, metadata_file_name)
+
+    # Save updated index
     try:
-        process_batch(simulator, batch, config, detector)
-    except (
-        OSError,
-        PermissionError,
-        FileNotFoundError,
-        FileExistsError,
-        RuntimeError,
-        ValueError,
-        AttributeError,
-    ) as e:
-        # Rollback on any failure
-        simulator.state = pre_processing_state
-        logger.warning("Batch processing failed, rolled back state: %s", e)
+        with index_file.open("w") as f:
+            yaml.safe_dump(index, f, default_flow_style=False, sort_keys=True)
+        logger.debug("Updated metadata index: %s", index_file)
+    except (OSError, yaml.YAMLError) as e:
+        logger.error("Failed to save metadata index: %s", e)
         raise
 
 
-def process_batch(
-    simulator: Simulator, batch: object, config: BatchProcessingConfig, detector: str | None = None
-) -> None:
-    """Process a single batch of generated data.
+def instantiate_simulator(
+    simulator_config: SimulatorConfig,
+    simulator_name: str | None = None,
+    global_simulator_arguments: dict[str, Any] | None = None,
+) -> Simulator:
+    """Instantiate a simulator from configuration.
+
+    Creates a single simulator instance that will be reused across multiple batches.
+    The simulator maintains state (RNG, counters, etc.) across iterations.
+
+    Global simulator arguments are merged with simulator-specific arguments,
+    with simulator-specific arguments taking precedence.
 
     Args:
-        simulator: The data simulator.
-        batch: Generated data batch.
-        config: Configuration object containing all processing parameters.
-        detector: Optional detector name for multi-detector scenarios.
-    """
-    # Get the file name from template, handling detector placeholders
-    file_name_template = config.file_name_template
-    if detector and "{detector}" in file_name_template:
-        file_name_template = file_name_template.replace("{detector}", detector)
+        simulator_config: Configuration for this simulator
+        simulator_name: Name of the simulator (used for class path resolution)
+        global_simulator_arguments: Global fallback arguments for the simulator
 
-    file_name = Path(get_file_name_from_template(file_name_template, simulator, exclude={"detector"}))
-    batch_file_name = config.output_directory / file_name
-
-    # Check whether the file exists
-    if batch_file_name.is_file():
-        if not config.overwrite:
-            raise FileExistsError("Exiting. Use --overwrite to allow overwriting.")
-        logger.warning("%s already exists. Overwriting the existing file.", batch_file_name)
-
-    # Prepare output arguments, handling detector placeholders in channel names
-    output_arguments = config.output_arguments.copy()
-    if detector and "channel" in output_arguments:
-        channel = output_arguments["channel"]
-        if "{detector}" in channel:
-            output_arguments["channel"] = channel.replace("{detector}", detector)
-
-    # Handle list of channels with detector placeholders
-    if detector and "channels" in output_arguments:
-        channels = output_arguments["channels"]
-        if isinstance(channels, list):
-            output_arguments["channels"] = [
-                ch.replace("{detector}", detector) if "{detector}" in ch else ch for ch in channels
-            ]
-
-    # Write the batch of data to file.
-    logger.debug("Saving batch to file: %s", batch_file_name)
-    simulator.save_batch(batch, batch_file_name, overwrite=config.overwrite, **output_arguments)
-
-    # Write the metadata to file.
-    if config.metadata:
-        metadata_file_name = config.metadata_directory / file_name.with_suffix(".json")
-        logger.debug("Saving metadata to file: %s", metadata_file_name)
-        simulator.save_metadata(file_name=metadata_file_name, overwrite=config.overwrite)
-
-    # Log the state update
-    logger.debug("Updating simulator state after batch processing.")
-    logger.debug("State after update: %s", simulator.state)
-    # Note: New StateAttribute-based simulators advance state automatically
-
-    # Create checkpoint file.
-    logger.debug("Creating checkpoint file: %s", config.checkpoint_file)
-    save_file_safely(
-        file_name=config.checkpoint_file,
-        backup_file_name=config.checkpoint_file_backup,
-        save_function=simulator.save_state,
-        overwrite=True,
-    )
-
-
-@dataclass
-class GenerationSetup:
-    """Configuration setup for generation process."""
-
-    working_directory: Path
-    output_directory: Path
-    metadata_directory: Path
-    checkpoint_file: Path
-    checkpoint_file_backup: Path
-
-
-def validate_configuration_phase(processed_config: dict) -> None:
-    """Validate all templates and configurations before generation starts.
-
-    Args:
-        processed_config: Processed configuration dictionary
+    Returns:
+        Instantiated Simulator
 
     Raises:
-        ValueError: If any validation fails
+        ImportError: If simulator class cannot be imported
+        TypeError: If simulator instantiation fails
     """
-    logger.info("Validating configuration...")
+    class_spec = simulator_config.class_
 
-    for simulator_name, simulator_config in processed_config["simulators"].items():
-        # Validate template syntax
-        output_config = simulator_config.get("output", {})
-        file_name_template = output_config.get(
-            "file_name", f"{simulator_name}-{{{{ start_time }}}}-{{{{ duration }}}}.gwf"
+    # Resolve short class names to full paths
+    class_spec = resolve_class_path(class_spec, simulator_name)
+
+    simulator_cls = import_attribute(class_spec)
+
+    # Merge global and simulator-specific arguments
+    # Simulator-specific arguments override global defaults
+    if global_simulator_arguments:
+        merged_arguments = {**global_simulator_arguments, **simulator_config.arguments}
+    else:
+        merged_arguments = simulator_config.arguments
+
+    # Normalize keys: convert hyphens to underscores (YAML uses hyphens, Python uses underscores)
+    normalized_arguments = {k.replace("-", "_"): v for k, v in merged_arguments.items()}
+
+    simulator = simulator_cls(**normalized_arguments)
+
+    logger.info("Instantiated simulator from class %s", class_spec)
+    return simulator
+
+
+def restore_batch_state(simulator: Simulator, batch: SimulationBatch) -> None:
+    """Restore simulator state from batch metadata if available.
+
+    This is used when reproducing a specific batch. It restores the RNG state,
+    filter memory, and other stateful components that existed before this batch
+    was generated.
+
+    Args:
+        simulator: Simulator instance
+        batch: SimulationBatch potentially containing state snapshot
+
+    Raises:
+        ValueError: If state restoration fails
+    """
+    if batch.has_state_snapshot() and batch.pre_batch_state is not None:
+        logger.debug(
+            "[RESTORE] Batch %d: Restoring state from snapshot - state_keys=%s",
+            batch.batch_index,
+            list(batch.pre_batch_state.keys()),
+        )
+        try:
+            logger.debug(
+                "[RESTORE] Batch %d: Setting state dict - counter=%s",
+                batch.batch_index,
+                batch.pre_batch_state.get("counter"),
+            )
+            simulator.state = batch.pre_batch_state
+            logger.debug(
+                "[RESTORE] Batch %d: State restored successfully - new_counter=%s",
+                batch.batch_index,
+                simulator.counter,
+            )
+        except Exception as e:
+            logger.error("Failed to restore batch state: %s", e)
+            raise ValueError(f"Failed to restore state for batch {batch.batch_index}") from e
+    else:
+        logger.debug(
+            "[RESTORE] Batch %d: No pre-batch state snapshot available (fresh generation)",
+            batch.batch_index,
         )
 
-        is_valid, errors = TemplateValidator.validate_template(file_name_template, simulator_name)
-        if not is_valid:
-            raise ValueError(f"Invalid template for simulator '{simulator_name}': {errors}")
 
-        # Validate required configuration keys
-        if "class" not in simulator_config:
-            raise ValueError(f"Missing 'class' in configuration for simulator '{simulator_name}'")
-
-        if "arguments" not in simulator_config:
-            raise ValueError(f"Missing 'arguments' in configuration for simulator '{simulator_name}'")
-
-    logger.info("Configuration validation completed successfully")
-
-
-def setup_simulation_directories(simulator_name: str, simulator_config: dict, metadata: bool) -> GenerationSetup:
-    """Setup directories and paths for generation.
-
-    Args:
-        simulator_name: Name of the simulator
-        processed_config: Global configuration dictionary
-        metadata: Whether metadata generation is enabled
-
-    Returns:
-        GenerationSetup with configured paths
-    """
-
-    working_directory = Path(simulator_config.get("working-directory", "."))
-
-    # Setup base directories
-    checkpoint_directory = working_directory / "checkpoints"
-    checkpoint_directory.mkdir(exist_ok=True)
-
-    checkpoint_file = checkpoint_directory / f"{simulator_name}_checkpoint.json"
-    checkpoint_file_backup = checkpoint_directory / f"{simulator_name}_checkpoint.json.bak"
-
-    output_directory = working_directory / simulator_config.get("output-directory", "output")
-    output_directory.mkdir(exist_ok=True)
-
-    metadata_directory = working_directory / simulator_config.get("metadata-directory", "metadata")
-    if metadata:
-        metadata_directory.mkdir(exist_ok=True)
-
-    return GenerationSetup(
-        working_directory=working_directory,
-        output_directory=output_directory,
-        metadata_directory=metadata_directory,
-        checkpoint_file=checkpoint_file,
-        checkpoint_file_backup=checkpoint_file_backup,
-    )
-
-
-def create_simulator_instance(simulator_name: str, simulator_config: dict) -> Simulator:
-    """Create and configure a simulator instance.
-
-    Args:
-        simulator_name: Name of the simulator
-        simulator_config: Simulator configuration
-
-    Returns:
-        Configured simulator instance
-    """
-    class_spec = simulator_config["class"]
-    resolved_class_path = resolve_class_path(class_spec, simulator_name)
-    return get_simulator(simulator_name, simulator_config, resolved_class_path)
-
-
-def setup_batch_config(
-    simulator_name: str,
-    simulator_config: dict,
-    setup: GenerationSetup,
-    overwrite: bool,
-    metadata: bool,
-) -> BatchProcessingConfig:
-    """Setup batch processing configuration for a simulator.
-
-    Args:
-        simulator_name: Name of the simulator
-        simulator_config: Simulator configuration
-        setup: Generation setup paths
-        overwrite: Whether to overwrite existing files
-        metadata: Whether to generate metadata
-
-    Returns:
-        BatchProcessingConfig instance
-    """
-    output_config = simulator_config.get("output", {})
-    file_name_template = output_config.get("file_name", f"{simulator_name}-{{{{ start_time }}}}-{{{{ duration }}}}.gwf")
-    output_arguments = output_config.get("arguments", {})
-
-    simulator_checkpoint = setup.checkpoint_file.parent / f"checkpoint_{simulator_name}.json"
-
-    return BatchProcessingConfig(
-        file_name_template=file_name_template,
-        output_directory=setup.output_directory,
-        metadata_directory=setup.metadata_directory,
-        output_arguments=output_arguments,
-        overwrite=overwrite,
-        metadata=metadata,
-        checkpoint_file=simulator_checkpoint,
-        checkpoint_file_backup=simulator_checkpoint.with_suffix(".json.bak"),
-    )
-
-
-def execute_simulator_with_retry(
+def save_batch_metadata(
     simulator: Simulator,
-    simulator_name: str,
-    batch_config: BatchProcessingConfig,
+    batch: SimulationBatch,
+    metadata_directory: Path,
+    output_files: list[Path],
+    pre_batch_state: dict[str, Any] | None = None,
+) -> None:
+    """Save batch metadata including pre-batch simulator state and all output files.
+
+    The metadata file uses batch-indexed naming ({simulator_name}-{batch_index}.metadata.yaml)
+    to provide a single source of truth for all outputs from that batch. This handles
+    cases where a single batch generates multiple output files (e.g., one per detector).
+
+    An index file is also maintained to enable quick lookup of metadata for a given data file.
+
+    Args:
+        simulator: Simulator instance
+        batch: SimulationBatch
+        metadata_directory: Directory to save metadata
+        output_files: List of Path objects for all output files generated by this batch
+        pre_batch_state: State of simulator before batch generation (for reproducibility).
+                        If None, uses current simulator state.
+    """
+    metadata_directory.mkdir(parents=True, exist_ok=True)
+
+    # Use provided pre_batch_state or current simulator state
+    state_to_save = pre_batch_state if pre_batch_state is not None else simulator.state
+
+    metadata = create_batch_metadata(
+        simulator_name=batch.simulator_name,
+        batch_index=batch.batch_index,
+        simulator_config=batch.simulator_config,
+        globals_config=batch.globals_config,
+        pre_batch_state=state_to_save,
+        source=batch.source,
+    )
+
+    # Add output files to metadata for easy discovery
+    # Store just the file names, not full paths
+    metadata["output_files"] = [f.name for f in output_files]
+
+    metadata_file_name = f"{batch.simulator_name}-{batch.batch_index}.metadata.yaml"
+    metadata_file = metadata_directory / metadata_file_name
+    logger.debug("Saving batch metadata to %s with %d output files", metadata_file, len(output_files))
+
+    with metadata_file.open("w") as f:
+        yaml.safe_dump(metadata, f)
+
+    # Update the metadata index for quick lookup
+    update_metadata_index(metadata_directory, output_files, metadata_file_name)
+
+
+def process_batch(
+    simulator: Simulator,
+    batch_data: object,
+    batch: SimulationBatch,
+    output_directory: Path,
+    overwrite: bool,
+) -> list[Path]:
+    """Process and save a single batch of generated data.
+
+    A single batch may generate multiple output files (e.g., one per detector).
+    This function handles both single and multiple output files.
+
+    Args:
+        simulator: Simulator instance
+        batch_data: Generated batch data (may contain multiple outputs)
+        batch: SimulationBatch metadata
+        output_directory: Directory for output files
+        overwrite: Whether to overwrite existing files
+
+    Returns:
+        List of Path objects for all generated output files
+    """
+    output_directory.mkdir(parents=True, exist_ok=True)
+    logger.debug(
+        "[PROCESS] Batch %s: Saving data - counter=%s, file_template=%s",
+        batch.batch_index,
+        simulator.counter,
+        batch.simulator_config.output.file_name,
+    )
+
+    # Build output configuration
+    output_config = batch.simulator_config.output
+    file_name_template = output_config.file_name
+    output_args = output_config.arguments.copy() if output_config.arguments else {}
+
+    # Save data with output directory
+    logger.debug(
+        "Saving batch data for %s batch %d",
+        batch.simulator_name,
+        batch.batch_index,
+    )
+
+    # Resolve the output file names (may be multiple if template contains arrays)
+    output_files = get_file_name_from_template(
+        template=file_name_template,
+        instance=simulator,
+        output_directory=output_directory,
+    )
+
+    # Normalize to list of Paths
+    if isinstance(output_files, Path):
+        output_files_list = [output_files]
+    else:
+        # If it's an array (multiple detectors), flatten it
+        output_files_list = [Path(str(f)) for f in output_files.flatten()]
+
+    logger.debug(
+        "[PROCESS] Batch %s: Resolved filenames - %s", batch.batch_index, [str(f.name) for f in output_files_list]
+    )
+
+    simulator.save_data(
+        data=batch_data,
+        file_name=file_name_template,
+        output_directory=output_directory,
+        overwrite=overwrite,
+        **output_args,
+    )
+
+    logger.debug("[PROCESS] Batch %s: Data saved - counter=%s", batch.batch_index, simulator.counter)
+
+    return output_files_list
+
+
+def setup_signal_handlers(checkpoint_dirs: list[Path]) -> None:
+    """Set up signal handlers for graceful shutdown.
+
+    Args:
+        checkpoint_dirs: List of checkpoint directories to clean up
+    """
+
+    def cleanup_checkpoints():
+        """Clean up temporary checkpoint files."""
+        for checkpoint_dir in checkpoint_dirs:
+            for backup_file in checkpoint_dir.glob("*.bak"):
+                try:
+                    backup_file.unlink()
+                    logger.debug("Cleaned up backup file: %s", backup_file)
+                except OSError as e:
+                    logger.warning("Failed to clean up backup file %s: %s", backup_file, e)
+
+    atexit.register(cleanup_checkpoints)
+    signal.signal(signal.SIGINT, handle_signal(cleanup_checkpoints))
+    signal.signal(signal.SIGTERM, handle_signal(cleanup_checkpoints))
+
+
+def validate_plan(plan: SimulationPlan) -> None:
+    """Validate simulation plan before execution.
+
+    Args:
+        plan: SimulationPlan to validate
+
+    Raises:
+        ValueError: If plan validation fails
+    """
+    logger.info("Validating simulation plan with %d batches", plan.total_batches)
+
+    if plan.total_batches == 0:
+        raise ValueError("Simulation plan contains no batches")
+
+    # Validate each batch
+    for batch in plan.batches:
+        if not batch.simulator_name:
+            raise ValueError("Batch has empty simulator name")
+        if batch.batch_index < 0:
+            raise ValueError(f"Batch {batch.batch_index} has invalid index")
+
+        # Validate output configuration
+        output_config = batch.simulator_config.output
+        if not output_config.file_name:
+            raise ValueError(f"Batch {batch.simulator_name}-{batch.batch_index} missing file_name")
+
+    logger.info("Simulation plan validation completed successfully")
+
+
+def execute_plan(  # pylint: disable=too-many-locals
+    plan: SimulationPlan,
+    output_directory: Path,
+    metadata_directory: Path,
+    overwrite: bool,
     max_retries: int = 3,
 ) -> None:
-    """Execute simulator with retry capability.
+    """Execute a complete simulation plan.
+
+    The key insight: Simulators are stateful objects. Each simulator is instantiated
+    once and then generates multiple batches by calling next() repeatedly. State
+    (RNG, counters, filters) accumulates across batches.
+
+    Checkpoint behavior:
+    1. After each successfully completed batch, save checkpoint with updated state
+    2. Checkpoint contains: completed batch indices, simulator state
+    3. On next run, already-completed batches are skipped (resumption)
+    4. On successful completion of all batches, checkpoint is cleaned up
+
+    Workflow:
+    1. Group batches by simulator name
+    2. Load checkpoint to find already-completed batches
+    3. For each simulator:
+       a. Create ONE simulator instance
+       b. For each batch of that simulator:
+          - Skip if already completed (from checkpoint)
+          - Restore state if reproducing from metadata
+          - Call next(simulator) to generate batch (increments state)
+          - Save batch output and metadata
+          - Save checkpoint with updated state (for resumption)
 
     Args:
-        simulator: The simulator instance
-        simulator_name: Name of the simulator
-        batch_config: Batch processing configuration
-        max_retries: Maximum number of retry attempts
-    """
-    retry_manager = RetryManager(max_retries=max_retries)
-
-    def single_execution():
-        return execute_simulator_with_rollback(simulator, simulator_name, batch_config)
-
-    retry_manager.retry_with_backoff(single_execution)
-
-
-def execute_simulator_with_rollback(
-    simulator: Simulator,
-    simulator_name: str,
-    batch_config: BatchProcessingConfig,
-) -> None:
-    """Execute simulator with rollback capability for batch failures.
-
-    Args:
-        simulator: The simulator instance
-        simulator_name: Name of the simulator
-        batch_config: Batch processing configuration
-    """
-    uses_detector_placeholder = "{detector}" in batch_config.file_name_template.replace(" ", "") or any(
-        "{detector}" in str(v).replace(" ", "") for v in batch_config.output_arguments.values()
-    )
-
-    logger.debug("Simulator '%s' uses detector placeholder: %s", simulator, uses_detector_placeholder)
-
-    if uses_detector_placeholder and not hasattr(simulator, "detectors"):
-        logger.error(
-            (
-                "Simulator '%s' does not support multi-detector operation, "
-                "but detector placeholders are used in the output configuration."
-            ),
-            simulator,
-        )
-        raise ValueError("Incompatible simulator and output configuration.")
-
-    logger.info("Generating %s data", simulator_name)
-    for batch in tqdm(simulator, desc=f"Generating {simulator_name} data"):
-        process_batch_with_rollback(simulator=simulator, batch=batch, config=batch_config)
-
-
-def process_single_simulator(
-    simulator_name: str,
-    simulator_config: dict,
-    globals_config: dict,
-    setup: GenerationSetup,
-    overwrite: bool,
-    metadata: bool,
-) -> None:
-    """Process a single simulator.
-
-    Args:
-        simulator_name: Name of the simulator
-        simulator_config: Simulator configuration
-        globals_config: Global configuration
-        setup: Generation setup paths
+        plan: SimulationPlan to execute
+        output_directory: Directory for output files
+        metadata_directory: Directory for metadata files
         overwrite: Whether to overwrite existing files
-        metadata: Whether to generate metadata
+        max_retries: Maximum retries per batch
     """
-    logger.info("Processing simulator: %s", simulator_name)
+    logger.info("Executing simulation plan: %d batches", plan.total_batches)
 
-    # Create simulator instance
-    simulator = create_simulator_instance(simulator_name, simulator_config)
+    validate_plan(plan)
+    setup_signal_handlers([plan.checkpoint_directory] if plan.checkpoint_directory else [])
 
-    # Setup batch processing configuration
-    batch_config = setup_batch_config(simulator_name, simulator_config, setup, overwrite, metadata)
+    # Initialize checkpoint manager for resumption support
+    checkpoint_manager = CheckpointManager(plan.checkpoint_directory)
+    completed_batch_indices = checkpoint_manager.get_completed_batch_indices()
 
-    # Load checkpoint if exists
-    if batch_config.checkpoint_file.is_file():
-        simulator.load_state(file_name=batch_config.checkpoint_file)
+    if completed_batch_indices:
+        logger.info("Loaded checkpoint: %d batches already completed", len(completed_batch_indices))
+    else:
+        logger.debug("No checkpoint found or no batches completed yet")
 
-    # Execute simulator with retry and rollback capabilities
-    max_retries = globals_config.get("max_retries", 3)
-    execute_simulator_with_retry(simulator, simulator_name, batch_config, max_retries)
+    # Group batches by simulator name to execute sequentially per simulator
+    simulator_batches: dict[str, list[SimulationBatch]] = {}
+    for batch in plan.batches:
+        if batch.simulator_name not in simulator_batches:
+            simulator_batches[batch.simulator_name] = []
+        simulator_batches[batch.simulator_name].append(batch)
+
+    logger.info("Executing %d simulators", len(simulator_batches))
+
+    with tqdm(total=plan.total_batches, desc="Executing simulation plan") as p_bar:
+        for simulator_name, batches in simulator_batches.items():
+            logger.info("Starting simulator: %s with %d batches", simulator_name, len(batches))
+
+            # Create ONE simulator instance for all batches of this simulator
+            # Extract global simulator arguments from the first batch's global config
+            global_sim_args = batches[0].globals_config.simulator_arguments if batches else {}
+            simulator = instantiate_simulator(batches[0].simulator_config, simulator_name, global_sim_args)
+
+            # Process batches sequentially, maintaining state across them
+            for batch_idx, batch in enumerate(batches):
+                # Skip batches that were already completed (for resumption after interrupt)
+                if checkpoint_manager.should_skip_batch(batch.batch_index):
+                    logger.info(
+                        "Skipping batch %d (already completed from checkpoint)",
+                        batch.batch_index,
+                    )
+                    continue
+
+                try:
+                    logger.debug(
+                        "Executing batch %d/%d for simulator %s",
+                        batch_idx + 1,
+                        len(batches),
+                        simulator_name,
+                    )
+
+                    # Capture pre-batch state first for potential retries
+                    logger.debug(
+                        "[EXECUTE] Batch %s: Before restore - counter=%s, has_state_snapshot=%s",
+                        batch.batch_index,
+                        simulator.counter,
+                        batch.has_state_snapshot(),
+                    )
+                    restore_batch_state(simulator, batch)
+                    logger.debug("[EXECUTE] Batch %s: After restore - counter=%s", batch.batch_index, simulator.counter)
+                    pre_batch_state = copy.deepcopy(simulator.state)
+                    logger.debug(
+                        "[EXECUTE] Batch %s: Captured pre_batch_state - keys=%s",
+                        batch.batch_index,
+                        list(pre_batch_state.keys()),
+                    )
+
+                    def execute_batch(
+                        _simulator=simulator,
+                        _batch=batch,
+                        _output_directory=output_directory,
+                        _pre_batch_state=pre_batch_state,
+                    ):
+                        """Execute a single batch with state management."""
+                        # Generate data by calling next() - this advances simulator state
+                        logger.debug("[BATCH] %s: Before next() - counter=%s", _batch.batch_index, _simulator.counter)
+                        batch_data = _simulator.simulate()
+                        logger.debug("[BATCH] %s: After next() - counter=%s", _batch.batch_index, _simulator.counter)
+
+                        # Save the generated data and get all output file paths
+                        output_files = process_batch(
+                            simulator=_simulator,
+                            batch_data=batch_data,
+                            batch=_batch,
+                            output_directory=_output_directory,
+                            overwrite=overwrite,
+                        )
+
+                        # Only save metadata if data save succeeded
+                        # This ensures metadata only exists for successfully saved data
+                        save_batch_metadata(
+                            _simulator,
+                            _batch,
+                            metadata_directory,
+                            output_files,
+                            pre_batch_state=_pre_batch_state,
+                        )
+                        # Update the state after successful save
+                        _simulator.update_state()
+
+                    def restore_state_for_retry(_simulator=simulator, _pre_batch_state=pre_batch_state):
+                        """Restore simulator state to pre-batch state before retry."""
+                        _simulator.state = copy.deepcopy(_pre_batch_state)
+
+                    # Execute batch with retry mechanism that restores state on failure
+                    retry_with_backoff(
+                        execute_batch,
+                        max_retries=max_retries,
+                        state_restore_func=restore_state_for_retry,
+                    )
+
+                    # After successful completion, save checkpoint with updated state
+                    # At this point, state has been incremented by next() -> update_state()
+                    # Save checkpoint to enable resumption if interrupted before next batch
+                    completed_batch_indices.add(batch.batch_index)
+                    checkpoint_manager.save_checkpoint(
+                        completed_batch_indices=sorted(completed_batch_indices),
+                        last_simulator_name=simulator_name,
+                        last_completed_batch_index=batch.batch_index,
+                        last_simulator_state=copy.deepcopy(simulator.state),
+                    )
+                    logger.debug(
+                        "Checkpoint saved after batch %d - state counter=%s",
+                        batch.batch_index,
+                        simulator.counter,
+                    )
+                    p_bar.update(1)
+
+                except Exception as e:
+                    logger.error(
+                        "Failed to execute batch %d for simulator %s after %d retries: %s",
+                        batch.batch_index,
+                        simulator_name,
+                        max_retries,
+                        e,
+                    )
+                    raise
+
+    # All batches completed successfully - clean up checkpoint files
+    checkpoint_manager.cleanup()
+    logger.info("All batches completed successfully. Checkpoint files cleaned up.")
 
 
-def simulate_command(
-    config_file_name: Annotated[str, typer.Argument(help="Configuration file path")],
-    overwrite: Annotated[bool, typer.Option("--overwrite", help="Overwrite existing files")] = False,
-    metadata: Annotated[bool, typer.Option("--metadata", help="Generate metadata files")] = True,
+def _simulate_impl(  # pylint: disable=too-many-locals, too-many-branches, too-many-statements
+    config_file_names: str | list[str],
+    output_dir: str | None = None,
+    metadata_dir: str | None = None,
+    overwrite: bool = False,
+    metadata: bool = True,
 ) -> None:
-    """Generate gravitational wave simulation data using specified simulators.
+    """Internal implementation of simulate command that accepts both str and list[str].
 
-    This command processes simulators sequentially based on the configuration file.
-    Each simulator can operate in either single-mode (detector-agnostic) or
-    multi-detector mode depending on the file name template and output configuration.
+    Unified approach: All simulation goes through the same plan execution system.
+    The difference is only in how we create the initial plan:
+    - Config file → SimulationPlan with pre_batch_state=None (fresh simulation)
+    - Metadata files → SimulationPlan with pre_batch_state=<dict> (reproduce)
+
+    Both cases end up calling execute_plan with batches that may or may not have
+    state snapshots. The execute_plan function handles both transparently.
 
     Args:
-        config_file_name (str): Path to the configuration file.
-        overwrite (bool): If True, overwrite the existing file, otherwise raise an error if output
-            already exists.
-        metadata (bool): If True, write the metadata to file.
-
-    Raises:
-        FileExistsError: If output file exists and overwrite is False, raise an error.
+        config_file_names: Path to YAML config file OR one or more metadata files
+        output_dir: Output directory override
+        metadata_dir: Metadata directory override (config mode only)
+        overwrite: Whether to overwrite existing files
+        metadata: Whether to save metadata files (config mode only)
 
     Returns:
         None
     """
-    # Load and process configuration
-    raw_config = load_config(file_name=Path(config_file_name))
-    processed_config = process_config(raw_config)
-    globals_config = processed_config["globals"]
+    checkpoint_dir = Path(".gwsim_checkpoints")
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    # Validation phase - fail fast on configuration errors
-    validate_configuration_phase(processed_config)
+    try:
+        # ===== Normalize input: accept both string and list =====
+        if isinstance(config_file_names, str):
+            config_file_names_list = [config_file_names]
+        else:
+            config_file_names_list = config_file_names
 
-    # Process each simulator sequentially
-    for simulator_name, simulator_config in processed_config["simulators"].items():
-        # Setup directories and paths
-        setup = setup_simulation_directories(simulator_name, simulator_config, metadata)
+        # ===== Auto-detect mode: Config file vs Metadata files =====
+        if len(config_file_names_list) == 1:
+            # Single argument: could be YAML config or metadata file
+            single_path = Path(config_file_names_list[0])
+            is_metadata = (
+                single_path.suffix == ".metadata.yaml"
+                or (single_path.is_file() and "metadata" in single_path.name)
+                or single_path.is_dir()  # Directory assumed to be metadata dir
+            )
+        else:
+            # Multiple arguments: must be metadata files
+            is_metadata = True
 
-        # Set up signal handlers
-        setup_signal_handlers(setup.checkpoint_file, setup.checkpoint_file_backup)
+        # ===== Create plan (unified approach: both modes create same data structure) =====
+        if is_metadata:
+            logger.info("Reproduction mode: %d metadata file(s)", len(config_file_names_list))
 
-        process_single_simulator(
-            simulator_name=simulator_name,
-            simulator_config=simulator_config,
-            globals_config=globals_config,
-            setup=setup,
-            overwrite=overwrite,
-            metadata=metadata,
+            metadata_paths = [Path(f) for f in config_file_names_list]
+
+            # If single directory, load all metadata files from it
+            if len(metadata_paths) == 1 and metadata_paths[0].is_dir():
+                metadata_dir_path = metadata_paths[0]
+                metadata_files = list(metadata_dir_path.glob("*.metadata.yaml"))
+                if not metadata_files:
+                    raise ValueError(f"No metadata files found in directory: {metadata_dir_path}")
+                logger.info("Found %d metadata files in directory: %s", len(metadata_files), metadata_dir_path)
+                plan = create_plan_from_metadata_files(metadata_files, checkpoint_dir)
+            else:
+                # Individual metadata files
+                plan = create_plan_from_metadata_files(metadata_paths, checkpoint_dir)
+
+            logger.info(
+                "Created reproduction plan from %d metadata file(s) with %d batches",
+                len(config_file_names_list),
+                plan.total_batches,
+            )
+        else:
+            logger.info("Config mode: %s", config_file_names_list[0])
+            config_path = Path(config_file_names_list[0])
+            config = load_config(file_name=config_path)
+            logger.debug("Configuration loaded successfully from %s", config_file_names_list[0])
+
+            plan = create_plan_from_config(config, checkpoint_dir)
+            logger.info("Created simulation plan with %d batches", plan.total_batches)
+
+        # ===== Determine output directories (same logic for both modes) =====
+        # Get reference config from first batch
+        if not plan.batches:
+            raise ValueError("No batches found in simulation plan")
+
+        first_batch = plan.batches[0]
+        globals_cfg = first_batch.globals_config
+        working_dir = Path(globals_cfg.working_directory or ".")  # pylint: disable=no-member
+        output_dir_config = globals_cfg.output_directory or "output"  # pylint: disable=no-member
+
+        # Handle absolute vs relative paths
+        config_output_dir = (
+            Path(output_dir_config) if Path(output_dir_config).is_absolute() else working_dir / output_dir_config
         )
+        final_output_dir = Path(output_dir) if output_dir else config_output_dir
+
+        # Metadata directory only used in config mode (fresh simulation)
+        final_metadata_dir = None
+        if not is_metadata and metadata:
+            metadata_dir_config = globals_cfg.metadata_directory or "metadata"  # pylint: disable=no-member
+            config_metadata_dir = (
+                Path(metadata_dir_config)
+                if Path(metadata_dir_config).is_absolute()
+                else working_dir / metadata_dir_config
+            )
+            final_metadata_dir = Path(metadata_dir) if metadata_dir else config_metadata_dir
+
+        logger.debug("Output directory: %s", final_output_dir)
+        if final_metadata_dir:
+            logger.debug("Metadata directory: %s", final_metadata_dir)
+
+        # ===== Validate and execute plan =====
+        validate_plan(plan)
+        logger.info("Simulation plan validation passed")
+
+        execute_plan(
+            plan=plan,
+            output_directory=final_output_dir,
+            metadata_directory=final_metadata_dir or Path("metadata"),
+            overwrite=overwrite,
+            max_retries=3,
+        )
+
+        logger.info("Simulation completed successfully. Output written to %s", final_output_dir)
+
+    except Exception as e:
+        logger.error("Simulation failed: %s", str(e), exc_info=True)
+        raise typer.Exit(code=1) from e
+
+
+def simulate_command(
+    config_file_names: Annotated[
+        list[str],
+        typer.Argument(help="Configuration file (YAML) or metadata files (can specify multiple metadata files)"),
+    ],
+    output_dir: Annotated[
+        str | None, typer.Option("--output-dir", help="Output directory (overrides config/metadata defaults)")
+    ] = None,
+    metadata_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--metadata-dir", help="Metadata directory (overrides config/metadata defaults, only for config mode)"
+        ),
+    ] = None,
+    overwrite: Annotated[bool, typer.Option("--overwrite", help="Overwrite existing files")] = False,
+    metadata: Annotated[bool, typer.Option("--metadata", help="Generate metadata files (only in config mode)")] = True,
+) -> None:
+    """Generate gravitational wave simulation data using specified simulators.
+
+    This command can run in two modes, automatically detected from the input:
+
+    1. **Config Mode**: Provide a single YAML configuration file to create a simulation plan.
+       Executes all simulators with state tracking for reproducibility.
+       Example: `gwsim simulate config.yaml`
+
+    2. **Reproduction Mode**: Provide one or more metadata files to reproduce specific batches.
+       Each metadata file contains the exact configuration and pre-batch state needed for
+       exact reproducibility. Users can distribute individual metadata files, and anyone
+       can reproduce those specific batches independently.
+       Example: `gwsim simulate signal-0.metadata.yaml signal-1.metadata.yaml`
+
+    Path Overrides:
+    - Use `--output-dir` to specify where output files should be saved
+    - Use `--metadata-dir` to specify where metadata should be saved (config mode only)
+    - These override paths from the configuration or metadata files
+
+    Args:
+        config_file_names: Path to YAML config file OR one or more metadata files
+        output_dir: Output directory override
+        metadata_dir: Metadata directory override (config mode only)
+        overwrite: Whether to overwrite existing files
+        metadata: Whether to save metadata files (config mode only)
+
+    Returns:
+        None
+    """
+    _simulate_impl(
+        config_file_names=config_file_names,
+        output_dir=output_dir,
+        metadata_dir=metadata_dir,
+        overwrite=overwrite,
+        metadata=metadata,
+    )

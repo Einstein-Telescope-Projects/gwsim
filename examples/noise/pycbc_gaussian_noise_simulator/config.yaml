@@ -1,8 +1,9 @@
 globals:
   working-directory: .
-  sampling-frequency: 2048
-  max_samples: 10
-  duration: 4
+  simulator-arguments:
+    sampling-frequency: 2048
+    duration: 128
+    max-samples: 50
   output-directory: output
   metadata-directory: metadata
 simulators:
@@ -14,6 +15,6 @@ simulators:
       label: EinsteinTelescopeP1600143
       seed: 0
     output:
-      file_name: "{{ detector }}-{{ start_time }}-{{ duration }}.gwf"
+      file_name: "{{ detectors }}-{{ start_time }}-{{ duration }}.gwf"
       arguments:
         channel: STRAIN

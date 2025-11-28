@@ -1,0 +1,22 @@
+# Configuration for detector E2 of the ET 2L misaligned network, following Bilby convention.
+# E1 is located in Sardinia.
+# The coordinates of the Sardinia location (latitude 40◦31’, longitude 9◦25’) follows the COBA paper [Marica Branchesi et al JCAP07(2023)068].
+# E2 is located in the Meuse-Rhine region.
+# The coordinates of the Meuse-Rhine region (latitude 50◦43’23”, longitude 5◦55’14”) follows the COBA paper.
+# The detector arms are defined on the tangent plane at the vertex position.
+# The arm 1 of E1 has the same azimuth angle (0.33916285632 rad) and altitude (0.0 rad) of the Virgo arm 1 in the local horizontal coordinate system center at the E1 vertex.
+# Both vertices have the same height of the Virgo V1 vertex (51.88399887084961 m).
+# Each detector is oriented w.r.t. its local North. The misaligned configuration corresponds to a relative angle of 45◦ between E1 and E2 (North to East), from the COBA paper.
+# The detector sensitivity follows the COBA paper.
+name = 'E2_misaligned_emr'
+power_spectral_density = PowerSpectralDensity(psd_file='./noise_curves/ET_15_full_cryo_psd.txt')
+length = 15
+minimum_frequency = 2
+maximum_frequency = 10000
+latitude = 50.72305555575918
+longitude = 5.920555555458927
+elevation = 51.884
+xarm_azimuth = 25.567399766834725
+yarm_azimuth = 295.56739976654234
+xarm_tilt = -9.32242464849e-11
+yarm_tilt = 1.01691246358e-17

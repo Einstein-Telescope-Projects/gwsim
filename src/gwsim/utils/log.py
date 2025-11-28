@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from importlib.metadata import PackageNotFoundError, distribution
+from importlib.metadata import version as get_package_version
 from pathlib import Path
 
 from gwsim.version import __version__
@@ -17,6 +19,78 @@ def get_version_information() -> str:
         str: Version information.
     """
     return __version__
+
+
+def _get_dependencies_from_distribution() -> list[str]:
+    """Extract main dependencies from the installed gwsim distribution.
+
+    This uses importlib.metadata to query the installed package metadata,
+    which works in both development and installed environments.
+
+    Returns:
+        List of package names from the distribution's requires metadata.
+        Returns empty list if gwsim distribution cannot be found.
+    """
+    try:
+        dist = distribution("gwsim")
+        if dist.requires is None:
+            return []
+
+        # Parse dependency specifiers from the requires list
+        # Format: "package_name (>=version); extra == 'condition'" or "package_name>=version"
+        package_names = []
+        for req in dist.requires:
+            # Remove version specifiers and extras
+            # Split on common delimiters: >, <, =, !, [, ;, space
+            package_name = (
+                req.split(">")[0].split("<")[0].split("=")[0].split("!")[0].split("[")[0].split(";")[0].strip()
+            )
+            if package_name and package_name not in package_names:  # Avoid duplicates
+                package_names.append(package_name)
+
+        return package_names
+    except PackageNotFoundError:
+        logger.debug("gwsim distribution not found - unable to extract dependencies")
+        return []
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.debug("Failed to extract dependencies from distribution: %s", e)
+        return []
+
+
+def get_dependency_versions() -> dict[str, str | None]:
+    """Get versions of gwsim and its main dependencies.
+
+    This retrieves version information for gwsim and all dependencies listed
+    in the installed distribution's metadata (from pyproject.toml at build time),
+    useful for metadata and reproducibility tracking.
+
+    Works in both development and installed environments since it queries
+    the installed distribution metadata rather than the source pyproject.toml.
+
+    Returns:
+        Dictionary with package names as keys and version strings as values.
+        If a package version cannot be determined, the value is None.
+        Always includes 'gwsim' as the first key.
+    """
+    versions: dict[str, str | None] = {}
+
+    # Always include gwsim first
+    try:
+        versions["gwsim"] = get_package_version("gwsim")
+    except PackageNotFoundError:
+        versions["gwsim"] = None
+
+    # Get dependencies from the installed distribution metadata
+    dependencies = _get_dependencies_from_distribution()
+
+    for package in dependencies:
+        try:
+            versions[package] = get_package_version(package)
+        except PackageNotFoundError:
+            # Package not installed or version cannot be determined
+            versions[package] = None
+
+    return versions
 
 
 def setup_logger(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
+from numbers import Number
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -13,6 +14,7 @@ from gwpy.types.index import Index
 from scipy.interpolate import interp1d
 
 from gwsim.data.serialize.serializable import JSONSerializable
+from gwsim.data.time_series.inject import inject
 
 logger = logging.getLogger("gwsim")
 
@@ -24,16 +26,18 @@ if TYPE_CHECKING:
 class TimeSeries(JSONSerializable):
     """Class representing a time series data for multiple channels."""
 
-    def __init__(self, data: np.ndarray, start_time: int | Quantity, sampling_frequency: float | Quantity):
+    def __init__(self, data: np.ndarray, start_time: int | float | Quantity, sampling_frequency: float | Quantity):
         """Initialize the TimeSeries with a list of GWPy TimeSeries objects.
 
         Args:
-            channels: List of GWPy TimeSeries objects representing different channels.
+            data: 2D numpy array of shape (num_of_channels, num_samples) containing the time series data.
+            start_time: Start time of the time series in GPS seconds.
+            sampling_frequency: Sampling frequency of the time series in Hz.
         """
         if data.ndim != 2:
-            raise ValueError("Data must be a 2D numpy array with shape (num_channels, num_samples).")
+            raise ValueError("Data must be a 2D numpy array with shape (num_of_channels, num_samples).")
 
-        if isinstance(start_time, int):
+        if isinstance(start_time, Number):
             start_time = Quantity(start_time, unit="s")
         if isinstance(sampling_frequency, (int, float)):
             sampling_frequency = Quantity(sampling_frequency, unit="Hz")
@@ -46,8 +50,9 @@ class TimeSeries(JSONSerializable):
             )
             for i in range(data.shape[0])
         ]
-        self.num_channels = data.shape[0]
+        self.num_of_channels = data.shape[0]
         self.dtype = data.dtype
+        self.metadata = {}
 
     def __len__(self) -> int:
         """Get the number of channels in the time series.
@@ -55,7 +60,7 @@ class TimeSeries(JSONSerializable):
         Returns:
             Number of channels in the time series.
         """
-        return self.num_channels
+        return self.num_of_channels
 
     def __getitem__(self, index: int) -> GWpyTimeSeries:
         """Get the GWPy TimeSeries object for a specific channel.
@@ -77,12 +82,46 @@ class TimeSeries(JSONSerializable):
         """
         # First check whether the start time and sampling frequency match
         if value.t0 != self.start_time:
-            raise ValueError("Start time of the provided TimeSeries does not match.")
+            raise ValueError(
+                "Start time of the provided TimeSeries does not match."
+                f"The start time of this instance is {self.start_time}, "
+                f"while that of the provided TimeSeries is {value.t0}."
+            )
+
+        # Debug: log the sampling frequencies
+        logger.debug(
+            "Assigning to channel %d: value.sample_rate=%.15f, self.sampling_frequency=%.15f",
+            index,
+            float(value.sample_rate.value),
+            float(self.sampling_frequency.value),
+        )
+
         if value.sample_rate != self.sampling_frequency:
-            raise ValueError("Sampling frequency of the provided TimeSeries does not match.")
+            # Additional debug info
+            logger.warning(
+                "Sampling frequency mismatch on channel %d. "
+                "Difference: %.15e Hz. "
+                "Value times: %s to %s (%d samples, dt=%.15f). "
+                "Self times span should match.",
+                index,
+                float(value.sample_rate.value) - float(self.sampling_frequency.value),
+                value.times[0],
+                value.times[-1],
+                len(value),
+                float(value.dt.value),
+            )
+            raise ValueError(
+                "Sampling frequency of the provided TimeSeries does not match."
+                f"The sampling frequency of this instance is {self.sampling_frequency}, "
+                f"while that of the provided TimeSeries is {value.sample_rate}."
+            )
         # Check the duration
         if value.duration != self.duration:
-            raise ValueError("Duration of the provided TimeSeries does not match.")
+            raise ValueError(
+                "Duration of the provided TimeSeries does not match."
+                f"The duration of this instance is {self.duration}, "
+                f"while that of the provided TimeSeries is {value.duration}."
+            )
 
         if not isinstance(value, GWpyTimeSeries):
             raise TypeError(f"Value must be a GWpy TimeSeries instance, got {type(value)}")
@@ -108,9 +147,9 @@ class TimeSeries(JSONSerializable):
         """
         if not isinstance(other, TimeSeries):
             return False
-        if self.num_channels != other.num_channels:
+        if self.num_of_channels != other.num_of_channels:
             return False
-        for i in range(self.num_channels):
+        for i in range(self.num_of_channels):
             if not np.array_equal(self[i].value, other[i].value):
                 return False
             if self[i].t0 != other[i].t0:
@@ -118,6 +157,15 @@ class TimeSeries(JSONSerializable):
             if self[i].sample_rate != other[i].sample_rate:
                 return False
         return True
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """Get the shape of the time series data.
+
+        Returns:
+            Tuple representing the shape of the time series data (num_of_channels, num_samples).
+        """
+        return (self.num_of_channels, self[0].size)
 
     @property
     def start_time(self) -> Quantity:
@@ -144,7 +192,8 @@ class TimeSeries(JSONSerializable):
         Returns:
             End time of the time series.
         """
-        return self.start_time + self.duration
+        end_time: Quantity = self.start_time + self.duration
+        return end_time
 
     @property
     def sampling_frequency(self) -> Quantity:
@@ -180,7 +229,7 @@ class TimeSeries(JSONSerializable):
         Returns:
             Cropped TimeSeries instance.
         """
-        for i in range(self.num_channels):
+        for i in range(self.num_of_channels):
             self._data[i] = GWpyTimeSeries(self._data[i].crop(start=start_time, end=end_time, copy=True))
         return self
 
@@ -197,19 +246,31 @@ class TimeSeries(JSONSerializable):
         if len(other) != len(self):
             raise ValueError("Number of channels in chunk must match number of channels in segment.")
 
-        if other.end_time < self.start_time:
+        # Enforce that other has the same sampling frequency as self
+        if not other.sampling_frequency == self.sampling_frequency:
             raise ValueError(
-                "The time series to inject ends before the current time series starts."
-                f"The start time of this segment is {self.start_time}, "
-                f"while the end time of the other segment is {other.end_time}"
+                f"Sampling frequency of chunk ({other.sampling_frequency}) must match "
+                f"sampling frequency of segment ({self.sampling_frequency}). "
+                "This ensures time grid alignment and avoids rounding errors."
             )
 
-        if other.start_time > self.end_time:
-            raise ValueError(
-                "The time series to inject starts after the current time series ends."
-                f"The end time of this segment is {self.end_time}, "
-                f"while the start time of the other segment is {other.start_time}"
+        if other.end_time < self.start_time:
+            logger.warning(
+                "The time series to inject ends before the current time series starts. No injection performed."
+                "The start time of this segment is %s, while the end time of the other segment is %s",
+                self.start_time,
+                other.end_time,
             )
+            return other
+
+        if other.start_time > self.end_time:
+            logger.warning(
+                "The time series to inject starts after the current time series ends. No injection performed."
+                "The end time of this segment is %s, while the start time of the other segment is %s",
+                self.end_time,
+                other.start_time,
+            )
+            return other
 
         # Check whether there is any offset in times
         other_start_time = other.start_time.to(self.start_time.unit)
@@ -233,11 +294,11 @@ class TimeSeries(JSONSerializable):
                     ]
                 ),
                 start_time=Quantity(other_new_times[0], unit=self.start_time.unit),
-                sampling_frequency=other.sampling_frequency,
+                sampling_frequency=self.sampling_frequency,
             )
 
-        for i in range(self.num_channels):
-            self[i] = self[i].inject(other[i])
+        for i in range(self.num_of_channels):
+            self[i] = inject(self[i], other[i])
 
         if other.end_time > self.end_time:
             return other.crop(start_time=self.end_time)
@@ -271,7 +332,7 @@ class TimeSeries(JSONSerializable):
         """
         return {
             "__type__": "TimeSeries",
-            "data": [self[i].value.tolist() for i in range(self.num_channels)],
+            "data": [self[i].value.tolist() for i in range(self.num_of_channels)],
             "start_time": self.start_time.value,
             "start_time_unit": str(self.start_time.unit),
             "sampling_frequency": self.sampling_frequency.value,

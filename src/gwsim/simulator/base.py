@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+import yaml
 
 from gwsim import __version__
 from gwsim.simulator.state import StateAttribute
-from gwsim.utils.io import check_file_exist
+from gwsim.utils.io import get_file_name_from_template
 
 logger = logging.getLogger("gwsim")
 
@@ -49,7 +49,11 @@ class Simulator(ABC):
             logger.debug("Unused kwargs in Simulator.__init__: %s", kwargs)
 
         # Non-state attributes
-        self.max_samples = max_samples
+        if max_samples is None:
+            self.max_samples = np.inf
+            logger.debug("max_samples set to None, interpreted as infinite.")
+        else:
+            self.max_samples = max_samples
 
     @property
     def max_samples(self) -> int | float:
@@ -61,7 +65,7 @@ class Simulator(ABC):
         return self._max_samples
 
     @max_samples.setter
-    def max_samples(self, value: int | float | None) -> None:
+    def max_samples(self, value: int | float) -> None:
         """Set the maximum number of samples.
 
         Args:
@@ -70,10 +74,6 @@ class Simulator(ABC):
         Raises:
             ValueError: If value is negative.
         """
-        if value is None:
-            self._max_samples = np.inf
-            logger.debug("max_samples set to None, interpreted as infinite.")
-            return
         if value < 0:
             raise ValueError("Max samples cannot be negative.")
         self._max_samples = value
@@ -86,7 +86,7 @@ class Simulator(ABC):
             Dictionary containing all state attributes.
         """
         # Get state attributes from all classes in MRO (set by StateAttribute descriptors)
-        state_attrs = []
+        state_attrs: list[Any] = []
         for cls in self.__class__.__mro__:
             state_attrs.extend(getattr(cls, "_state_attributes", []))
         # Remove duplicates while preserving order
@@ -105,7 +105,7 @@ class Simulator(ABC):
             ValueError: If state contains unregistered attributes.
         """
         # Get state attributes from all classes in MRO (set by StateAttribute descriptors)
-        state_attrs = []
+        state_attrs: list[Any] = []
         for cls in self.__class__.__mro__:
             state_attrs.extend(getattr(cls, "_state_attributes", []))
         # Remove duplicates while preserving order
@@ -127,11 +127,14 @@ class Simulator(ABC):
         Returns:
             Dictionary containing metadata.
         """
-        return {
+        metadata = {
             "max_samples": self.max_samples,
             "counter": self.counter,
             "version": __version__,
+            "state": {},
         }
+        metadata["state"].update(self.state)
+        return metadata
 
     # Iterator protocol
     def __iter__(self):
@@ -154,59 +157,88 @@ class Simulator(ABC):
         self.update_state()
         return sample
 
-    # # State persistence
-    def save_state(self, file_name: Path, overwrite: bool = False) -> None:  # pylint: disable=unused-argument
+    def save_state(self, file_name: str | Path, overwrite: bool = False, encoding: str = "utf-8") -> None:
         """Save simulator state to file.
 
         Args:
-            file_name: Output file path (must have .json extension).
+            file_name: Output file path (must have .yml or .yaml extension).
             overwrite: Whether to overwrite existing files.
+            encoding: File encoding to use when writing the file.
 
         Raises:
-            ValueError: If file extension is not .json.
+            ValueError: If file extension is not .yml or .yaml.
             FileExistsError: If file exists and overwrite=False.
         """
-        if file_name.suffix.lower() != ".json":
-            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: .json")
+        file_name = Path(file_name)
 
-        with file_name.open("w") as f:
-            json.dump(self.state, f)
+        if file_name.suffix.lower() not in [".yml", ".yaml"]:
+            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: [.yml, .yaml]")
 
-    @check_file_exist()
-    def load_state(self, file_name: Path) -> None:
+        if not overwrite and file_name.exists():
+            raise FileExistsError(f"File '{file_name}' already exists. Use overwrite=True to overwrite it.")
+
+        with file_name.open("w", encoding=encoding) as f:
+            yaml.safe_dump(self.state, f)
+
+    def load_state(self, file_name: str | Path, encoding: str = "utf-8") -> None:
         """Load simulator state from file.
 
         Args:
-            file_name: Input file path (must have .json extension).
+            file_name: Input file path (must have .yml or .yaml extension).
+            encoding: File encoding to use when reading the file.
 
         Raises:
             FileNotFoundError: If file doesn't exist.
-            ValueError: If file extension is not .json.
+            ValueError: If file extension is not .yml or .yaml.
         """
-        if file_name.suffix.lower() != ".json":
-            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: .json")
+        file_name = Path(file_name)
 
-        with file_name.open("r") as f:
-            state = json.load(f)
+        if file_name.suffix.lower() not in [".yml", ".yaml"]:
+            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: [.yml, .yaml]")
+
+        if not file_name.exists():
+            raise FileNotFoundError(f"File '{file_name}' does not exist.")
+
+        with file_name.open("r", encoding=encoding) as f:
+            state = yaml.safe_load(f)
 
         self.state = state
 
-    def save_metadata(self, file_name: Path, overwrite: bool = False) -> None:  # pylint: disable=unused-argument
+    def save_metadata(
+        self,
+        file_name: str | Path,
+        output_directory: str | Path | None = None,
+        overwrite: bool = False,
+        encoding: str = "utf-8",
+    ) -> None:
         """Save simulator metadata to file.
 
         Args:
-            file_name: Output file path (must have .json extension).
+            file_name: Output file path (must have .yml or .yaml extension).
+            output_directory: Optional output directory to prepend to the file name.
             overwrite: Whether to overwrite existing files.
+            encoding: File encoding to use when writing the file.
 
         Raises:
-            ValueError: If file extension is not .json.
+            ValueError: If file extension is not .yml or .yaml.
             FileExistsError: If file exists and overwrite=False.
         """
-        if file_name.suffix.lower() != ".json":
-            raise ValueError(f"Unsupported file format: {file_name.suffix}. Supported: .json")
+        file_name_resolved = get_file_name_from_template(
+            template=str(file_name),
+            instance=self,
+            output_directory=output_directory,
+        )
+        if not isinstance(file_name_resolved, Path):
+            raise ValueError("Resolved file name for metadata must be a single Path.")
 
-        with file_name.open("w") as f:
-            json.dump(self.metadata, f)
+        if file_name_resolved.suffix.lower() not in [".yml", ".yaml"]:
+            raise ValueError(f"Unsupported file format: {file_name_resolved.suffix}. Supported: [.yml, .yaml]")
+
+        if not overwrite and file_name_resolved.exists():
+            raise FileExistsError(f"File '{file_name_resolved}' already exists. Use overwrite=True to overwrite it.")
+
+        with file_name_resolved.open("w", encoding=encoding) as f:
+            yaml.safe_dump(self.metadata, f)
 
     def update_state(self) -> None:
         """Update internal state after each sample generation.
@@ -227,8 +259,8 @@ class Simulator(ABC):
         """
 
     @abstractmethod
-    def save_batch(self, batch: Any, file_name: str | Path, overwrite: bool = False, **kwargs) -> None:
-        """Save a batch of samples to file.
+    def _save_data(self, data: Any, file_name: str | Path | np.ndarray[Any, np.dtype[np.object_]], **kwargs) -> None:
+        """Internal method to save data to a file.
 
         This method must be implemented by all simulator subclasses.
 
@@ -238,3 +270,46 @@ class Simulator(ABC):
             overwrite: Whether to overwrite existing files.
             **kwargs: Additional arguments for specific file formats.
         """
+
+    def save_data(
+        self,
+        data: Any,
+        file_name: str | Path,
+        output_directory: str | Path | None = None,
+        overwrite: bool = False,
+        **kwargs,
+    ) -> None:
+        """Save data to a file.
+
+        This method must be implemented by all simulator subclasses.
+
+        Args:
+            batch: Batch of generated samples.
+            file_name: Output file path.
+                If the file_name contains placeholders (e.g., {{detector}}, {{duration}}),
+                they are filled by the attributes of the simulator.
+            output_directory: Optional output directory to prepend to the file name.
+            overwrite: Whether to overwrite existing files.
+            save_metadata: Whether to save metadata alongside the data.
+            **kwargs: Additional arguments for specific file formats.
+        """
+        file_name_resolved = get_file_name_from_template(
+            template=str(file_name),
+            instance=self,
+            output_directory=output_directory,
+        )
+
+        if not overwrite:
+            if isinstance(file_name_resolved, Path):
+                if file_name_resolved.exists():
+                    raise FileExistsError(
+                        f"File '{file_name_resolved}' already exists. " f"Use overwrite=True to overwrite it."
+                    )
+            else:
+                for single_file in file_name_resolved.flatten():
+                    if single_file.exists():
+                        raise FileExistsError(
+                            f"File '{single_file}' already exists. " f"Use overwrite=True to overwrite it."
+                        )
+
+        self._save_data(data=data, file_name=file_name_resolved, **kwargs)

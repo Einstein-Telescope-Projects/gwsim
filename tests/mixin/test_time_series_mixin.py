@@ -8,11 +8,13 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
+from astropy.units import Quantity
+from gwpy.timeseries import TimeSeries as GWPyTimeSeries
 
 from gwsim.data.time_series import TimeSeries
 from gwsim.data.time_series.time_series_list import TimeSeriesList
+from gwsim.mixin.time_series import TimeSeriesMixin
 from gwsim.simulator.base import Simulator
-from gwsim.simulator.mixin.time_series import TimeSeriesMixin
 
 
 class MockTimeSeriesSimulator(TimeSeriesMixin, Simulator):
@@ -35,6 +37,11 @@ class MockTimeSeriesSimulator(TimeSeriesMixin, Simulator):
         """Mock save batch method."""
         self.saved_batches.append((batch, file_name, kwargs))
 
+    @property
+    def metadata(self) -> dict:
+        """Mock metadata method."""
+        return super().metadata
+
 
 class TestTimeSeriesMixin:
     """Test suite for TimeSeriesMixin."""
@@ -42,9 +49,9 @@ class TestTimeSeriesMixin:
     def test_init_default(self):
         """Test initialization with default parameters."""
         simulator = MockTimeSeriesSimulator()
-        assert simulator.start_time == 0
-        assert simulator.duration == 4
-        assert simulator.sampling_frequency == 4096
+        assert simulator.start_time == Quantity(0, unit="s")
+        assert simulator.duration == Quantity(4, unit="s")
+        assert simulator.sampling_frequency == Quantity(4096, unit="Hz")
         assert simulator.num_of_channels == 1
         assert simulator.dtype == np.float64
 
@@ -53,9 +60,9 @@ class TestTimeSeriesMixin:
         simulator = MockTimeSeriesSimulator(
             start_time=100, duration=8, sampling_frequency=2048, num_of_channels=2, dtype=np.float32
         )
-        assert simulator.start_time == 100
-        assert simulator.duration == 8
-        assert simulator.sampling_frequency == 2048
+        assert simulator.start_time == Quantity(100, unit="s")
+        assert simulator.duration == Quantity(8, unit="s")
+        assert simulator.sampling_frequency == Quantity(2048, unit="Hz")
         assert simulator.num_of_channels == 2
         assert simulator.dtype == np.float32
 
@@ -130,9 +137,9 @@ class TestTimeSeriesMixin:
         simulator = MockTimeSeriesSimulator(duration=2, sampling_frequency=512, dtype=np.float32)
         metadata = simulator.metadata
 
-        assert metadata["duration"] == 2
-        assert metadata["sampling_frequency"] == 512
-        assert metadata["dtype"] == str(np.float32)
+        assert metadata["time_series"]["arguments"]["duration"] == Quantity(2, unit="s")
+        assert metadata["time_series"]["arguments"]["sampling_frequency"] == Quantity(512, unit="Hz")
+        assert metadata["time_series"]["arguments"]["dtype"] == str(np.float32)
 
     def test_iteration_protocol(self):
         """Test that the simulator works with iteration protocol."""
@@ -188,3 +195,48 @@ class TestTimeSeriesMixin:
         state = simulator.state
         assert "counter" in state
         # cached_data_chunks is not in state, as it's not a StateAttribute
+
+    @patch("gwpy.timeseries.TimeSeries.write")
+    def test_save_data_gwf_success(self, mock_write):
+        """Test save_data with valid custom TimeSeries and .gwf file."""
+        simulator = MockTimeSeriesSimulator(duration=1, sampling_frequency=100, num_of_channels=1)
+
+        # Create our custom TimeSeries with dummy data
+        data_array = np.array([[1.0, 2.0, 3.0]])
+        data = TimeSeries(data_array, start_time=0, sampling_frequency=100)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "test.gwf"
+            simulator.save_data(data, file_path)
+
+            # Check that GWPy write was called (internally via _save_gwf_data)
+            mock_write.assert_called_once_with(str(file_path))
+
+    @patch("gwpy.timeseries.TimeSeries.write")
+    def test_save_data_gwf_with_channel(self, mock_write):
+        """Test save_data with custom TimeSeries converts and saves correctly."""
+        simulator = MockTimeSeriesSimulator(duration=1, sampling_frequency=100, num_of_channels=1)
+
+        # Create our custom TimeSeries with dummy data
+        data_array = np.array([[1.0, 2.0, 3.0]])
+        data = TimeSeries(data_array, start_time=0, sampling_frequency=100)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "test.gwf"
+            simulator.save_data(data, file_path, channel="H1:STRAIN")
+
+            # Check that GWPy write was called (internally via _save_gwf_data)
+            mock_write.assert_called_once_with(str(file_path))
+
+    def test_save_data_invalid_data_type(self):
+        """Test save_data raises error for invalid data type."""
+        simulator = MockTimeSeriesSimulator()
+
+        # Use GWPy TimeSeries directly, which is not accepted by save_data
+        data = GWPyTimeSeries([1, 2, 3], sample_rate=100)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "test.gwf"
+            with pytest.raises(AttributeError):
+                # GWPy TimeSeries doesn't have num_of_channels attribute
+                simulator.save_data(data, file_path)

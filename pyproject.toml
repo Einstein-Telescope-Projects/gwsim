@@ -31,6 +31,7 @@ dependencies = [
     "pycbc",
     "gengli",
     "bilby",
+    "pydantic",
 ]
 
 [project.optional-dependencies]
@@ -195,7 +196,8 @@ extension-pkg-whitelist= [
     "pydantic",
     "ciso8601",
     "netcdf4",
-    "scipy"
+    "scipy",
+    "astropy"
 ]
 ignore="CVS"
 ignore-patterns="test.*?py,conftest.py"
@@ -282,7 +284,7 @@ check-str-concat-over-line-jumps="no"
 
 [tool.pylint.'TYPECHECK']
 contextmanager-decorators="contextlib.contextmanager"
-generated-members="numpy.*,np.*,pyspark.sql.functions,collect_list"
+generated-members="numpy.*,np.*,pyspark.sql.functions,collect_list,astropy.units.*"
 ignore-mixin-members="yes"
 ignore-none="yes"
 ignore-on-opaque-inference="yes"

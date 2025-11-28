@@ -1,0 +1,19 @@
+# Configuration for detector E3 of the ET Triangle network located in the Meuse-Rhine region, following Bilby convention.
+# The coordinates of the Meuse-Rhine region (latitude 50◦43’23”, longitude 5◦55’14”) follows the COBA paper [Marica Branchesi et al JCAP07(2023)068].
+# The ET triangular configuration is derived from T1400308.
+# The arms 1 and 2 of E1 are defined on the tangent plane at the E1 vertex position.
+# The arm 1 of E1 has the same azimuth angle (0.33916285632 rad) and altitude (0.0 rad) of the Virgo arm 1 in the local horizontal coordinate system center at the E1 vertex.
+# The E1 vertex has the same height of the Virgo V1 vertex (51.88399887084961 m)
+# The detector sensitivity follows the COBA paper.
+name = 'E3_triangle_emr'
+power_spectral_density = PowerSpectralDensity(psd_file='./noise_curves/ET_10_full_cryo_psd.txt')
+length = 10
+minimum_frequency = 2
+maximum_frequency = 10000
+latitude = 50.79130480148969
+longitude = 5.828325122252091
+elevation = 59.72
+xarm_azimuth = 310.6388297577274
+yarm_azimuth = 10.638860082286627
+xarm_tilt = -0.00156712398434
+yarm_tilt = -0.000781755733176
