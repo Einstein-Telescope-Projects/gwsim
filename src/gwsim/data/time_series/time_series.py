@@ -52,6 +52,7 @@ class TimeSeries(JSONSerializable):
         ]
         self.num_of_channels = data.shape[0]
         self.dtype = data.dtype
+        self.metadata = {}
 
     def __len__(self) -> int:
         """Get the number of channels in the time series.
