@@ -60,8 +60,15 @@ def inject(timeseries: TimeSeries, other: TimeSeries, interpolate_if_offset: boo
         interp_func = interp1d(other_times, other.value, kind="cubic", axis=0, bounds_error=False, fill_value=0.0)
         resampled = interp_func(target_times[start_idx : end_idx + 1])
 
-        injected = timeseries.copy()
-        injected.value[start_idx : end_idx + 1] += resampled
+        # Create a new TimeSeries with explicit parameters to avoid floating-point precision issues
+        injected_data = timeseries.value.copy()
+        injected_data[start_idx : end_idx + 1] += resampled
+        injected = TimeSeries(
+            injected_data,
+            t0=timeseries.t0,
+            dt=timeseries.dt,
+            unit=timeseries.unit,
+        )
         return injected
 
     # Aligned case: offset is integer
@@ -79,7 +86,14 @@ def inject(timeseries: TimeSeries, other: TimeSeries, interpolate_if_offset: boo
         )
         return timeseries
 
-    injected = timeseries.copy()
+    # Create a new TimeSeries with explicit parameters to avoid floating-point precision issues
+    injected_data = timeseries.value.copy()
     inject_len = min(len(other.value), end_idx - start_idx + 1)
-    injected.value[start_idx : start_idx + inject_len] += other.value[:inject_len]
+    injected_data[start_idx : start_idx + inject_len] += other.value[:inject_len]
+    injected = TimeSeries(
+        injected_data,
+        t0=timeseries.t0,
+        dt=timeseries.dt,
+        unit=timeseries.unit,
+    )
     return injected
