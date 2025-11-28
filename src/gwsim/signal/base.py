@@ -110,8 +110,8 @@ class SignalSimulator(PopulationReaderMixin, WaveformMixin, TimeSeriesMixin, Det
 
             output.append(strain)
 
-            # Check whether the end time of the strain exceeds the end time of the current segment
-            if strain.end_time >= self.end_time:
+            # Check whether the start time of the strain is at or after the end time of the current segment
+            if strain.start_time >= self.end_time:
                 break
         return TimeSeriesList(output)
 
