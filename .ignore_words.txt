@@ -20,6 +20,7 @@ pytestmark
 realisation
 representer
 retryable
+rtol
 SEOBN
 submatrix
 Uncatched
