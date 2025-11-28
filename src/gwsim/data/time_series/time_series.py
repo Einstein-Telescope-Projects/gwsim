@@ -86,7 +86,29 @@ class TimeSeries(JSONSerializable):
                 f"The start time of this instance is {self.start_time}, "
                 f"while that of the provided TimeSeries is {value.t0}."
             )
+
+        # Debug: log the sampling frequencies
+        logger.debug(
+            "Assigning to channel %d: value.sample_rate=%.15f, self.sampling_frequency=%.15f",
+            index,
+            float(value.sample_rate.value),
+            float(self.sampling_frequency.value),
+        )
+
         if value.sample_rate != self.sampling_frequency:
+            # Additional debug info
+            logger.warning(
+                "Sampling frequency mismatch on channel %d. "
+                "Difference: %.15e Hz. "
+                "Value times: %s to %s (%d samples, dt=%.15f). "
+                "Self times span should match.",
+                index,
+                float(value.sample_rate.value) - float(self.sampling_frequency.value),
+                value.times[0],
+                value.times[-1],
+                len(value),
+                float(value.dt.value),
+            )
             raise ValueError(
                 "Sampling frequency of the provided TimeSeries does not match."
                 f"The sampling frequency of this instance is {self.sampling_frequency}, "
@@ -223,6 +245,14 @@ class TimeSeries(JSONSerializable):
         if len(other) != len(self):
             raise ValueError("Number of channels in chunk must match number of channels in segment.")
 
+        # Enforce that other has the same sampling frequency as self
+        if not other.sampling_frequency == self.sampling_frequency:
+            raise ValueError(
+                f"Sampling frequency of chunk ({other.sampling_frequency}) must match "
+                f"sampling frequency of segment ({self.sampling_frequency}). "
+                "This ensures time grid alignment and avoids rounding errors."
+            )
+
         if other.end_time < self.start_time:
             logger.warning(
                 "The time series to inject ends before the current time series starts. No injection performed."
@@ -263,7 +293,7 @@ class TimeSeries(JSONSerializable):
                     ]
                 ),
                 start_time=Quantity(other_new_times[0], unit=self.start_time.unit),
-                sampling_frequency=other.sampling_frequency,
+                sampling_frequency=self.sampling_frequency,
             )
 
         for i in range(self.num_of_channels):
