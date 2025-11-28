@@ -5,6 +5,7 @@ coo
 dets
 freqs
 gengli
+geocent
 gwpy
 gwsim
 infft
