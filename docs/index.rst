@@ -11,7 +11,7 @@ Welcome to GWSim's documentation!
    Installation <installation>
    Basic Usage <basic_usage>
    Generating ET data <generate_ET_data>
-   Reading frame files <reading_frames>
+   Reading data files <reading_frames>
    Metadata <metadata>
    Example configuration files <example_config>
    Writing configuration files <writing_config>
