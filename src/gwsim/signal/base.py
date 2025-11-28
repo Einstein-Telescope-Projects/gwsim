@@ -104,6 +104,10 @@ class SignalSimulator(PopulationReaderMixin, WaveformMixin, TimeSeriesMixin, Det
                 polarization_angle=parameters["polarization_angle"],
                 **self.waveform_arguments,
             )
+
+            # Register the parameters
+            strain.metadata.update({"injection_parameters": parameters})
+
             output.append(strain)
 
             # Check whether the end time of the strain exceeds the end time of the current segment
