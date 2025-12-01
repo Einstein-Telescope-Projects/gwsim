@@ -95,8 +95,6 @@ publish_to_pypi:
   rules:
     # Only run on semantic version tags (v1.2.3 or 1.2.3)
     - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
-  only:
-    - tags
 
 publish_to_testpypi:
   stage: publish
@@ -109,8 +107,6 @@ publish_to_testpypi:
     - poetry publish --build -r testpypi
   rules:
     - if: '$CI_COMMIT_TAG =~ /-rc|-a|-b|-alpha|-beta/'   # pre-releases
-  only:
-    - tags
 
 create_gitlab_release:
   stage: release
@@ -132,8 +128,6 @@ create_gitlab_release:
       **Full Changelog**: https://gitlab.et-gw.eu/${CI_PROJECT_PATH}/-/compare/$(git describe --tags --abbrev=0 HEAD^)...${CI_COMMIT_TAG}
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
-  only:
-    - tags
 
 docs_build_and_trigger_rtd:
   stage: publish
@@ -151,8 +145,6 @@ docs_build_and_trigger_rtd:
   rules:
     # Run on every official release tag
     - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
-  only:
-    - tags
   artifacts:
     paths:
       - site/                 # mkdocs output folder (or docs/_build/html for Sphinx)
