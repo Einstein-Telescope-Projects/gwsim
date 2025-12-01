@@ -56,6 +56,7 @@ repos:
           ]
         additional_dependencies:
           [
+            .,
             typer,
             astropy,
             gwpy,
