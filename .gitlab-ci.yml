@@ -36,6 +36,7 @@ cache:
   only:
     - merge_requests
     - main
+    - if: '$CI_COMMIT_TAG'
 
 # ------------- Test Jobs -------------
 
@@ -111,21 +112,70 @@ publish_to_testpypi:
 create_gitlab_release:
   stage: release
   image: registry.gitlab.com/gitlab-org/cli:latest
-  needs: []                                     # Run even if publish fails (optional)
+  variables:
+    GIT_DEPTH: 0  # Ensure full git history
+  before_script:
+    - apk add --no-cache jq curl  # Install dependencies
   script:
-    - echo "Creating GitLab release for $CI_COMMIT_TAG"
+    - |
+      # Get previous tag safely
+      PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+      if [ -n "$PREV_TAG" ]; then
+        echo "Generating changelog from $PREV_TAG to $CI_COMMIT_TAG"
+
+        # Get timestamp of previous tag for API query
+        PREV_TAG_DATE=$(git show -s --format=%aI $PREV_TAG)
+
+        # Query GitLab API for merged MRs since previous tag
+        MR_LIST=$(curl --silent --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+          "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests?state=merged&target_branch=main&updated_after=$PREV_TAG_DATE&per_page=100" \
+          | jq -r '.[] | "• !\(.iid): \(.title)"' 2>/dev/null || echo "")
+
+        # Parse conventional commits for additional context
+        COMMIT_SUMMARY=$(git log $PREV_TAG..HEAD --oneline --no-merges | \
+          grep -E '^[a-f0-9]+ (feat|fix|docs|style|refactor|perf|test|chore)(\(.+\))?: ' | \
+          sed 's/^[a-f0-9]* \([^:]*\): \(.*\)/• \1: \2/' || echo "")
+
+        # Combine MRs and notable commits
+        if [ -n "$MR_LIST" ]; then
+          CHANGELOG="### Merged Pull Requests\n$MR_LIST"
+          if [ -n "$COMMIT_SUMMARY" ]; then
+            CHANGELOG="$CHANGELOG\n\n### Notable Changes\n$COMMIT_SUMMARY"
+          fi
+        elif [ -n "$COMMIT_SUMMARY" ]; then
+          CHANGELOG="### Changes\n$COMMIT_SUMMARY"
+        else
+          CHANGELOG="### Changes\n• Various improvements and bug fixes"
+        fi
+      else
+        # First release - show project overview instead of all commits
+        CHANGELOG="### Initial Release\n• First stable release of gwsim\n• Mock Data Challenge (MDC) generation for gravitational wave detectors\n• Support for noise, signal, and glitch simulation\n• Extensible simulator framework with PyCBC/LALSuite integration"
+      fi
+
+      # Save for use in release description
+      echo -e "$CHANGELOG" > changelog.txt
+  artifacts:
+    paths:
+      - changelog.txt
+    expire_in: 1 hour
   release:
     name: "Release $CI_COMMIT_TAG"
     tag_name: '$CI_COMMIT_TAG'
     description: |
       ## What's Changed
 
-      $(git log $(git describe --tags --abbrev=0 HEAD^)..HEAD --oneline --no-merges | sed 's/^/• /')
+      $(cat changelog.txt)
+
+      ## Installation
+
+      ```bash
+      pip install gwsim==$CI_COMMIT_TAG
+      ```
 
       ## Full Changelog
-      https://gitlab.et-gw.eu/${CI_PROJECT_PATH}/-/compare/$(git describe --tags --abbrev=0 HEAD^)...${CI_COMMIT_TAG}
 
-      **Full Changelog**: https://gitlab.et-gw.eu/${CI_PROJECT_PATH}/-/compare/$(git describe --tags --abbrev=0 HEAD^)...${CI_COMMIT_TAG}
+      **Compare:** [$PREV_TAG...$CI_COMMIT_TAG](https://gitlab.et-gw.eu/${CI_PROJECT_PATH}/-/compare/$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "HEAD~10")...$CI_COMMIT_TAG)
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
 
