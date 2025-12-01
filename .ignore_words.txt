@@ -18,6 +18,7 @@ endfor
 figsize
 freqs
 gengli
+genindex
 geocent
 gwpy
 gwsim
