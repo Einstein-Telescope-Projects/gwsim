@@ -32,6 +32,7 @@ dependencies = [
     "gengli",
     "bilby",
     "pydantic",
+    "pymap3d",
 ]
 
 [project.optional-dependencies]
