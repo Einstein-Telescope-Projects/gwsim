@@ -33,7 +33,7 @@ def get_unit_vector_angles(unit_vector: np.ndarray, ellipsoid_position: np.ndarr
     return np.array([azimuth, altitude])
 
 
-def add_et_triangular_detector_at_location(  # pylint: disable=too-many-locals
+def add_et_triangular_detector_at_location(  # pylint: disable=too-many-locals,duplicate-code
     e1_latitude: float, e1_longitude: float, e1_height: float, location_name: str, et_arm_l: float = 10000
 ) -> tuple[Detector, Detector, Detector]:
     """
@@ -132,7 +132,7 @@ def add_et_triangular_detector_at_location(  # pylint: disable=too-many-locals
         xlength=et_arm_l,
         ylength=et_arm_l,
     )
-    add_detector_on_earth(
+    add_detector_on_earth(  # pylint: disable=duplicate-code
         name="E2_60deg_" + location_name,
         latitude=e2_ellipsoid[0],
         longitude=e2_ellipsoid[1],

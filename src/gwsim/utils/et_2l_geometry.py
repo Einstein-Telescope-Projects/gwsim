@@ -109,7 +109,7 @@ def add_et_2l_detectors_at_location(  # pylint: disable=too-many-locals
     e1_arm1_angles = get_unit_vector_angles(e1_arm1, e1_ellipsoid)
     e1_arm2_angles = get_unit_vector_angles(e1_arm2, e1_ellipsoid)
 
-    add_detector_on_earth(
+    add_detector_on_earth(  # pylint: disable=duplicate-code
         name=f"E1_{config}_" + e1_location_name,
         latitude=e1_ellipsoid[0],
         longitude=e1_ellipsoid[1],
