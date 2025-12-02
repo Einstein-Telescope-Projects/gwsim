@@ -100,27 +100,39 @@ coverage-report:
 publish_to_pypi:
   stage: publish
   image: python:3.12
+  before_script:
+    - python -m pip install --upgrade pip
+    - python -m pip install build twine
   script:
-    - pip install --upgrade poetry
-    - poetry build
-    # Publish to real PyPI
-    - poetry config pypi-token.pypi $PYPI_PASSWORD
-    - poetry publish --build
+    # 1. Build the package with hatch
+    - python -m build
+    # 2. Publish to PyPI using twine with token authentication
+    - python -m twine upload dist/* -u __token__ -p $PYPI_PASSWORD
   rules:
     # Only run on semantic version tags (v1.2.3 or 1.2.3)
     - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 day
 
 publish_to_testpypi:
   stage: publish
   image: python:3.12
+  before_script:
+    - python -m pip install --upgrade pip
+    - python -m pip install build twine
   script:
-    - pip install --upgrade poetry
-    - poetry build
-    - poetry config repositories.testpypi https://test.pypi.org/legacy/
-    - poetry config pypi-token.testpypi $TESTPYPI_PASSWORD
-    - poetry publish --build -r testpypi
+    # 1. Build the package with hatch
+    - python -m build
+    # 2. Publish to TestPyPI using twine with token authentication
+    - python -m twine upload dist/* -r testpypi -u __token__ -p $TESTPYPI_PASSWORD
   rules:
     - if: '$CI_COMMIT_TAG =~ /-rc|-a|-b|-alpha|-beta/'   # pre-releases
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 day
 
 
 # Base for release jobs (optional DRY)
