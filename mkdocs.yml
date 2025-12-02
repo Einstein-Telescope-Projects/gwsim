@@ -39,7 +39,7 @@ plugins:
             show_source: true
             show_root_heading: true
             show_root_full_path: true
-            show_submodules: true
+            show_submodules: false
             show_bases: true
             show_category_heading: true
             members_order: source
@@ -58,17 +58,39 @@ nav:
     - Examples: user-guide/examples.md
   - API Reference:
     - Overview: reference/index.md
-    - gwsim.cli: reference/gwsim/cli/index.md
+    - gwsim.cli:
+      - Overview: reference/gwsim/cli/index.md
+      - main: reference/gwsim/cli/main.md
+      - simulate: reference/gwsim/cli/simulate.md
+      - config: reference/gwsim/cli/config.md
     - gwsim.config: reference/gwsim/config/index.md
     - gwsim.data: reference/gwsim/data/index.md
     - gwsim.detector: reference/gwsim/detector/index.md
-    - gwsim.glitch: reference/gwsim/glitch/index.md
-    - gwsim.mixin: reference/gwsim/mixin/index.md
-    - gwsim.noise: reference/gwsim/noise/index.md
+    - gwsim.glitch:
+      - Overview: reference/gwsim/glitch/index.md
+      - base: reference/gwsim/glitch/base.md
+    - gwsim.mixin:
+      - Overview: reference/gwsim/mixin/index.md
+      - detector: reference/gwsim/mixin/detector.md
+      - randomness: reference/gwsim/mixin/randomness.md
+      - time_series: reference/gwsim/mixin/time_series.md
+      - waveform: reference/gwsim/mixin/waveform.md
+    - gwsim.noise:
+      - Overview: reference/gwsim/noise/index.md
+      - base: reference/gwsim/noise/base.md
     - gwsim.population: reference/gwsim/population/index.md
-    - gwsim.signal: reference/gwsim/signal/index.md
-    - gwsim.simulator: reference/gwsim/simulator/index.md
-    - gwsim.utils: reference/gwsim/utils/index.md
+    - gwsim.signal:
+      - Overview: reference/gwsim/signal/index.md
+      - base: reference/gwsim/signal/base.md
+    - gwsim.simulator:
+      - Overview: reference/gwsim/simulator/index.md
+      - base: reference/gwsim/simulator/base.md
+      - state: reference/gwsim/simulator/state.md
+    - gwsim.utils:
+      - Overview: reference/gwsim/utils/index.md
+      - io: reference/gwsim/utils/io.md
+      - log: reference/gwsim/utils/log.md
+      - random: reference/gwsim/utils/random.md
     - gwsim.waveform: reference/gwsim/waveform/index.md
   - Developer Guide:
     - Contributing: dev/contributing.md
