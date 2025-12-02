@@ -1,6 +1,8 @@
 stages:
   - test
   - coverage
+  - release
+  - publish
 
 # Global variables and cache
 variables:
@@ -31,9 +33,10 @@ cache:
       - coverage.xml
     reports:
       junit: test-results.xml
-  only:
-    - merge_requests
-    - main
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG'
 
 # ------------- Test Jobs -------------
 
@@ -77,6 +80,106 @@ coverage-report:
     - test-python-3.10
     - test-python-3.11
     - test-python-3.12
-  only:
-    - merge_requests
-    - main
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+publish_to_pypi:
+  stage: publish
+  image: python:3.12
+  script:
+    - pip install --upgrade poetry
+    - poetry build
+    # Publish to real PyPI
+    - poetry config pypi-token.pypi $PYPI_PASSWORD
+    - poetry publish --build
+  rules:
+    # Only run on semantic version tags (v1.2.3 or 1.2.3)
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
+
+publish_to_testpypi:
+  stage: publish
+  image: python:3.12
+  script:
+    - pip install --upgrade poetry
+    - poetry build
+    - poetry config repositories.testpypi https://test.pypi.org/legacy/
+    - poetry config pypi-token.testpypi $TESTPYPI_PASSWORD
+    - poetry publish --build -r testpypi
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /-rc|-a|-b|-alpha|-beta/'   # pre-releases
+
+
+# Base for release jobs (optional DRY)
+.base_release: &base_release
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
+
+create-changelog:
+  <<: *base_release
+  stage: release
+  image: registry.gitlab.com/gitlab-ci-utils/curl-jq:latest
+  before_script:
+    - apk add --no-cache git  # For git describe
+  variables:
+    CHANGELOG_BASE_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/repository/changelog"
+  script:
+    # Fetch previous tag for incremental notes
+    - PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+    # GET: Generate notes (incremental if PREV_TAG exists)
+    - |
+      if [[ -n "$PREV_TAG" ]]; then
+        curl -H "PRIVATE-TOKEN: ${CI_API_TOKEN}" \
+             "${CHANGELOG_BASE_URL}?version=${CI_COMMIT_TAG}&from=${PREV_TAG}" | \
+        jq -r '.notes' > release_notes.md
+      else
+        curl -H "PRIVATE-TOKEN: ${CI_API_TOKEN}" \
+             "${CHANGELOG_BASE_URL}?version=${CI_COMMIT_TAG}" | \
+        jq -r '.notes' > release_notes.md
+      fi
+    # Optional POST: Append to CHANGELOG.md (proper JSON)
+    - |
+      curl -X POST -H "PRIVATE-TOKEN: ${CI_API_TOKEN}" \
+           -H "Content-Type: application/json" \
+           -d "{\"version\": \"${CI_COMMIT_TAG}\", \"message\": \"${CHANGELOG_COMMIT_MESSAGE}; [skip ci]\"}" \
+           "${CHANGELOG_BASE_URL}"
+  artifacts:
+    paths:
+      - release_notes.md
+    expire_in: 1 hour
+
+create-release-page:
+  <<: *base_release
+  stage: release
+  needs:
+    - job: create-changelog
+      artifacts: true  # Pulls release_notes.md
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  script:
+    - echo "Creating GitLab release page for version ${CI_COMMIT_TAG}"
+  release:
+    name: "Release ${CI_COMMIT_TAG}"
+    description: release_notes.md  # Inserts the generated notes
+    tag_name: ${CI_COMMIT_TAG}
+    ref: ${CI_COMMIT_TAG}  # Simpler: points to the tag
+
+docs_build_and_trigger_rtd:
+  stage: publish
+  image: python:3.12
+  before_script:
+    - pip install --upgrade pip
+    - pip install poetry
+    - poetry install --with docs          # make sure your pyproject.toml has [tool.poetry.group.docs]
+  script:
+    # 1. Build the HTML documentation locally
+    - poetry run sphinx-build -b html docs/ site/
+    # 2. Trigger Read the Docs webhook so it rebuilds instantly
+    - curl -X POST -d "branches=main" -d "token=$RTD_WEBHOOK_TOKEN" \
+           https://readthedocs.org/api/v2/webhook/${RTD_PROJECT_SLUG}/
+  rules:
+    # Run on every official release tag
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
+  artifacts:
+    paths:
+      - site/                 # mkdocs output folder (or docs/_build/html for Sphinx)
+    expire_in: 1 day
