@@ -24,15 +24,7 @@ cache:
     - python -c "import gwsim; print('gwsim version:', gwsim.__version__)"
     - gwsim --help
     - export COVERAGE_FILE=.coverage.$CI_JOB_NAME
-    - |
-      if [[ "$CI_COMMIT_BRANCH" == "main" || -n "$CI_COMMIT_TAG" ]]; then
-        echo "Running all tests including slow tests (main branch or tag)"
-        pytest
-        pytest -m slow
-      else
-        echo "Running fast tests only (merge request)"
-        pytest
-      fi
+    - pytest
   artifacts:
     when: always
     paths:
@@ -96,10 +88,11 @@ publish_to_pypi:
   stage: publish
   image: python:3.12
   script:
-    - pip install --upgrade build twine
-    - python -m build
+    - pip install --upgrade poetry
+    - poetry build
     # Publish to real PyPI
-    - python -m twine upload dist/* --username __token__ --password $PYPI_PASSWORD
+    - poetry config pypi-token.pypi $PYPI_PASSWORD
+    - poetry publish --build
   rules:
     # Only run on semantic version tags (v1.2.3 or 1.2.3)
     - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
@@ -108,9 +101,11 @@ publish_to_testpypi:
   stage: publish
   image: python:3.12
   script:
-    - pip install --upgrade build twine
-    - python -m build
-    - python -m twine upload --repository testpypi dist/* --username __token__ --password $TESTPYPI_PASSWORD
+    - pip install --upgrade poetry
+    - poetry build
+    - poetry config repositories.testpypi https://test.pypi.org/legacy/
+    - poetry config pypi-token.testpypi $TESTPYPI_PASSWORD
+    - poetry publish --build -r testpypi
   rules:
     - if: '$CI_COMMIT_TAG =~ /-rc|-a|-b|-alpha|-beta/'   # pre-releases
 
@@ -173,10 +168,11 @@ docs_build_and_trigger_rtd:
   image: python:3.12
   before_script:
     - pip install --upgrade pip
-    - pip install -e .[docs]  # Install with docs dependencies using hatch
+    - pip install poetry
+    - poetry install --with docs          # make sure your pyproject.toml has [tool.poetry.group.docs]
   script:
-    # 1. Build the HTML documentation using MkDocs
-    - mkdocs build --site-dir site/
+    # 1. Build the HTML documentation locally
+    - poetry run sphinx-build -b html docs/ site/
     # 2. Trigger Read the Docs webhook so it rebuilds instantly
     - curl -X POST -d "branches=main" -d "token=$RTD_WEBHOOK_TOKEN" \
            https://readthedocs.org/api/v2/webhook/${RTD_PROJECT_SLUG}/
@@ -185,5 +181,5 @@ docs_build_and_trigger_rtd:
     - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
   artifacts:
     paths:
-      - site/                 # MkDocs output folder
+      - site/                 # mkdocs output folder (or docs/_build/html for Sphinx)
     expire_in: 1 day
