@@ -66,7 +66,7 @@ class ColoredNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-instanc
         if not detectors or len(detectors) == 0:
             raise ValueError("detectors must contain at least one detector.")
 
-        super().__init__(
+        super().__init__(  # pylint: disable=duplicate-code
             sampling_frequency=sampling_frequency,
             duration=duration,
             start_time=start_time,
