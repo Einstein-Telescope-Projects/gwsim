@@ -66,6 +66,7 @@ repos:
             bilby,
             pydantic,
             pymap3d,
+            pytest,
           ]
 
   - repo: https://github.com/asottile/pyupgrade

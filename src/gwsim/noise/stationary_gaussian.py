@@ -33,7 +33,7 @@ class StationaryGaussianNoiseSimulator(NoiseSimulator):  # pylint: disable=dupli
             detectors: List of detector names. Default is None.
             **kwargs: Additional arguments.
         """
-        super().__init__(
+        super().__init__(  # pylint: disable=duplicate-code
             sampling_frequency=sampling_frequency,
             duration=duration,
             start_time=start_time,
