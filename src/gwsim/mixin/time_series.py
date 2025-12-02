@@ -10,7 +10,7 @@ import numpy as np
 from astropy.units.quantity import Quantity
 from gwpy.timeseries import TimeSeries as GWPyTimeSeries
 
-from gwsim.data.time_series import TimeSeries
+from gwsim.data.time_series.time_series import TimeSeries
 from gwsim.data.time_series.time_series_list import TimeSeriesList
 from gwsim.simulator.state import StateAttribute
 from gwsim.utils.datetime_parser import parse_duration_to_seconds
