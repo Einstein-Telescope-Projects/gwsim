@@ -61,6 +61,14 @@ dev = [
     "black",
     "flake8"
 ]
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+    "mkdocs-gen-files",
+    "mkdocs-literate-nav",
+    "mkdocs-section-index"
+]
 
 [project.scripts]
 gwsim = "gwsim.cli.main:app"
