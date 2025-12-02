@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from astropy.units import Quantity
 
-from gwsim.data.time_series import TimeSeries
+from gwsim.data.time_series.time_series import TimeSeries
 from gwsim.data.time_series.time_series_list import TimeSeriesList
 from gwsim.signal.base import SignalSimulator
 

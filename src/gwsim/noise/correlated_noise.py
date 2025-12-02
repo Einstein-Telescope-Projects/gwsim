@@ -1,3 +1,4 @@
+# pylint: disable=duplicate-code
 """Correlated noise simulator for multiple gravitational wave detectors."""
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ class CorrelatedNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-inst
     smooth, continuous time series across segment boundaries.
     """
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,duplicate-code
         self,
         psd_file: str | Path,
         csd_file: str | Path,
@@ -65,7 +66,7 @@ class CorrelatedNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-inst
         if not detectors or len(detectors) == 0:
             raise ValueError("detectors must contain at least one detector.")
 
-        super().__init__(
+        super().__init__(  # pylint: disable=duplicate-code
             sampling_frequency=sampling_frequency,
             duration=duration,
             start_time=start_time,
@@ -114,7 +115,7 @@ class CorrelatedNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-inst
         self._frequency = np.arange(0.0, self._n_samples / 2.0 + 1) * self._df
         self._n_freq = len(self._frequency[self._k_min : self._k_max])
 
-    def _load_spectral_data(self, file_path: str | Path) -> np.ndarray:
+    def _load_spectral_data(self, file_path: str | Path) -> np.ndarray:  # pylint: disable=duplicate-code
         """Load spectral data from file.
 
         Args:
@@ -138,7 +139,7 @@ class CorrelatedNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-inst
             raise ValueError(f"Unsupported file format: {path.suffix}. Use .npy, .txt, or .csv.")
         raise TypeError("file_path must be a string or Path.")
 
-    def _initialize_psd_csd(self) -> None:
+    def _initialize_psd_csd(self) -> None:  # pylint: disable=duplicate-code
         """Initialize PSD and CSD interpolations for the frequency range.
 
         Raises:

@@ -32,6 +32,7 @@ dependencies = [
     "gengli",
     "bilby",
     "pydantic",
+    "pymap3d",
 ]
 
 [project.optional-dependencies]
@@ -368,6 +369,9 @@ lint.ignore = [
 ]
 fix = true  # Enable autofix
 lint.unfixable = []  # List rules that should not be autofixed, if any
+exclude = [
+    "docs/conf.py"
+]
 
 [tool.ruff.format]
 quote-style = "double"  # Use double quotes for strings

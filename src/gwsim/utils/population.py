@@ -1,8 +1,12 @@
+"""Utility functions for reading population files."""
 
-import os
+from __future__ import annotations
+
 from pathlib import Path
-import pandas as pd
+
 import h5py
+import pandas as pd
+
 
 def read_pycbc_population_file(file_name):
     """
@@ -31,7 +35,7 @@ def read_pycbc_population_file(file_name):
         with h5py.File(file_path, "r") as f:
 
             # PyCBC stores parameters as datasets
-            data = {key: f[key][()] for key in f.keys()}
+            data = {key: value[()] for key, value in f.items()}
 
             # Collect attributes (Include static parameters in config files)
             attrs = dict(f.attrs.items())

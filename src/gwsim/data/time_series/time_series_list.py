@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from typing import Any, cast, overload
 
-from gwsim.data.time_series import TimeSeries
+from gwsim.data.time_series.time_series import TimeSeries
 
 
 class TimeSeriesList(Iterable[TimeSeries]):

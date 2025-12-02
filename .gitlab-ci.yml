@@ -52,7 +52,20 @@ test-python-3.12:
   <<: *test-template
   image: python:3.12
 
-# ------------- Coverage Summary -------------
+# ------------- Pre-commit Job -------------
+
+pre-commit:
+  stage: test
+  image: python:3.12
+  before_script:
+    - python -m pip install --upgrade pip
+    - python -m pip install pre-commit
+  script:
+    - pre-commit run --all-files
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG'
 
 coverage-report:
   stage: coverage
