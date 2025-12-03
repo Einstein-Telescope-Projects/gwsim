@@ -31,6 +31,7 @@ LIGO
 modindex
 mollweide
 MSRC
+ndarray
 NSBH
 Nyquist
 objname
@@ -48,6 +49,7 @@ srate
 submatrix
 timedelay
 timestep
+tobytes
 toctree
 tukey
 Uncatched

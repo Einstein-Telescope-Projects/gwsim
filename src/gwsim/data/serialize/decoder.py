@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import importlib
 import json
 from typing import Any
 
+import numpy as np
 from astropy.units import Quantity
 
 
@@ -40,6 +42,13 @@ class Decoder(json.JSONDecoder):
 
             if type_name == "Quantity":
                 return Quantity(value=obj["value"], unit=obj["unit"])
+
+            if type_name == "ndarray":
+                encoded_data = obj["data"]
+                bytes_data = base64.b64decode(encoded_data)
+                array = np.frombuffer(bytes_data, dtype=obj["dtype"])
+                array = array.reshape(obj["shape"])
+                return array
 
             # Assume all serializable classes are in gwsim.data module
             module = importlib.import_module("gwsim.data")
