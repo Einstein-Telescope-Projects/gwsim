@@ -54,7 +54,9 @@ nav:
   - User Guide:
     - Installation: user-guide/installation.md
     - Quick Start: user-guide/quickstart.md
-    - Configuration: user-guide/configuration.md
+    - Generating Data: user-guide/generating-data.md
+    - Reading Data: user-guide/reading-data.md
+    - Configuration Files: user-guide/configuration.md
     - Examples: user-guide/examples.md
   - API Reference:
     - Overview: reference/index.md

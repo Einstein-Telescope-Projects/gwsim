@@ -111,11 +111,9 @@ If you don't have `uv` installed, you can install it with pip. See the project p
 
 ### Getting Help
 
-If you encounter issues:
-
 1. Check the [troubleshooting guide](../dev/troubleshooting.md)
 2. Search existing [issues](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/issues)
 3. Create a new issue with:
-   - Your operating system and Python version
-   - Full error message
-   - Steps to reproduce the problem
+    - Your operating system and Python version
+    - Full error message
+    - Steps to reproduce the problem
