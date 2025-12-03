@@ -3,8 +3,10 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "gwsim"
-authors = [{ name = "Isaac C. F. Wong", email = "chunfung.wong@kuleuven.be" }]
+name =  "gwsim"
+authors = [
+    {name = "Isaac C. F. Wong", email = "chunfung.wong@kuleuven.be"},
+]
 description = "A Python package for simulating gravitational wave detector data for mock data challenges."
 readme = "README.md"
 classifiers = [
@@ -16,7 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.12"
 ]
 requires-python = ">=3.10"
 dynamic = ["version"]
@@ -50,7 +52,7 @@ test = [
     "pytest-runner",
     "pytest==8.3.4",
     "pytest-github-actions-annotate-failures",
-    "shellcheck-py==0.10.0.1",
+    "shellcheck-py==0.10.0.1"
 ]
 dev = [
     "pytest",
@@ -82,7 +84,7 @@ source = "vcs"
 packages = ["src/gwsim"]
 
 [tool.bandit]
-exclude_dirs = ["build", "dist", "tests", "scripts"]
+exclude_dirs = ["build","dist","tests","scripts"]
 number = 4
 recursive = true
 targets = "src"
@@ -113,13 +115,21 @@ exclude = [
     "packages",
     "pywin32",
     "tests",
-    "swagger_client",
+    "swagger_client"
 ]
-ignore = ["E722", "B001", "W503", "E203"]
+ignore = [
+    "E722",
+    "B001",
+    "W503",
+    "E203"
+]
 
 [tool.pyright]
 include = ["src"]
-exclude = ["**/node_modules", "**/__pycache__"]
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+]
 venv = "env"
 
 reportMissingImports = true
@@ -128,7 +138,9 @@ reportMissingTypeStubs = false
 pythonVersion = "3.10"  # Match minimum supported version
 pythonPlatform = "Linux"
 
-executionEnvironments = [{ root = "src" }]
+executionEnvironments = [
+  { root = "src" }
+]
 
 [tool.pytest.ini_options]
 addopts = [
@@ -137,10 +149,11 @@ addopts = [
     "--cov-report=term",
     "--junitxml=test-results.xml",
     "--cov-append",
-    "-m",
-    "not integration",
+    "-m", "not integration"
 ]
-pythonpath = ["src"]
+pythonpath = [
+    "src"
+]
 testpaths = "tests"
 junit_family = "xunit2"
 markers = [
@@ -183,7 +196,7 @@ commands =
 """
 
 [tool.pylint]
-extension-pkg-whitelist = [
+extension-pkg-whitelist= [
     "numpy",
     "torch",
     "cv2",
@@ -194,74 +207,88 @@ extension-pkg-whitelist = [
     "scipy",
     "astropy"
 ]
-ignore = "CVS"
-ignore-patterns = "test.*?py,conftest.py"
-init-hook = 'import sys; sys.setrecursionlimit(8 * sys.getrecursionlimit())'
-jobs = 0
-limit-inference-results = 100
-persistent = "yes"
-suggestion-mode = "yes"
-unsafe-load-any-extension = "no"
+ignore="CVS"
+ignore-patterns="test.*?py,conftest.py"
+init-hook='import sys; sys.setrecursionlimit(8 * sys.getrecursionlimit())'
+jobs=0
+limit-inference-results=100
+persistent="yes"
+suggestion-mode="yes"
+unsafe-load-any-extension="no"
 
 [tool.pylint.'MESSAGES CONTROL']
-enable = "c-extension-no-member"
+enable="c-extension-no-member"
 
 [tool.pylint.'REPORTS']
-evaluation = "10.0 - ((float(5 * error + warning + refactor + convention) / statement) * 10)"
-output-format = "text"
-reports = "no"
-score = "yes"
+evaluation="10.0 - ((float(5 * error + warning + refactor + convention) / statement) * 10)"
+output-format="text"
+reports="no"
+score="yes"
 
 [tool.pylint.'REFACTORING']
-max-nested-blocks = 5
-never-returning-functions = "sys.exit"
+max-nested-blocks=5
+never-returning-functions="sys.exit"
 
 [tool.pylint.'BASIC']
-argument-naming-style = "snake_case"
-attr-naming-style = "snake_case"
-bad-names = ["foo", "bar"]
-class-attribute-naming-style = "any"
-class-naming-style = "PascalCase"
-const-naming-style = "UPPER_CASE"
-docstring-min-length = -1
-function-naming-style = "snake_case"
-good-names = ["i", "j", "k", "ex", "Run", "_"]
-include-naming-hint = "yes"
-inlinevar-naming-style = "any"
-method-naming-style = "snake_case"
-module-naming-style = "any"
-no-docstring-rgx = "^_"
-property-classes = "abc.abstractproperty"
-variable-naming-style = "snake_case"
+argument-naming-style="snake_case"
+attr-naming-style="snake_case"
+bad-names= [
+    "foo",
+    "bar"
+]
+class-attribute-naming-style="any"
+class-naming-style="PascalCase"
+const-naming-style="UPPER_CASE"
+docstring-min-length=-1
+function-naming-style="snake_case"
+good-names= [
+    "i",
+    "j",
+    "k",
+    "ex",
+    "Run",
+    "_"
+]
+include-naming-hint="yes"
+inlinevar-naming-style="any"
+method-naming-style="snake_case"
+module-naming-style="any"
+no-docstring-rgx="^_"
+property-classes="abc.abstractproperty"
+variable-naming-style="snake_case"
 
 [tool.pylint.'FORMAT']
-ignore-long-lines = "^\\s*(# )?.*['\"]?<?https?://\\S+>?"
-indent-after-paren = 4
-indent-string = '    '
-max-line-length = 120
-max-module-lines = 1000
-single-line-class-stmt = "no"
-single-line-if-stmt = "no"
+ignore-long-lines="^\\s*(# )?.*['\"]?<?https?://\\S+>?"
+indent-after-paren=4
+indent-string='    '
+max-line-length=120
+max-module-lines=1000
+single-line-class-stmt="no"
+single-line-if-stmt="no"
 
 [tool.pylint.'LOGGING']
-logging-format-style = "old"
-logging-modules = "logging"
+logging-format-style="old"
+logging-modules="logging"
 
 [tool.pylint.'MISCELLANEOUS']
-notes = ["FIXME", "XXX", "TODO"]
+notes= [
+    "FIXME",
+    "XXX",
+    "TODO"
+]
 
 [tool.pylint.'SIMILARITIES']
-ignore-comments = "yes"
-ignore-docstrings = "yes"
-ignore-imports = "yes"
-min-similarity-lines = 7
+ignore-comments="yes"
+ignore-docstrings="yes"
+ignore-imports="yes"
+min-similarity-lines=7
 
 [tool.pylint.'SPELLING']
-max-spelling-suggestions = 4
-spelling-store-unknown-words = "no"
+max-spelling-suggestions=4
+spelling-store-unknown-words="no"
 
 [tool.pylint.'STRING']
-check-str-concat-over-line-jumps = "no"
+check-str-concat-over-line-jumps="no"
 
 [tool.pylint.'TYPECHECK']
 contextmanager-decorators="contextlib.contextmanager"
@@ -276,61 +303,76 @@ missing-member-hint-distance=1
 missing-member-max-choices=1
 
 [tool.pylint.'VARIABLES']
-additional-builtins = "dbutils"
-allow-global-unused-variables = "yes"
-callbacks = ["cb_", "_cb"]
-dummy-variables-rgx = "_+$|(_[a-zA-Z0-9_]*[a-zA-Z0-9]+?$)|dummy|^ignored_|^unused_"
-ignored-argument-names = "_.*|^ignored_|^unused_"
-init-import = "no"
-redefining-builtins-modules = "six.moves,past.builtins,future.builtins,builtins,io"
+additional-builtins="dbutils"
+allow-global-unused-variables="yes"
+callbacks= [
+    "cb_",
+    "_cb"
+]
+dummy-variables-rgx="_+$|(_[a-zA-Z0-9_]*[a-zA-Z0-9]+?$)|dummy|^ignored_|^unused_"
+ignored-argument-names="_.*|^ignored_|^unused_"
+init-import="no"
+redefining-builtins-modules="six.moves,past.builtins,future.builtins,builtins,io"
 
 [tool.pylint.'CLASSES']
-defining-attr-methods = ["__init__", "__new__", "setUp", "__post_init__"]
-exclude-protected = ["_asdict", "_fields", "_replace", "_source", "_make"]
-valid-classmethod-first-arg = "cls"
-valid-metaclass-classmethod-first-arg = "cls"
+defining-attr-methods= [
+    "__init__",
+    "__new__",
+    "setUp",
+    "__post_init__"
+]
+exclude-protected= [
+    "_asdict",
+    "_fields",
+    "_replace",
+    "_source",
+    "_make"
+]
+valid-classmethod-first-arg="cls"
+valid-metaclass-classmethod-first-arg="cls"
 
 [tool.pylint.'DESIGN']
-max-args = 10
-max-positional-arguments = 10
-max-attributes = 10           # Increased for configuration classes
-max-bool-expr = 5
-max-branches = 12
-max-locals = 15
-max-parents = 7
-max-public-methods = 20
-max-returns = 6
-max-statements = 50
-min-public-methods = 2
+max-args=10
+max-positional-arguments=10
+max-attributes=10  # Increased for configuration classes
+max-bool-expr=5
+max-branches=12
+max-locals=15
+max-parents=7
+max-public-methods=20
+max-returns=6
+max-statements=50
+min-public-methods=2
 
 [tool.pylint.'IMPORTS']
-allow-wildcard-with-all = "no"
-analyse-fallback-blocks = "no"
-deprecated-modules = "optparse,tkinter.tix"
+allow-wildcard-with-all="no"
+analyse-fallback-blocks="no"
+deprecated-modules="optparse,tkinter.tix"
 
 [tool.pylint.'EXCEPTIONS']
-overgeneral-exceptions = ["builtins.BaseException", "builtins.Exception"]
+overgeneral-exceptions= [
+    "builtins.BaseException",
+    "builtins.Exception"
+]
 
 [tool.ruff]
 line-length = 120  # Matches Black's default
 target-version = "py310" # Align with CI (3.10–3.12) and requires-python (>=3.8.1)
 lint.extend-select = [
-    "E",
-    "F",
-    "W",   # pycodestyle errors and warnings
-    "I",   # isort rules
-    "UP",  # pyupgrade rules
-    "C90", # McCabe complexity
-    "N",   # PEP8 naming
-    "B",   # Bugbear (opinionated checks)
-    "A",   # Flake8-builtins
-    "C4",  # Flake8-comprehensions
-    "PT",  # Flake8-pytest
-    "RUF", # Ruff-specific rules
+  "E", "F", "W",  # pycodestyle errors and warnings
+  "I",  # isort rules
+  "UP",  # pyupgrade rules
+  "C90",  # McCabe complexity
+  "N",  # PEP8 naming
+  "B",  # Bugbear (opinionated checks)
+  "A",  # Flake8-builtins
+  "C4",  # Flake8-comprehensions
+  "PT",  # Flake8-pytest
+  "RUF",  # Ruff-specific rules
 ]
 lint.ignore = [
-    "E501", # Line length (handled by formatter)
-    "C901", # Disable overly strict complexity checks (optional, adjust as needed)
+  "E501",  # Line length (handled by formatter)
+  "C901",  # Disable overly strict complexity checks (optional, adjust as needed)
 ]
 fix = true  # Enable autofix
 lint.unfixable = []  # List rules that should not be autofixed, if any
@@ -339,9 +381,9 @@ exclude = [
 ]
 
 [tool.ruff.format]
-quote-style = "double"       # Use double quotes for strings
-indent-style = "space"       # Use spaces for indentation
-docstring-code-format = true # Format code in docstrings
+quote-style = "double"  # Use double quotes for strings
+indent-style = "space"  # Use spaces for indentation
+docstring-code-format = true  # Format code in docstrings
 
 [tool.isort]
 profile = "black"

@@ -1,4 +1,4 @@
-"""Version information for the gwsim package."""
+"""Version information for gwsim package."""
 
 from __future__ import annotations
 
