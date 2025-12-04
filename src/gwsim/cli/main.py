@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from gwsim.cli.default_config import default_config_command
+from gwsim.cli.merge import merge_command
 from gwsim.cli.simulate import simulate_command
 
 logger = logging.getLogger("gwsim")
@@ -84,6 +85,7 @@ def register_commands() -> None:
     """Register all CLI commands."""
 
     app.command("simulate")(simulate_command)
+    app.command("merge")(merge_command)
     app.command("default-config")(default_config_command)
 
 
