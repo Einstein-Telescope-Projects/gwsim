@@ -1,6 +1,6 @@
 # Contributing to gwsim
 
-🎉 Thank you for your interest in contributing to gwsim! 🌌📊 Your ideas, fixes, and improvements are welcome and appreciated as we work to enhance this package for generating simulated gravitational wave (GW) data.
+🎉 Thank you for your interest in contributing to gwsim! 🌌📊 Your ideas, fixes, and improvements are welcome and appreciated as we work to enhance this package for generating simulated gravitational-wave (GW) data.
 
 Whether you’re fixing a typo, reporting a bug, suggesting a feature, or submitting a merge request—this guide will help you get started.
 
@@ -73,6 +73,6 @@ By contributing, you agree that your contributions will be licensed under the pr
 
 ---
 
-Thanks again for being part of the gwsim community and helping advance gravitational wave research!
+Thanks again for being part of the gwsim community and helping advance gravitational-wave research!
 
 ---

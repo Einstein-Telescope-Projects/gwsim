@@ -18,7 +18,7 @@ gwsim is designed as an orchestration layer that leverages existing third-party 
 gwsim wraps existing, battle-tested libraries rather than reimplementing signal processing algorithms. This approach:
 - Ensures correctness by relying on established implementations
 - Reduces maintenance burden
-- Allows users to leverage decades of gravitational wave research
+- Allows users to leverage decades of gravitational-wave research
 
 **Key dependencies:**
 
