@@ -4,6 +4,7 @@ autoclass
 automodule
 autosummary
 butterworth
+capsys
 Cascina
 checkpointed
 checkpointing

@@ -14,6 +14,7 @@ from rich.logging import RichHandler
 
 from gwsim.cli.default_config import default_config_command
 from gwsim.cli.simulate import simulate_command
+from gwsim.cli.validate import validate_command
 
 logger = logging.getLogger("gwsim")
 console = Console()
@@ -85,6 +86,7 @@ def register_commands() -> None:
 
     app.command("simulate")(simulate_command)
     app.command("default-config")(default_config_command)
+    app.command("validate")(validate_command)
 
 
 register_commands()
