@@ -10,6 +10,7 @@ Cascina
 checkpointed
 Checkpointing
 checkpointing
+coalescences
 colorbar
 coo
 copybutton
