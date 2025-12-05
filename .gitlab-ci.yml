@@ -111,7 +111,6 @@ publish_to_pypi:
   rules:
     # Only run on semantic version tags (v1.2.3 or 1.2.3)
     - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
-      protected: true
   artifacts:
     paths:
       - dist/
@@ -130,7 +129,6 @@ publish_to_testpypi:
     - python -m twine upload dist/* -r testpypi -u __token__ -p $TESTPYPI_PASSWORD
   rules:
     - if: '$CI_COMMIT_TAG =~ /-rc|-a|-b|-alpha|-beta/'   # pre-releases
-      protected: true
   artifacts:
     paths:
       - dist/
@@ -215,7 +213,6 @@ docs_build_and_trigger_rtd:
   rules:
     # Run on every official release tag
     - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
-      protected: true
   artifacts:
     paths:
       - site/                 # mkdocs output folder
