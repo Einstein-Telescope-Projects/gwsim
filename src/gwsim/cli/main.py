@@ -14,6 +14,7 @@ from rich.logging import RichHandler
 
 from gwsim.cli.default_config import default_config_command
 from gwsim.cli.merge import merge_command
+from gwsim.cli.repository import repository_app
 from gwsim.cli.simulate import simulate_command
 from gwsim.cli.validate import validate_command
 
@@ -89,6 +90,7 @@ def register_commands() -> None:
     app.command("merge")(merge_command)
     app.command("default-config")(default_config_command)
     app.command("validate")(validate_command)
+    app.add_typer(repository_app, name="repository", help="Manage Zenodo repositories")
 
 
 register_commands()
