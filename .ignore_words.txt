@@ -1,4 +1,5 @@
 approximants
+astrophysically
 astropy
 autoclass
 automodule
@@ -7,15 +8,19 @@ butterworth
 capsys
 Cascina
 checkpointed
+Checkpointing
 checkpointing
 colorbar
 coo
 copybutton
+cryo
 currentmodule
+deformability
 dets
 docstrings
 ECEF
 endfor
+Euregion
 figsize
 freqs
 gengli
@@ -29,6 +34,7 @@ interp
 intersphinx
 levelname
 LIGO
+mathjax
 modindex
 mollweide
 MSRC
@@ -36,12 +42,14 @@ ndarray
 NSBH
 Nyquist
 objname
+objtype
 onboardsupport
 parseable
 pycbc
 pymap
 pytestmark
 realisation
+reimplementation
 representer
 retryable
 rtol
@@ -49,6 +57,8 @@ SEOBN
 srange
 srate
 submatrix
+subpackages
+Tidalv
 timedelay
 timestep
 tobytes
@@ -56,6 +66,7 @@ toctree
 tukey
 Uncatched
 Uninjected
+WIP
 xaltitude
 xangle
 xarm

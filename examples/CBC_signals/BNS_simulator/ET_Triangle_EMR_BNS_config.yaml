@@ -1,0 +1,28 @@
+globals:
+  simulator-arguments:
+    sampling-frequency: 4096
+    duration: 4096
+    total-duration: "1 day"
+    start-time: 1577491218
+  working-directory: "./ET_Triangle_EMR_BNS"
+  output-directory: "data"
+  metadata-directory: "metadata"
+
+simulators:
+  signals:
+    class: CBCSignalSimulator
+    arguments:
+      population_file: 18321_1yrCatalogBNS.h5
+      waveform_model: IMRPhenomPv2_NRTidalv2,
+      waveform_arguments:
+          earth_rotation: true
+          time_dependent_timedelay: true
+      minimum_frequency: 2
+      detectors:
+        - E1_Triangle_EMR
+        - E2_Triangle_EMR
+        - E3_Triangle_EMR
+    output:
+      file_name: "E-{{ detectors }}_STRAIN_BNS-{{ start_time }}-{{ duration }}.gwf"
+      arguments:
+        channel: "{{ detectors }}:STRAIN"

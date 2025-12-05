@@ -2,9 +2,8 @@
 Basic Usage
 ===========
 
-The ``gwsim`` command-line tool can be used to generate synthetic data for gravitational-wave simulations.
-This guide explains how to use the tool to generate data, including metadata,
-with support for checkpointing and file overwriting.
+The GWSim command-line tool can be used to generate synthetic data for gravitational-wave simulations.
+This guide explains how to use the tool to generate data, including metadata, with support for checkpointing and file overwriting.
 
 To generate data using a configuration file:
 
@@ -19,7 +18,7 @@ The ``--metadata`` flag ensures that metadata describing the generated output is
 Overwriting Existing Files
 --------------------------
 
-By default, ``gwsim`` does not overwrite existing output files.
+By default, GWSim does not overwrite existing output files.
 If a file already exists, the tool will raise an error and halt execution.
 
 To force overwriting of existing files, use the ``--overwrite`` flag:
@@ -32,7 +31,7 @@ To force overwriting of existing files, use the ``--overwrite`` flag:
 Checkpointing and Resuming
 --------------------------
 
-``gwsim`` includes a built-in checkpointing mechanism that keeps track of the generation progress.
+GWSim includes a built-in checkpointing mechanism that keeps track of the generation progress.
 If the process is interrupted (e.g., due to system shutdown or error), it can resume from the last checkpointed state.
 
 The checkpoint file is named ``checkpoint.json`` and is saved in the working directory specified by the ``working-directory`` field in the configuration.
@@ -41,13 +40,13 @@ To resume a previously interrupted generation process, simply rerun the same com
 
 .. code-block:: console
 
-    $ gwsim generate config.yaml --metadata
+    $ gwsim simulate config.yaml
 
 If a valid ``checkpoint.json`` exists, the tool will continue from where it left off.
 
---------------------------
-Example Configuration File
---------------------------
+-----------------------------------
+Reproducing a subset of data segments
+-----------------------------------
 
 Below is an example ``config.yaml`` file used for generating white noise data:
 

@@ -61,14 +61,22 @@ dev = [
     "black",
     "flake8"
 ]
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+    "mkdocs-gen-files",
+    "mkdocs-literate-nav",
+    "mkdocs-section-index"
+]
 
 [project.scripts]
 gwsim = "gwsim.cli.main:app"
 
 [project.urls]
-Documentation = "https://gitlab.et-gw.eu/eluminat/software/gwsim/-/blob/main/README.md"
-Source = "https://gitlab.et-gw.eu/eluminat/software/gwsim"
-Tracker = "https://gitlab.et-gw.eu/eluminat/software/gwsim/-/issues"
+Documentation = "https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/README.md"
+Source = "https://gitlab.et-gw.eu/et-projects/software/gwsim"
+Tracker = "https://gitlab.et-gw.eu/et-projects/software/gwsim/-/issues"
 
 [tool.hatch.version]
 source = "vcs"

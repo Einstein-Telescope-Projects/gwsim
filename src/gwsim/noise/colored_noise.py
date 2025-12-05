@@ -16,6 +16,9 @@ from gwsim.simulator.state import StateAttribute
 
 logger = logging.getLogger("gwsim")
 
+# The default base path for PSD files
+DEFAULT_PSD_PATH = Path(__file__).parent.parent / "detector/noise_curves"
+
 
 class ColoredNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-instance-attributes
     """Colored noise simulator for gravitational wave detectors.
@@ -141,16 +144,21 @@ class ColoredNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-instanc
             ValueError: If file format is not supported.
             TypeError: If file_path is not a string or Path.
         """
-        if isinstance(file_path, (str, Path)):
-            path = Path(file_path)
-            if path.suffix == ".npy":
-                return np.load(path)
-            if path.suffix == ".txt":
-                return np.loadtxt(path)
-            if path.suffix == ".csv":
-                return np.loadtxt(path, delimiter=",")
-            raise ValueError(f"Unsupported file format: {path.suffix}. Use .npy, .txt, or .csv.")
-        raise TypeError("file_path must be a string or Path.")
+        if not isinstance(file_path, (str, Path)):
+            raise TypeError("file_path must be a string or Path.")
+
+        path = Path(file_path)
+        if not path.exists():
+            psd_dir = DEFAULT_PSD_PATH
+            path = next(iter(psd_dir.rglob(path.name)))
+
+        if path.suffix == ".npy":
+            return np.load(path)
+        if path.suffix == ".txt":
+            return np.loadtxt(path)
+        if path.suffix == ".csv":
+            return np.loadtxt(path, delimiter=",")
+        raise ValueError(f"Unsupported file format: {path.suffix}. Use .npy, .txt, or .csv.")
 
     def _initialize_psd(self) -> None:
         """Initialize PSD interpolation for the frequency range.

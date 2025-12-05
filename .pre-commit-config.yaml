@@ -65,6 +65,7 @@ repos:
             pycbc,
             bilby,
             pydantic,
+            mkdocs-gen-files,
             pymap3d,
             pytest,
           ]

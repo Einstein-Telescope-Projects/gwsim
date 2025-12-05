@@ -1,6 +1,6 @@
 # Contributing to gwsim
 
-🎉 Thank you for your interest in contributing to gwsim! 🌌📊 Your ideas, fixes, and improvements are welcome and appreciated as we work to enhance this package for generating simulated gravitational wave (GW) data.
+🎉 Thank you for your interest in contributing to gwsim! 🌌📊 Your ideas, fixes, and improvements are welcome and appreciated as we work to enhance this package for generating simulated gravitational-wave (GW) data.
 
 Whether you’re fixing a typo, reporting a bug, suggesting a feature, or submitting a merge request—this guide will help you get started.
 
@@ -8,7 +8,7 @@ Whether you’re fixing a typo, reporting a bug, suggesting a feature, or submit
 
 1. Open an Issue
 
-- Have a question, bug report, or feature suggestion? [Open an issue](https://gitlab.et-gw.eu/eluminat/software/gwsim/-/issues/new) and describe your idea clearly, including its relevance to generating simulated GW data.
+- Have a question, bug report, or feature suggestion? [Open an issue](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/issues/new) and describe your idea clearly, including its relevance to generating simulated GW data.
 - Check for existing issues before opening a new one.
 
 2. Fork and Clone the Repository
@@ -73,6 +73,6 @@ By contributing, you agree that your contributions will be licensed under the pr
 
 ---
 
-Thanks again for being part of the gwsim community and helping advance gravitational wave research!
+Thanks again for being part of the gwsim community and helping advance gravitational-wave research!
 
 ---
