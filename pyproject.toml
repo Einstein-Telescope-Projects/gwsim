@@ -74,7 +74,7 @@ docs = [
 gwsim = "gwsim.cli.main:app"
 
 [project.urls]
-Documentation = "https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/README.md"
+Documentation = "https://gwsim.readthedocs.io/en/latest/"
 Source = "https://gitlab.et-gw.eu/et-projects/software/gwsim"
 Tracker = "https://gitlab.et-gw.eu/et-projects/software/gwsim/-/issues"
 
