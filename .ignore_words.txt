@@ -28,6 +28,7 @@ Euregion
 figsize
 francesco
 freqs
+frequencyseries
 gengli
 genindex
 geocent

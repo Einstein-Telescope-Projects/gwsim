@@ -76,12 +76,12 @@ class PopulationReaderMixin:  # pylint: disable=too-few-public-methods
 
     population_counter = 0
 
-    def __init__(self, population_file: str | Path, population_file_type: str = "pycbc", **kwargs):
+    def __init__(self, population_file: str | Path, population_file_type: str, **kwargs):
         """Initialize the PopulationReaderMixin.
 
         Args:
             population_file: Path to the population file.
-            population_file_type: Type of the population file. Default is 'pycbc'.
+            population_file_type: Type of the population file.
         """
         super().__init__(**kwargs)
         self.population_file = Path(population_file)
@@ -92,7 +92,35 @@ class PopulationReaderMixin:  # pylint: disable=too-few-public-methods
         if population_file_type == "pycbc":
             self.population_data = self._read_pycbc_population_file(self.population_file, **kwargs)
         else:
-            raise ValueError(f"Unsupported population file type: {population_file_type}")
+            self.population_data = self._read_population_file(self.population_file, **kwargs)
+
+    def _read_population_file(self, file_name: str | Path, **kwargs) -> pd.DataFrame:  # pylint: disable=unused-argument
+        """Read a generic population file in HDF5 format.
+
+        Args:
+            file_name: Path to the population file.
+            **kwargs: Additional arguments (not used currently).
+
+        Returns:
+            A pandas DataFrame containing the population data.
+        """
+        # Load the population file and create a pandas DataFrame
+
+        with h5py.File(file_name, "r") as f:
+            data = {key: value[()] for key, value in f.items()}
+
+            # Create a DataFrame
+            population_data = pd.DataFrame(data)
+
+            # Save the attributes to metadata
+            attrs = dict(f.attrs.items())
+            # If there is any numpy array in attrs, convert it to list
+            for key, value in attrs.items():
+                if isinstance(value, np.ndarray):
+                    attrs[key] = value.tolist()
+            self._population_metadata = attrs
+
+        return population_data.reset_index(drop=True)
 
     def _read_pycbc_population_file(  # pylint: disable=unused-argument
         self, file_name: str | Path, **kwargs

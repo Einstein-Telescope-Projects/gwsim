@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import cast
 
 import numpy as np
 
 from gwsim.mixin.detector import DetectorMixin
+from gwsim.mixin.population_reader import PopulationReaderMixin
 from gwsim.mixin.randomness import RandomnessMixin
 from gwsim.mixin.time_series import TimeSeriesMixin
 from gwsim.simulator.base import Simulator
 
 
-class GlitchSimulator(TimeSeriesMixin, RandomnessMixin, DetectorMixin, Simulator):
+class GlitchSimulator(PopulationReaderMixin, TimeSeriesMixin, RandomnessMixin, DetectorMixin, Simulator):
     """Base class for glitch simulators."""
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
         self,
+        population_file: str | Path,
+        population_file_type: str,
         start_time: int = 0,
         duration: float = 1024,
         sampling_frequency: float = 4096,
@@ -29,6 +33,8 @@ class GlitchSimulator(TimeSeriesMixin, RandomnessMixin, DetectorMixin, Simulator
         """Initialize the base glitch simulator.
 
         Args:
+            population_file: Path to the population file.
+            population_file_type: Type of the population file.
             start_time: Start time of the first glitch segment in GPS seconds. Default is 0.
             duration: Duration of each glitch segment in seconds. Default is 1024.
             sampling_frequency: Sampling frequency of the glitches in Hz. Default is 4096.
@@ -39,6 +45,8 @@ class GlitchSimulator(TimeSeriesMixin, RandomnessMixin, DetectorMixin, Simulator
             **kwargs: Additional arguments absorbed by subclasses and mixins.
         """
         super().__init__(
+            population_file=population_file,
+            population_file_type=population_file_type,
             start_time=start_time,
             duration=duration,
             sampling_frequency=sampling_frequency,
