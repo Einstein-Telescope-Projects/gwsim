@@ -59,6 +59,7 @@ nav:
     - Configuration Files: user-guide/configuration.md
     - Metadata files: user-guide/metadata.md
     - Examples: user-guide/examples.md
+    - Publishing Data to Zenodo: user-guide/repository.md
   - API Reference:
     - Overview: reference/index.md
     - gwsim.cli:
