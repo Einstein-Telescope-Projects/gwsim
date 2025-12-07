@@ -44,7 +44,7 @@ class TestZenodoClient:
     def test_request_success(self, mock_request, zenodo_client, mock_response):
         """Test successful _request call."""
         mock_request.return_value = mock_response
-        result = zenodo_client._request("GET", "test_url", headers={}, timeout=60)
+        result = zenodo_client._request("GET", "test_url", headers={}, timeout=60).json()
         assert result == {"id": "123", "links": {"bucket": "https://sandbox.zenodo.org/api/files/abc"}}
         mock_request.assert_called_once()
 
@@ -56,11 +56,11 @@ class TestZenodoClient:
             zenodo_client._request("GET", "test_url", headers={}, timeout=60)
 
     @patch.object(ZenodoClient, "_request")
-    def test_create_deposition(self, mock_request_method, zenodo_client):
+    def test_create_deposition(self, mock_request_method, zenodo_client, mock_response):
         """Test create_deposition."""
-        mock_request_method.return_value = {"id": "123"}
+        mock_request_method.return_value = mock_response
         result = zenodo_client.create_deposition(metadata={"title": "Test"})
-        assert result == {"id": "123"}
+        assert result == {"id": "123", "links": {"bucket": "https://sandbox.zenodo.org/api/files/abc"}}
         mock_request_method.assert_called_with(
             "POST",
             "https://sandbox.zenodo.org/api/deposit/depositions",
@@ -71,24 +71,24 @@ class TestZenodoClient:
 
     @patch.object(ZenodoClient, "_request")
     @patch.object(ZenodoClient, "get_deposition")
-    def test_upload_file(self, mock_get_deposition, mock_request_method, zenodo_client, tmp_path):
+    def test_upload_file(self, mock_get_deposition, mock_request_method, zenodo_client, tmp_path, mock_response):
         """Test upload_file."""
         mock_get_deposition.return_value = {"links": {"bucket": "https://sandbox.zenodo.org/api/files/abc"}}
-        mock_request_method.return_value = {"id": "file123"}
+        mock_request_method.return_value = mock_response
 
         file_path = tmp_path / "test.txt"
         file_path.write_text("test content")
 
         result = zenodo_client.upload_file("dep123", file_path)
-        assert result == {"id": "file123"}
+        assert result == {"id": "123", "links": {"bucket": "https://sandbox.zenodo.org/api/files/abc"}}
         mock_request_method.assert_called_once()
 
     @patch.object(ZenodoClient, "_request")
-    def test_update_metadata(self, mock_request_method, zenodo_client):
+    def test_update_metadata(self, mock_request_method, zenodo_client, mock_response):
         """Test update_metadata."""
-        mock_request_method.return_value = {"id": "123"}
+        mock_request_method.return_value = mock_response
         result = zenodo_client.update_metadata("dep123", {"title": "Updated"})
-        assert result == {"id": "123"}
+        assert result == {"id": "123", "links": {"bucket": "https://sandbox.zenodo.org/api/files/abc"}}
         mock_request_method.assert_called_with(
             "PUT",
             "https://sandbox.zenodo.org/api/deposit/depositions/dep123",
@@ -98,9 +98,10 @@ class TestZenodoClient:
         )
 
     @patch.object(ZenodoClient, "_request")
-    def test_publish_deposition(self, mock_request_method, zenodo_client):
+    def test_publish_deposition(self, mock_request_method, zenodo_client, mock_response):
         """Test publish_deposition."""
-        mock_request_method.return_value = {"doi": "10.5281/zenodo.123"}
+        mock_response.json.return_value = {"doi": "10.5281/zenodo.123"}
+        mock_request_method.return_value = mock_response
         result = zenodo_client.publish_deposition("dep123")
         assert result == {"doi": "10.5281/zenodo.123"}
         mock_request_method.assert_called_with(
@@ -111,9 +112,10 @@ class TestZenodoClient:
         )
 
     @patch.object(ZenodoClient, "_request")
-    def test_get_deposition(self, mock_request_method, zenodo_client):
+    def test_get_deposition(self, mock_request_method, zenodo_client, mock_response):
         """Test get_deposition."""
-        mock_request_method.return_value = {"id": "123"}
+        mock_response.json.return_value = {"id": "123"}
+        mock_request_method.return_value = mock_response
         result = zenodo_client.get_deposition("dep123")
         assert result == {"id": "123"}
         mock_request_method.assert_called_with(
@@ -143,7 +145,9 @@ class TestZenodoClient:
     @patch.object(ZenodoClient, "_request")
     def test_list_depositions(self, mock_request_method, zenodo_client):
         """Test list_depositions."""
-        mock_request_method.return_value = [{"id": "123"}]
+        mock_response = MagicMock()
+        mock_response.json.return_value = [{"id": "123"}]
+        mock_request_method.return_value = mock_response
         result = zenodo_client.list_depositions(status="draft")
         assert result == [{"id": "123"}]
         mock_request_method.assert_called_with(
@@ -163,6 +167,6 @@ class TestZenodoClient:
         mock_request_method.assert_called_with(
             "DELETE",
             "https://sandbox.zenodo.org/api/deposit/depositions/dep123",
-            headers={"Content-Type": "application/json", "Authorization": "Bearer fake_token"},
+            headers={"Authorization": "Bearer fake_token"},
             timeout=60,
         )

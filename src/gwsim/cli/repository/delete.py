@@ -7,6 +7,7 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.prompt import Confirm
 
 from gwsim.cli.repository.utils import get_zenodo_client
 
@@ -28,7 +29,11 @@ def delete_command(
         gwsim repository delete 123456
         gwsim repository delete 123456 --force
     """
-    if not force and not typer.confirm(f"[red]Delete deposition {deposition_id}?[/red] This cannot be undone."):
+    if not force and not Confirm.ask(
+        f"[red bold]Delete deposition {deposition_id}?[/red bold] [dim]This cannot be undone.[/dim]",
+        console=console,
+        default=False,
+    ):
         console.print("[yellow]Cancelled.[/yellow]")
         raise typer.Exit(0)
 
