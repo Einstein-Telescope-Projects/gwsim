@@ -137,3 +137,7 @@ dmypy.json
 
 # Temporary files
 tmp/
+
+# Node modules (if using Node.js for frontend)
+node_modules/
+package-lock.json

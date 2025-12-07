@@ -12,6 +12,7 @@ Checkpointing
 checkpointing
 cireddu
 coalescences
+commitlint
 colorbar
 coo
 copybutton
