@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from requests import Response
 
 from gwsim.utils.retry import retry_on_failure
 
@@ -51,7 +52,7 @@ class ZenodoClient:
         }
 
     @retry_on_failure()
-    def _request(self, method: str, url: str, headers: dict, timeout: int = 60, **kwargs) -> dict[str, Any]:
+    def _request(self, method: str, url: str, headers: dict, timeout: int = 60, **kwargs) -> Response:
         """Make a request to the Zenodo API.
 
         Args:
@@ -62,11 +63,11 @@ class ZenodoClient:
             **kwargs: Additional arguments to pass to requests.
 
         Returns:
-            Response JSON as a dictionary.
+            Response object.
         """
         response = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
         response.raise_for_status()
-        return response.json()
+        return response
 
     def create_deposition(self, metadata: dict[str, Any] | None = None, timeout=60) -> dict[str, Any]:
         """Create a new deposition.
@@ -80,14 +81,14 @@ class ZenodoClient:
         """
         data = {"metadata": metadata} if metadata else {}
 
-        response = self._request(
+        response: Response = self._request(
             "POST",
             f"{self.base_url}deposit/depositions",
             headers={"Content-Type": "application/json", **self.headers},
             timeout=timeout,
             json=data,
         )
-        return response
+        return response.json()
 
     def upload_file(
         self, deposition_id: str, file_path: Path, timeout=300, auto_timeout: bool = True
@@ -115,7 +116,7 @@ class ZenodoClient:
             timeout = max(timeout, int(file_size * 10))  # 10 seconds per MB, minimum 300 seconds
 
         with file_path.open("rb") as f:
-            response = self._request(
+            response: Response = self._request(
                 "PUT",
                 f"{bucket}/{file_path.name}",
                 headers=self.headers,
@@ -123,7 +124,7 @@ class ZenodoClient:
                 data=f,
             )
 
-        return response
+        return response.json()
 
     def update_metadata(self, deposition_id: str, metadata: dict[str, Any], timeout: int = 60) -> dict[str, Any]:
         """Update metadata for a deposition.
@@ -137,7 +138,7 @@ class ZenodoClient:
             Response JSON as a dictionary.
         """
         data = {"metadata": metadata}
-        response = self._request(
+        response: Response = self._request(
             "PUT",
             f"{self.base_url}deposit/depositions/{deposition_id}",
             headers={"Content-Type": "application/json", **self.headers},
@@ -145,7 +146,7 @@ class ZenodoClient:
             data=json.dumps(data),
         )
 
-        return response
+        return response.json()
 
     def publish_deposition(self, deposition_id: str, timeout: int = 300) -> dict[str, Any]:
         """Publish a deposition.
@@ -157,13 +158,13 @@ class ZenodoClient:
         Returns:
             Response JSON as a dictionary.
         """
-        response = self._request(
+        response: Response = self._request(
             "POST",
             f"{self.base_url}deposit/depositions/{deposition_id}/actions/publish",
             headers=self.headers,
             timeout=timeout,
         )
-        return response
+        return response.json()
 
     def get_deposition(self, deposition_id: str, timeout: int = 60) -> dict[str, Any]:
         """Retrieve a deposition's details.
@@ -175,13 +176,13 @@ class ZenodoClient:
         Returns:
             Response JSON as a dictionary.
         """
-        response = self._request(
+        response: Response = self._request(
             "GET",
             f"{self.base_url}deposit/depositions/{deposition_id}",
             headers={"Content-Type": "application/json", **self.headers},
             timeout=timeout,
         )
-        return response
+        return response.json()
 
     def download_file(
         self,
@@ -213,7 +214,7 @@ class ZenodoClient:
         if file_size_in_mb is not None:
             timeout = max(timeout, int(file_size_in_mb * 10))  # 10 seconds per MB
 
-        response = self._request(
+        response: Response = self._request(
             "GET",
             file_url,
             headers={"Content-Type": "application/json", **self.headers},
@@ -227,7 +228,7 @@ class ZenodoClient:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
         output_path_tmp.rename(output_path)
-        return response
+        return response.json()
 
     def list_depositions(self, status: str = "published", timeout: int = 60) -> list[dict[str, Any]]:
         """List all depositions for the authenticated user.
@@ -247,7 +248,7 @@ class ZenodoClient:
             timeout=timeout,
             params=params,
         )
-        return response
+        return response.json()
 
     def delete_deposition(self, deposition_id: str, timeout: int = 60) -> dict[str, Any]:
         """Delete a deposition.
@@ -262,7 +263,7 @@ class ZenodoClient:
         response = self._request(
             "DELETE",
             f"{self.base_url}deposit/depositions/{deposition_id}",
-            headers={"Content-Type": "application/json", **self.headers},
+            headers=self.headers,
             timeout=timeout,
         )
         return response
