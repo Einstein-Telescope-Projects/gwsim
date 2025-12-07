@@ -225,7 +225,7 @@ class TestTimeSeriesList:
 
         # Assert that the deserialized object is equal to the original
         assert len(deserialized_ts_list) == len(original_ts_list)
-        for original, deserialized in zip(original_ts_list, deserialized_ts_list):
+        for original, deserialized in zip(original_ts_list, deserialized_ts_list, strict=False):
             assert original == deserialized  # Assuming TimeSeries has __eq__ method
 
     def test_json_serialization_includes_type(self, sample_ts):

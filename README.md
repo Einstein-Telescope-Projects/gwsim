@@ -1,6 +1,7 @@
 # gwsim
 
 [![Pipeline](https://gitlab.et-gw.eu/et-projects/software/gwsim/badges/main/pipeline.svg)](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/pipelines)
+[![Documentation](https://app.readthedocs.org/projects/gwsim/badge/?version=latest)](https://gwsim.readthedocs.io/en/latest/)
 [![Coverage Report](https://gitlab.et-gw.eu/et-projects/software/gwsim/badges/main/coverage.svg)](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/commits/main)
 [![PyPI Version](https://img.shields.io/pypi/v/gwsim)](https://pypi.org/project/gwsim/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/gwsim)](https://pypi.org/project/gwsim/)
@@ -20,13 +21,34 @@ A Python package for generating Mock Data Challenge (MDC) datasets for the gravi
 
 ## Installation
 
+We recommend using `uv` to manage virtual environments for installing gwsim.
+
+If you don't have `uv` installed, you can install it with pip. See the project pages for more details:
+
+- Install via pip: `pip install --upgrade pip && pip install uv`
+- Project pages: [uv on PyPI](https://pypi.org/project/uv/) | [uv on GitHub](https://github.com/astral-sh/uv)
+- Full documentation and usage guide: [uv docs](https://docs.astral.sh/uv/)
+
+### From PyPI
+
+```bash
+# Create a virtual environment (recommended with uv)
+uv venv gwsim-env
+source gwsim-env/bin/activate  # On Windows: gwsim-env\Scripts\activate
+uv pip install gwsim
+```
+
 ### From Source
 
 ```bash
 git clone https://gitlab.et-gw.eu/et-projects/software/gwsim.git
-cd gwsim
-pip install -e .
+ce gwsim
+# Create a virtual environment (recommended with uv)
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+uv pip install .
 ```
+
 ## Quick Start
 
 ### Command Line

@@ -38,7 +38,7 @@ class MockSimulator(Simulator):
                     raise ValueError(f"Single data value requires single file, got {len(flat_files)} files")
                 flat_data = [data]
 
-            for f, d in zip(flat_files, flat_data):
+            for f, d in zip(flat_files, flat_data, strict=False):
                 # Convert numpy scalars to Python native types for YAML serialization
                 if isinstance(d, np.generic):
                     d = d.item()

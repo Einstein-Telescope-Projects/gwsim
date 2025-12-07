@@ -4,7 +4,8 @@ A descriptor class to handle a state attribute.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Generic, TypeVar, overload
+from collections.abc import Callable
+from typing import Any, Generic, TypeVar, overload
 
 T = TypeVar("T")
 

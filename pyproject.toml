@@ -16,12 +16,11 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Astronomy",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12"
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dynamic = ["version"]
 dependencies = [
     "typer",
@@ -136,7 +135,7 @@ venv = "env"
 reportMissingImports = true
 reportMissingTypeStubs = false
 
-pythonVersion = "3.9"  # Match minimum supported version
+pythonVersion = "3.10"  # Match minimum supported version
 pythonPlatform = "Linux"
 
 executionEnvironments = [
@@ -358,7 +357,7 @@ overgeneral-exceptions= [
 
 [tool.ruff]
 line-length = 120  # Matches Black's default
-target-version = "py39" # Align with CI (3.9–3.12) and requires-python (>=3.8.1)
+target-version = "py310" # Align with CI (3.10–3.12) and requires-python (>=3.8.1)
 lint.extend-select = [
   "E", "F", "W",  # pycodestyle errors and warnings
   "I",  # isort rules

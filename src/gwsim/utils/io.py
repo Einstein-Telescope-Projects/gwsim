@@ -138,7 +138,7 @@ def get_file_name_from_template(  # pylint: disable=too-many-locals
         return re.sub(r"\{\{\s*(\w+)\s*\}\}", replace, template)
 
     # Substitute for each combination
-    results = [Path(substitute_template(dict(zip(placeholders, combo)))) for combo in combinations]
+    results = [Path(substitute_template(dict(zip(placeholders, combo, strict=False)))) for combo in combinations]
 
     if output_directory is not None:
         output_directory = Path(output_directory)
