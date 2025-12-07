@@ -73,7 +73,7 @@ def validate_command(  # pylint: disable=too-many-branches,too-many-statements,t
     from rich.console import Console
     from rich.table import Table
 
-    from gwsim.cli.simulate import compute_file_hash
+    from gwsim.cli.utils.hash import compute_file_hash
 
     logger = logging.getLogger("gwsim")
 
