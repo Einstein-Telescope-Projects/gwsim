@@ -17,9 +17,7 @@ cache:
 
 commitlint:
   stage: .pre
-  image:
-    - name: commitlint/commitlint:latest
-    - entrypoint: [""]
+  image: commitlint/commitlint:latest
   rules:
     # Run on every merge request
     - if: $CI_MERGE_REQUEST_IID
