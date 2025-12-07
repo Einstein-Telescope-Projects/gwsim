@@ -9,8 +9,6 @@ from typing import Annotated
 
 import typer
 
-from gwsim.cli.utils.config import save_config
-
 _DEFAULT_CONFIG = {
     "globals": {
         "working-directory": ".",
@@ -53,4 +51,6 @@ def default_config_command(
     Raises:
         FileExistsError: If file_name exists and overwrite is False, raise an error.
     """
+    from gwsim.cli.utils.config import save_config  # pylint: disable=import-outside-toplevel
+
     save_config(file_name=Path(output), config=_DEFAULT_CONFIG, overwrite=overwrite)

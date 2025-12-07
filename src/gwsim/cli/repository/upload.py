@@ -2,21 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.console import Console
-from rich.progress import Progress
-
-from gwsim.cli.repository.utils import get_zenodo_client
-
-logger = logging.getLogger("gwsim")
-console = Console()
 
 
-def upload_command(
+def upload_command(  # pylint: disable=import-outside-toplevel,too-many-locals
     deposition_id: Annotated[str, typer.Argument(help="Deposition ID")],
     files: Annotated[list[str] | None, typer.Option("--file", help="Files to upload (repeat for multiple)")] = None,
     sandbox: Annotated[bool, typer.Option("--sandbox", help="Use sandbox environment")] = False,
@@ -31,6 +23,16 @@ def upload_command(
         # Multiple files
         gwsim repository upload 123456 --file data1.gwf --file data2.gwf --file metadata.yaml
     """
+    import logging
+
+    from rich.console import Console
+    from rich.progress import Progress
+
+    from gwsim.cli.repository.utils import get_zenodo_client
+
+    logger = logging.getLogger("gwsim")
+    console = Console()
+
     if not files:
         console.print("[red]Error:[/red] No files specified. Use [bold]--file <path>[/bold] to specify files.")
         raise typer.Exit(1)

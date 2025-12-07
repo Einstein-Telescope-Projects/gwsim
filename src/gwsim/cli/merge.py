@@ -2,21 +2,14 @@
 
 from __future__ import annotations
 
-import datetime
-import getpass
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated
 
 import typer
-import yaml
-from gwpy.timeseries import TimeSeries
-
-from gwsim.cli.utils.hash import compute_file_hash
-from gwsim.utils.log import get_dependency_versions
 
 
 def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
-    file_names: Annotated[list[str], typer.Argument(..., help="List of frame files to merge")],
+    file_names: Annotated[list[Path], typer.Argument(..., help="List of frame files to merge")],
     channel: Annotated[str, typer.Option("--channel", help="Channel name to merge")] = "STRAIN",
     output: Annotated[str, typer.Option("--output", help="Output merged frame file name")] = "merged.gwf",
     output_channel: (
@@ -42,6 +35,16 @@ def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many
     Raises:
         ValueError: If metadata files are not provided and force is False.
     """
+    import datetime  # pylint: disable=import-outside-toplevel
+    import getpass  # pylint: disable=import-outside-toplevel
+    from typing import cast  # pylint: disable=import-outside-toplevel
+
+    import yaml  # pylint: disable=import-outside-toplevel
+    from gwpy.timeseries import TimeSeries  # pylint: disable=import-outside-toplevel
+
+    from gwsim.cli.utils.hash import compute_file_hash  # pylint: disable=import-outside-toplevel
+    from gwsim.utils.log import get_dependency_versions  # pylint: disable=import-outside-toplevel
+
     if file_names is None:
         file_names = []
     if not isinstance(metadata, list) and not force:

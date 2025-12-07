@@ -5,21 +5,9 @@ Main command line tool to generate mock data.
 from __future__ import annotations
 
 import enum
-import logging
 from typing import Annotated
 
 import typer
-from rich.console import Console
-from rich.logging import RichHandler
-
-from gwsim.cli.default_config import default_config_command
-from gwsim.cli.merge import merge_command
-from gwsim.cli.repository.main import repository_app
-from gwsim.cli.simulate import simulate_command
-from gwsim.cli.validate import validate_command
-
-logger = logging.getLogger("gwsim")
-console = Console()
 
 
 class LoggingLevel(str, enum.Enum):
@@ -43,7 +31,16 @@ app = typer.Typer(
 
 def setup_logging(level: LoggingLevel = LoggingLevel.INFO) -> None:
     """Set up logging with Rich handler."""
+    import logging  # pylint: disable=import-outside-toplevel
+
+    from rich.console import Console  # pylint: disable=import-outside-toplevel
+    from rich.logging import RichHandler  # pylint: disable=import-outside-toplevel
+
+    logger = logging.getLogger("gwsim")
+
     logger.setLevel(level.value)
+
+    console = Console()
 
     # Remove any existing handlers to ensure RichHandler is used
     for h in logger.handlers[:]:  # Use slice copy to avoid modification during iteration
@@ -86,10 +83,18 @@ def main(
 def register_commands() -> None:
     """Register all CLI commands."""
 
+    # Fast imports
+    from gwsim.cli.default_config import default_config_command  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.merge import merge_command  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.repository.main import repository_app  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.simulate import simulate_command  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.validate import validate_command  # pylint: disable=import-outside-toplevel
+
     app.command("simulate")(simulate_command)
     app.command("merge")(merge_command)
     app.command("default-config")(default_config_command)
     app.command("validate")(validate_command)
+
     app.add_typer(repository_app, name="repository", help="Manage Zenodo repositories")
 
 

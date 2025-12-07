@@ -4,14 +4,6 @@ from __future__ import annotations
 
 import typer
 
-from gwsim.cli.repository.create import create_command
-from gwsim.cli.repository.delete import delete_command
-from gwsim.cli.repository.download import download_command
-from gwsim.cli.repository.list_depositions import list_depositions_command
-from gwsim.cli.repository.metadata.main import metadata_app
-from gwsim.cli.repository.upload import upload_command
-from gwsim.cli.repository.verify import verify_command
-
 # Create the repository subcommand app
 repository_app = typer.Typer(
     name="repository",
@@ -23,6 +15,16 @@ repository_app = typer.Typer(
 # Import and register commands after app is created
 def register_commands() -> None:
     """Register all CLI commands."""
+
+    from gwsim.cli.repository.create import create_command  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.repository.delete import delete_command  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.repository.download import download_command  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.repository.list_depositions import (  # pylint: disable=import-outside-toplevel
+        list_depositions_command,
+    )
+    from gwsim.cli.repository.metadata.main import metadata_app  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.repository.upload import upload_command  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.repository.verify import verify_command  # pylint: disable=import-outside-toplevel
 
     repository_app.command("create")(create_command)
     repository_app.command("upload")(upload_command)

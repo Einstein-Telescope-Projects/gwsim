@@ -4,24 +4,15 @@ Validation functions for CLI commands.
 
 from __future__ import annotations
 
-import fnmatch
-import logging
 from pathlib import Path
 from typing import Annotated
 
 import typer
-import yaml
-from rich.console import Console
-from rich.table import Table
-
-from gwsim.cli.simulate import compute_file_hash
-
-logger = logging.getLogger("gwsim")
 
 
-def validate_command(  # pylint: disable=too-many-branches,too-many-statements,too-many-locals
+def validate_command(  # pylint: disable=too-many-branches,too-many-statements,too-many-locals,import-outside-toplevel
     paths: Annotated[
-        list[str],
+        list[Path],
         typer.Argument(
             help="Files/directories to validate. Can be output files, metadata files, or directories containing either."
         ),
@@ -75,6 +66,17 @@ def validate_command(  # pylint: disable=too-many-branches,too-many-statements,t
         pattern: Glob pattern to filter files (e.g., '*noise*')
         strict: Exit with error code if any validation fails
     """
+    import fnmatch
+    import logging
+
+    import yaml
+    from rich.console import Console
+    from rich.table import Table
+
+    from gwsim.cli.utils.hash import compute_file_hash
+
+    logger = logging.getLogger("gwsim")
+
     console = Console()
 
     logger.info("Validating simulation files...")

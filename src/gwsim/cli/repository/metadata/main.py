@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import typer
 
-from gwsim.cli.repository.metadata.update import update_command
-
 # Create the metadata subcommand app
 metadata_app = typer.Typer(
     name="metadata",
@@ -17,6 +15,8 @@ metadata_app = typer.Typer(
 # Import and register commands after app is created
 def register_commands() -> None:
     """Register all CLI commands."""
+
+    from gwsim.cli.repository.metadata.update import update_command  # pylint: disable=import-outside-toplevel
 
     metadata_app.command("update")(update_command)
 

@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.console import Console
-
-from gwsim.cli.repository.utils import get_zenodo_client
-
-logger = logging.getLogger("gwsim")
-console = Console()
 
 
 def download_command(
@@ -28,6 +21,15 @@ def download_command(
         gwsim repository download 10.5281/zenodo.123456 --file data.gwf --output ./data.gwf
         gwsim repository download 10.5281/zenodo.123456 --file metadata.yaml
     """
+    import logging  # pylint: disable=import-outside-toplevel
+
+    from rich.console import Console  # pylint: disable=import-outside-toplevel
+
+    from gwsim.cli.repository.utils import get_zenodo_client  # pylint: disable=import-outside-toplevel
+
+    logger = logging.getLogger("gwsim")
+    console = Console()
+
     if not deposition_id:
         deposition_id = typer.prompt("Deposition ID (e.g., 123456)")
     if not filename:

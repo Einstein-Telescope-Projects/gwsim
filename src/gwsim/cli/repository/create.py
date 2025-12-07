@@ -2,21 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Annotated
 
 import typer
-import yaml
-from rich.console import Console
-
-from gwsim.cli.repository.utils import get_zenodo_client
-
-logger = logging.getLogger("gwsim")
-console = Console()
 
 
-def create_command(
+def create_command(  # pylint: disable=too-many-locals
     title: Annotated[str | None, typer.Option("--title", help="Deposition title")] = None,
     description: Annotated[str | None, typer.Option("--description", help="Deposition description")] = None,
     metadata_file: Annotated[
@@ -48,6 +40,16 @@ def create_command(
         # Using metadata file
         gwsim repository create --metadata-file metadata.yaml
     """
+    import logging  # pylint: disable=import-outside-toplevel
+
+    import yaml  # pylint: disable=import-outside-toplevel
+    from rich.console import Console  # pylint: disable=import-outside-toplevel
+
+    from gwsim.cli.repository.utils import get_zenodo_client  # pylint: disable=import-outside-toplevel
+
+    logger = logging.getLogger("gwsim")
+    console = Console()
+
     client = get_zenodo_client(sandbox=sandbox, token=token)
 
     if title is None:

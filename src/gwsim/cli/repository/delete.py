@@ -2,17 +2,9 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Annotated
 
 import typer
-from rich.console import Console
-from rich.prompt import Confirm
-
-from gwsim.cli.repository.utils import get_zenodo_client
-
-logger = logging.getLogger("gwsim")
-console = Console()
 
 
 def delete_command(
@@ -29,6 +21,16 @@ def delete_command(
         gwsim repository delete 123456
         gwsim repository delete 123456 --force
     """
+    import logging  # pylint: disable=import-outside-toplevel
+
+    from rich.console import Console  # pylint: disable=import-outside-toplevel
+    from rich.prompt import Confirm  # pylint: disable=import-outside-toplevel
+
+    from gwsim.cli.repository.utils import get_zenodo_client  # pylint: disable=import-outside-toplevel
+
+    logger = logging.getLogger("gwsim")
+    console = Console()
+
     if not force and not Confirm.ask(
         f"[red bold]Delete deposition {deposition_id}?[/red bold] [dim]This cannot be undone.[/dim]",
         console=console,

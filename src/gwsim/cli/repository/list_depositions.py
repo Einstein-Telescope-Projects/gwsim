@@ -2,20 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Annotated
 
 import typer
-from rich.console import Console
-from rich.table import Table
-
-from gwsim.cli.repository.utils import get_zenodo_client
-
-logger = logging.getLogger("gwsim")
-console = Console()
 
 
-def list_depositions_command(
+def list_depositions_command(  # pylint: disable=import-outside-toplevel,too-many-locals
     status: Annotated[
         str, typer.Option("--status", help="Filter by status (draft, published, unsubmitted)")
     ] = "published",
@@ -29,6 +21,16 @@ def list_depositions_command(
         gwsim repository list --status draft
         gwsim repository list --status published --sandbox
     """
+    import logging
+
+    from rich.console import Console
+    from rich.table import Table
+
+    from gwsim.cli.repository.utils import get_zenodo_client
+
+    logger = logging.getLogger("gwsim")
+    console = Console()
+
     client = get_zenodo_client(sandbox=sandbox, token=token)
 
     console.print(f"[bold blue]Listing {status} depositions...[/bold blue]")

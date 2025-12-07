@@ -2,19 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Annotated
 
 import typer
-from rich.console import Console
-
-from gwsim.cli.repository.utils import get_zenodo_client
-
-logger = logging.getLogger("gwsim")
-console = Console()
 
 
-def publish(
+def publish(  # pylint: disable=import-outside-toplevel
     deposition_id: Annotated[str, typer.Argument(help="Deposition ID")],
     sandbox: Annotated[bool, typer.Option("--sandbox", help="Use sandbox environment")] = False,
     token: Annotated[str | None, typer.Option("--token", help="Zenodo access token")] = None,
@@ -26,6 +19,15 @@ def publish(
     Examples:
         gwsim repository publish 123456
     """
+    import logging
+
+    from rich.console import Console
+
+    from gwsim.cli.repository.utils import get_zenodo_client
+
+    logger = logging.getLogger("gwsim")
+    console = Console()
+
     if not typer.confirm(
         f"[yellow]Publish deposition {deposition_id}?[/yellow] This action is permanent and cannot be undone."
     ):

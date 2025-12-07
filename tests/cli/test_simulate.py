@@ -11,6 +11,8 @@ import yaml
 
 from gwsim.cli.simulate import (
     _simulate_impl,
+)
+from gwsim.cli.simulate_utils import (
     execute_plan,
     instantiate_simulator,
     process_batch,

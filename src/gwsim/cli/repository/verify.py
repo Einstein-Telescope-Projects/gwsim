@@ -5,14 +5,9 @@ from __future__ import annotations
 from typing import Annotated
 
 import typer
-from rich.console import Console
-
-from gwsim.cli.repository.utils import get_zenodo_client
-
-console = Console()
 
 
-def verify_command(
+def verify_command(  # pylint: disable=import-outside-toplevel
     sandbox: Annotated[bool, typer.Option("--sandbox", help="Verify sandbox token")] = False,
     token: Annotated[str | None, typer.Option("--token", help="Zenodo access token to verify")] = None,
 ) -> None:
@@ -28,6 +23,12 @@ def verify_command(
         # Verify with explicit token
         gwsim repository verify --token your_token_here
     """
+    from rich.console import Console
+
+    from gwsim.cli.repository.utils import get_zenodo_client
+
+    console = Console()
+
     console.print("[bold blue]Verifying Zenodo API token...[/bold blue]")
 
     try:
