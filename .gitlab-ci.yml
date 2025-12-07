@@ -17,7 +17,9 @@ cache:
 
 commitlint:
   stage: .pre
-  image: commitlint/commitlint:latest
+  image: node:18
+  before_script:
+    - npm install -g @commitlint/cli @commitlint/config-conventional
   rules:
     # Run on every merge request
     - if: $CI_MERGE_REQUEST_IID
