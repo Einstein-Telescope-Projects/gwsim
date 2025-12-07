@@ -48,7 +48,6 @@ commitlint:
     paths:
       - .coverage.*
       - test-results.xml
-      - coverage.xml
     reports:
       junit: test-results.xml
   rules:
@@ -99,7 +98,7 @@ coverage-report:
     - coverage xml
     - |
       # Extract and log coverage percentage for GitLab badge parsing
-      COVERAGE=$(coverage report | grep -oP '\b\d+(?:\.\d+)?%' | head -1 || echo "0%")
+      COVERAGE=$(coverage report | grep TOTAL | awk '{print $NF}' || echo "0%")
       echo "Coverage: $COVERAGE"
     - echo "Coverage report generated successfully"
   artifacts:
