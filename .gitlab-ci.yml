@@ -13,6 +13,24 @@ cache:
     - .cache/pip
     - venv/
 
+# Commit lints
+
+commitlint:
+  stage: .pre
+  image: docker.io/conventionalcommit/commitlint:latest
+  rules:
+    # Run on every merge request
+    - if: $CI_MERGE_REQUEST_IID
+    # Optional: also run on direct pushes to main/master/develop
+    - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH =~ /^(main|master|develop)$/
+  script:
+    # Lint all commits introduced by this MR
+    - echo "Linting commits in MR !$CI_MERGE_REQUEST_IID"
+    - commitlint --from ${CI_MERGE_REQUEST_SOURCE_BRANCH_SHA:-origin/$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}
+                 --to   ${CI_MERGE_REQUEST_TARGET_BRANCH_SHA:-origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME}
+                 --verbose
+  allow_failure: false
+
 # ------------- Base Templates -------------
 
 .test-template: &test-template
