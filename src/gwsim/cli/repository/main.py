@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 from gwsim.cli.repository.create import create_command
+from gwsim.cli.repository.delete import delete_command
 from gwsim.cli.repository.download import download_command
 from gwsim.cli.repository.list_depositions import list_depositions_command
 from gwsim.cli.repository.metadata.main import metadata_app
@@ -27,6 +28,7 @@ def register_commands() -> None:
     repository_app.command("upload")(upload_command)
     repository_app.command("download")(download_command)
     repository_app.command("list")(list_depositions_command)
+    repository_app.command("delete")(delete_command)
     repository_app.command("verify")(verify_command)
     repository_app.add_typer(metadata_app, name="metadata", help="Manage Zenodo metadata")
 
