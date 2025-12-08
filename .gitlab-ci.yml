@@ -167,7 +167,7 @@ publish_to_testpypi:
 create-changelog:
   <<: *base_release
   stage: release
-  image: ghcr.io/orhun/git-cliff:latest  # Use git-cliff Docker image for changelog generation
+  image: ghcr.io/orhun/git-cliff/git-cliff:latest  # Use git-cliff Docker image for changelog generation
   script:
     - git cliff --latest > release_notes.md
   artifacts:
