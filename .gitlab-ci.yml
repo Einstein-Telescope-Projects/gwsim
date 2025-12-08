@@ -191,23 +191,3 @@ create-release-page:
     description: release_notes.md  # Inserts the generated notes
     tag_name: ${CI_COMMIT_TAG}
     ref: ${CI_COMMIT_TAG}  # Simpler: points to the tag
-
-docs_build_and_trigger_rtd:
-  stage: publish
-  image: python:3.12
-  before_script:
-    - python -m pip install --upgrade pip
-    - python -m pip install -e .[docs]
-  script:
-    # 1. Build the HTML documentation with MkDocs
-    - mkdocs build -d site/
-    # 2. Trigger Read the Docs webhook so it rebuilds instantly
-    - curl -X POST -d "branches=main" -d "token=$RTD_WEBHOOK_TOKEN" \
-           https://readthedocs.org/api/v2/webhook/${RTD_PROJECT_SLUG}/
-  rules:
-    # Run on every official release tag
-    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
-  artifacts:
-    paths:
-      - site/                 # mkdocs output folder
-    expire_in: 1 day
