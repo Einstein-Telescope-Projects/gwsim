@@ -100,17 +100,26 @@ Clearly describe the motivation and scope of your change, especially how it impa
    - Avoid vague messages like "fix bug" or "update code"; instead use "fix: prevent signal saturation in noise simulation" or "feat: add support for multi-detector frame merging".
 
 3. **Follow Conventional Commits format**
-   - All commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) standard.
-   - Format: `<type>(<scope>): <subject>`
-   - Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `ci`.
-   - Example:
-     ```
-     feat(signal): add BBH waveform generation for aligned-spin systems
+    - All commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) standard.
+    - Format: `<type>(<scope>): <subject>`
+    - Allowed types:
+        - build: Changes that affect the build system or external dependencies
+        - ci: Changes to our CI configuration files and scripts
+        - docs: Documentation only changes
+        - feat: A new feature
+        - fix: A bug fix
+        - perf: A code change that improves performance
+        - refactor: A code change that neither fixes a bug nor adds a feature
+        - style: Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc)
+        - test: Adding missing tests or correcting existing tests
+    - Example:
+        ```
+        feat(signal): add BBH waveform generation for aligned-spin systems
 
-     This commit introduces support for aligned-spin binary black hole
-     waveforms using PyCBC, enabling more realistic simulations.
-     ```
-   - Commitlint will validate your message format automatically.
+        This commit introduces support for aligned-spin binary black hole
+        waveforms using PyCBC, enabling more realistic simulations.
+        ```
+    - Commitlint will validate your message format automatically.
 
 ### Examples
 
