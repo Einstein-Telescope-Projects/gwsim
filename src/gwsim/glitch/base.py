@@ -17,7 +17,7 @@ from gwsim.simulator.base import Simulator
 class GlitchSimulator(PopulationReaderMixin, TimeSeriesMixin, RandomnessMixin, DetectorMixin, Simulator):
     """Base class for glitch simulators."""
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+    def __init__(
         self,
         population_file: str | Path,
         population_file_type: str,

@@ -43,7 +43,7 @@ class GengliGlitchSimulator(GlitchSimulator):
         max_samples: int | None = None,
         dtype: type = np.float64,
         seed: int | None = None,
-        detectors: list[str] | None = None,
+        detectors: str | None = None,
         low_frequency_cutoff: float = 2.0,
         high_frequency_cutoff: float | None = None,
         gengli_detector: str = "L1",
@@ -52,10 +52,10 @@ class GengliGlitchSimulator(GlitchSimulator):
         """Initialize the gengli glitch simulator.
 
         Args:
-            population_file: Path to the population file.
-            population_file_type: Type of the population file.
             psd_file: Path to file containing Power Spectral Density array with shape (N, 2),
                 where the first column is frequency (Hz) and the second is PSD values.
+            population_file: Path to the population file.
+            population_file_type: Type of the population file.
             start_time: Start time of the first glitch segment in GPS seconds. Default is 0.
             duration: Duration of each glitch segment in seconds. Default is 1024.
             sampling_frequency: Sampling frequency of the glitches in Hz. Default is 4096.
@@ -68,6 +68,9 @@ class GengliGlitchSimulator(GlitchSimulator):
             gengli_detector: Detector name for gengli glitch generator. Default is "L1".
             **kwargs: Additional arguments absorbed by subclasses and mixins.
         """
+        if len(detectors) > 1:
+            raise ValueError(f"Multiple detectors were provided ({detectors}). Only one expected.")
+
         super().__init__(
             population_file=population_file,
             population_file_type=population_file_type,
@@ -205,11 +208,11 @@ class GengliGlitchSimulator(GlitchSimulator):
             # Interpolate the PSD
             psd_instance = self._initialize_psd(self._psd_array, glitch_duration)
 
-            glitch_data = np.zeros((len(self.detectors), int(glitch_duration * self.sampling_frequency.value)))
-            for i, _det in enumerate(self.detectors):
+            # Create container for SINGLE detector
+            glitch_data = np.zeros((1, int(glitch_duration * self.sampling_frequency.value)))
 
-                # Color the glitch
-                glitch_data[i, :] = self._color_glitch(glitch_instance, psd_instance, glitch_start_time)
+            # Color the glitch
+            glitch_data[0, :] = self._color_glitch(glitch_instance, psd_instance, glitch_start_time)
 
             strain = TimeSeries(
                 data=glitch_data, start_time=glitch_start_time, sampling_frequency=self.sampling_frequency.value
