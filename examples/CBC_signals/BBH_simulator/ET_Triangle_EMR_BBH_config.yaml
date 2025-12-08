@@ -9,7 +9,7 @@ globals:
   metadata-directory: "metadata"
 
 simulators:
-  signals:
+  signal:
     class: CBCSignalSimulator
     arguments:
       population_file: 18321_1yrCatalogBBH.h5

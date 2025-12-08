@@ -4,7 +4,7 @@ globals:
     duration: 4096
     total-duration: "1 day"
     start-time: 1577491218
-  working-directory: "./ET_Triangle_EMR_BNS"
+  working-directory: "./ET_2L_Misaligned_BBH"
   output-directory: "data"
   metadata-directory: "metadata"
 
@@ -12,17 +12,16 @@ simulators:
   signal:
     class: CBCSignalSimulator
     arguments:
-      population_file: 18321_1yrCatalogBNS.h5
-      waveform_model: IMRPhenomPv2_NRTidalv2,
+      population_file: 18321_1yrCatalogBBH.h5
+      waveform_model: IMRPhenomXPHM,
       waveform_arguments:
           earth_rotation: true
           time_dependent_timedelay: true
       minimum_frequency: 2
       detectors:
-        - E1_Triangle_EMR
-        - E2_Triangle_EMR
-        - E3_Triangle_EMR
+        - E1_2L_Misaligned_Sardinia
+        - E2_2L_Misaligned_EMR
     output:
-      file_name: "E-{{ detectors }}_STRAIN_BNS-{{ start_time }}-{{ duration }}.gwf"
+      file_name: "E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration }}.gwf"
       arguments:
         channel: "{{ detectors }}:STRAIN"

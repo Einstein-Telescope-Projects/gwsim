@@ -4,7 +4,7 @@ globals:
     duration: 4096
     total-duration: "1 day"
     start-time: 1577491218
-  working-directory: "./ET_Triangle_EMR_BNS"
+  working-directory: "./ET_2L_Aligned_BNS"
   output-directory: "data"
   metadata-directory: "metadata"
 
@@ -19,9 +19,8 @@ simulators:
           time_dependent_timedelay: true
       minimum_frequency: 2
       detectors:
-        - E1_Triangle_EMR
-        - E2_Triangle_EMR
-        - E3_Triangle_EMR
+        - E1_2L_Aligned_Sardinia
+        - E2_2L_Aligned_EMR
     output:
       file_name: "E-{{ detectors }}_STRAIN_BNS-{{ start_time }}-{{ duration }}.gwf"
       arguments:

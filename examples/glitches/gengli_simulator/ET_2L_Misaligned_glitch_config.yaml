@@ -1,0 +1,26 @@
+globals:
+  simulator-arguments:
+    sampling-frequency: 4096
+    duration: 4096
+    total-duration: "1 day"
+    start-time: 1577491218
+  working-directory: "./ET_2L_Misaligned_glitch"
+  output-directory: "data"
+  metadata-directory: "metadata"
+
+simulators:
+  glitch:
+    class: GengliGlitchSimulator
+    arguments:
+      population_file:
+          - blip_glitch_population_1.hdf5
+          - blip_glitch_population_2.hdf5
+      psd_file: ET_15_full_cryo_psd.txt
+      detectors:
+          - E1_2L_Misaligned_Sardinia
+          - E2_2L_Misaligned_EMR
+      seed: 42
+    output:
+      file_name: "E-{{ detectors }}_STRAIN_GLITCH-{{ start_time }}-{{ duration }}.gwf"
+      arguments:
+        channel: "{{ detectors }}:STRAIN"

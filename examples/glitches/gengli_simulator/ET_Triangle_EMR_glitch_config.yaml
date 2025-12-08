@@ -1,0 +1,28 @@
+globals:
+  simulator-arguments:
+    sampling-frequency: 4096
+    duration: 4096
+    total-duration: "1 day"
+    start-time: 1577491218
+  working-directory: "./ET_Triangle_EMR_glitch"
+  output-directory: "data"
+  metadata-directory: "metadata"
+
+simulators:
+  glitch:
+    class: GengliGlitchSimulator
+    arguments:
+      population_file:
+          - blip_glitch_population_1.hdf5
+          - blip_glitch_population_2.hdf5
+          - blip_glitch_population_3.hdf5
+      psd_file: ET_10_full_cryo_psd.txt
+      detectors:
+          - E1_Triangle_EMR
+          - E2_Triangle_EMR
+          - E3_Triangle_EMR
+      seed: 42
+    output:
+      file_name: "E-{{ detectors }}_STRAIN_GLITCH-{{ start_time }}-{{ duration }}.gwf"
+      arguments:
+        channel: "{{ detectors }}:STRAIN"
