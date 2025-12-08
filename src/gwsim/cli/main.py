@@ -92,7 +92,7 @@ def register_commands() -> None:
 
     app.command("simulate")(simulate_command)
     app.command("merge")(merge_command)
-    app.command("default-config")(default_config_command)
+    app.command("config")(default_config_command)
     app.command("validate")(validate_command)
 
     app.add_typer(repository_app, name="repository", help="Manage Zenodo repositories")
