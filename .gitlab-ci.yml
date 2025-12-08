@@ -122,44 +122,6 @@ coverage-report:
     - if: '$CI_COMMIT_TAG'
   allow_failure: true
 
-publish_to_pypi:
-  stage: publish
-  image: python:3.12
-  before_script:
-    - python -m pip install --upgrade pip
-    - python -m pip install build twine
-  script:
-    # 1. Build the package with hatch
-    - python -m build
-    # 2. Publish to PyPI using twine with token authentication
-    - python -m twine upload dist/* -u __token__ -p $PYPI_PASSWORD
-  rules:
-    # Only run on semantic version tags (v1.2.3 or 1.2.3)
-    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 day
-
-publish_to_testpypi:
-  stage: publish
-  image: python:3.12
-  before_script:
-    - python -m pip install --upgrade pip
-    - python -m pip install build twine
-  script:
-    # 1. Build the package with hatch
-    - python -m build
-    # 2. Publish to TestPyPI using twine with token authentication
-    - python -m twine upload dist/* -r testpypi -u __token__ -p $TESTPYPI_PASSWORD
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /-rc|-a|-b|-alpha|-beta/'   # pre-releases
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 day
-
-
 # Base for release jobs (optional DRY)
 .base_release: &base_release
   rules:
@@ -191,3 +153,44 @@ create-release-page:
     description: release_notes.md  # Inserts the generated notes
     tag_name: ${CI_COMMIT_TAG}
     ref: ${CI_COMMIT_TAG}  # Simpler: points to the tag
+
+publish_to_pypi:
+  stage: publish
+  image: python:3.12
+  before_script:
+    - python -m pip install --upgrade pip
+    - python -m pip install build twine
+  script:
+    # 1. Build the package with hatch
+    - python -m build
+    # 2. Publish to PyPI using twine with token authentication
+    - python -m twine upload dist/* -u __token__ -p $PYPI_PASSWORD
+  rules:
+    # Only run on semantic version tags (v1.2.3 or 1.2.3)
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
+  needs:
+    - job: create-release-page
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 day
+
+publish_to_testpypi:
+  stage: publish
+  image: python:3.12
+  before_script:
+    - python -m pip install --upgrade pip
+    - python -m pip install build twine
+  script:
+    # 1. Build the package with hatch
+    - python -m build
+    # 2. Publish to TestPyPI using twine with token authentication
+    - python -m twine upload dist/* -r testpypi -u __token__ -p $TESTPYPI_PASSWORD
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /-rc|-a|-b|-alpha|-beta/'   # pre-releases
+  needs:
+    - job: create-release-page
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 day
