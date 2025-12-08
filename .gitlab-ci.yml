@@ -170,7 +170,7 @@ create-changelog:
   stage: release
   image: ghcr.io/orhun/git-cliff/git-cliff:latest  # Use git-cliff Docker image for changelog generation
   script:
-    - git cliff --latest > release_notes.md
+    - git-cliff --latest > release_notes.md
   artifacts:
     paths:
       - release_notes.md
