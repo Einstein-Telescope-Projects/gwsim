@@ -7,22 +7,29 @@ This guide will help you run your first gwsim simulation in just a few minutes.
 Run the following command in your working directory:
 
 ```bash
+# Copy quick-start configuration file to working directory
+gwsim config --get quick_start_config.yaml
+
+# Run simulation
 gwsim simulate quick_start_config.yaml
 ```
 
-The configuration file `quick_start_config.yaml` generates a single 1024-second GWF file containing simulated noise data, using the [ET_10_full_cryo_psd](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/src/gwsim/detector/noise_curves/ET_10_full_cryo_psd.txt?ref_type=heads) sensitivity curve from the [CoBa Science Study](https://iopscience.iop.org/article/10.1088/1475-7516/2023/07/068), sampled at 4096 Hz.
+The configuration file `quick_start_config.yaml` generates a single 1024-second GWF file containing simulated noise data, using the [ET_10_full_cryo_psd](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/src/gwsim/detector/noise_curves/ET_10_full_cryo_psd.txt?ref_type=heads) sensitivity curve from the [CoBA Science Study](https://iopscience.iop.org/article/10.1088/1475-7516/2023/07/068), sampled at 4096 Hz.
 
 You should see output like:
 ```
-CORRECT WITH ACTUAL OUTPUT!
 
-[INFO] Loading configuration from quick_start_config.yaml
-[INFO] Validating simulation plan...
-[INFO] Starting simulation: noise
-[INFO] Generating batch 0/1 for basic_noise
-[INFO] Simulation completed successfully
-[INFO] Output files: ./gwsim_output/data/
-[INFO] Metadata files: ./gwsim_output/metadata/
+[INFO] Config mode: quick_start_config.yaml
+[INFO] Configuration loaded and validated: 1 simulators
+[INFO] Simulation plan validation completed successfully
+[INFO] Simulation plan validation passed
+[INFO] Executing simulation plan: 1 batches
+[INFO] Simulation plan validation completed successfully
+[INFO] Executing 1 simulators
+Executing simulation plan:   0%|                                        | 0/1
+Executing simulation plan: 100%|████████████████████████████████████████| 1/1
+[INFO] All batches completed successfully. Checkpoint files cleaned up.
+[INFO] Simulation completed successfully. Output written to gwsim_output/data
 ```
 
 ## 2. Check the Output
@@ -30,14 +37,12 @@ CORRECT WITH ACTUAL OUTPUT!
 Your working directory will contain:
 
 ```
-CORRECT WITH ACTUAL OUTPUT!
-
 gwsim_output/
 ├── data/
-│   └── E1-NOISE_STRAIN-1577491218-1024.gwf
+│   └── E-E1-NOISE_STRAIN-1577491218-1024.gwf
 └── metadata/
-    ├── XX
-    └── YY
+    ├── index.yaml
+    └── noise-0.metadata.yaml
 ```
 
 ### Data File

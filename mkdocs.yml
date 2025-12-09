@@ -72,7 +72,7 @@ nav:
     - Generating Data: user-guide/generating-data.md
     - Reading Data: user-guide/reading-data.md
     - Configuration Files: user-guide/configuration.md
-    - Metadata files: user-guide/metadata.md
+    - Metadata Files: user-guide/metadata.md
     - Examples: user-guide/examples.md
     - Publishing Data to Zenodo: user-guide/repository.md
   - API Reference:
@@ -88,6 +88,7 @@ nav:
     - gwsim.glitch:
       - Overview: reference/gwsim/glitch/index.md
       - base: reference/gwsim/glitch/base.md
+      - gengli: reference/gwsim/glitch/gengli_glitch.md
     - gwsim.mixin:
       - Overview: reference/gwsim/mixin/index.md
       - detector: reference/gwsim/mixin/detector.md
@@ -97,10 +98,14 @@ nav:
     - gwsim.noise:
       - Overview: reference/gwsim/noise/index.md
       - base: reference/gwsim/noise/base.md
+      - white: reference/gwsim/noise/white_noise.md
+      - colored: reference/gwsim/noise/colored_noise.md
+      - correlated: reference/gwsim/noise/correlated_noise.md
     - gwsim.population: reference/gwsim/population/index.md
     - gwsim.signal:
       - Overview: reference/gwsim/signal/index.md
       - base: reference/gwsim/signal/base.md
+      - cbc: reference/gwsim/signal/cbc.md
     - gwsim.simulator:
       - Overview: reference/gwsim/simulator/index.md
       - base: reference/gwsim/simulator/base.md

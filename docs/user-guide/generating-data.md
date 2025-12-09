@@ -10,7 +10,7 @@ For a quick guide on reading and working with the output GWF files, see the [Rea
 ## Generating Detector Noise
 
 Detector noise can be generated using configuration files in the [`examples/noise`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples/noise?ref_type=heads) directory.
-An example configuration for producing one day of ET noise data is provided in [`ET_Triangle_EMR_noise_config.yaml`]():
+An example configuration for producing one day of ET noise data is provided in [`ET_Triangle_EMR_noise_config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/noise/uncorrelated_gaussian_noise_simulator/ET_Triangle_EMR_noise_config.yaml?ref_type=heads):
 
 ```yaml
 --8<-- "examples/noise/uncorrelated_gaussian_noise_simulator/ET_Triangle_EMR_noise_config.yaml"
@@ -19,12 +19,16 @@ An example configuration for producing one day of ET noise data is provided in [
 This configuration generates one day of noise data per detector (E1, E2, E3).
 Each frame file covers 4096 seconds, resulting in 22 frame files, starting on 1 January 2030.
 
-Noise is simulated using the [ET_10_full_cryo_psd](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/src/gwsim/detector/noise_curves/ET_10_full_cryo_psd.txt?ref_type=heads) sensitivity curve from the [CoBa Science Study](https://iopscience.iop.org/article/10.1088/1475-7516/2023/07/068) and publicly available.
+Noise is simulated using the [ET_10_full_cryo_psd](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/src/gwsim/detector/noise_curves/ET_10_full_cryo_psd.txt?ref_type=heads) sensitivity curve from the [CoBA Science Study](https://iopscience.iop.org/article/10.1088/1475-7516/2023/07/068) and publicly available.
 A low-frequency cutoff of 2 Hz is used.
 
 To generate the ET noise data, run:
 
 ```bash
+# Copy configuration file to your working directory
+gwsim config --get ET_Triangle_EMR_noise_config.yaml
+
+# Run simulation
 gwsim simulate ET_Triangle_EMR_noise_config.yaml
 ```
 
@@ -37,30 +41,39 @@ Each GWF file is approximately 125 MB. For three detectors with 22 files each:
 
 ## Generating CBC Signals
 
-Compact Binary Coalescence (CBC) signals can be generated using configuration files in the [`examples/CBC_signals`]() directory.
+Compact Binary Coalescence (CBC) signals can be generated using configuration files in the [`examples/CBC_signals`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples/CBC_signals?ref_type=heads) directory.
 
 ### Binary Black Hole (BBH) Signals
 
-An example configuration for producing one day of ET data containing BBH signals from a realistic population is provided in [`ET_Triangle_EMR_BBH_config.yaml`]():
+An example configuration for producing one day of ET data containing BBH signals from a realistic population is provided in [`ET_Triangle_EMR_BBH_config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/CBC_signals/BBH_simulator/ET_Triangle_EMR_BBH_config.yaml?ref_type=heads):
 
 ```yaml
 --8<-- "examples/CBC_signals/BBH_simulator/ET_Triangle_EMR_BBH_config.yaml"
 ```
 
-As with the noise example, this configuration file one day of data per detectors, each lasting 4096 seconds (for a total of 22 frame files), starting on 1 January 2030.
+As with the noise example, this configuration file produces one day of data per detectors, with each frame file lasting 4096 seconds (for a total of 22 frame files), starting on 1 January 2030.
 
-BBH signals are injected in zero noise from the [18321_1yrCatalogBBH.h5](https://apps.et-gw.eu/tds/?content=3&r=18321) population file used in the CoBa study and publicly available.
+BBH signals are injected into zero noise from the [18321_1yrCatalogBBH.h5](https://apps.et-gw.eu/tds/?content=3&r=18321) population file used in the CoBA study and publicly available.
 The [IMRPhenomXPHM](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.103.104056) waveform model is used, with a low-frequency cutoff of 2 Hz and including Earth rotation effects.
 
 To generate the ET data with BBH signals, run:
 
 ```bash
+# Copy configuration file to your working directory
+gwsim config --get ET_Triangle_EMR_BBH_config.yaml
+
+# Run simulation
 gwsim simulate ET_Triangle_EMR_BBH_config.yaml
 ```
 
+!!! note
+    The configuration file automatically downloads the BBH population file from a [Zenodo repository]().
+    To speed up data generation, you may instead download the population file manually and place it in your working directory (i.e., the directory from which you launch the command).
+
+
 ### Binary Neutron Star (BNS) Signals
 
-An example configuration for producing one day of ET data containing BNS signals from a realistic population is provided in [`ET_Triangle_EMR_BNS_config.yaml`]().
+An example configuration for producing one day of ET data containing BNS signals from a realistic population is provided in [`ET_Triangle_EMR_BNS_config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/CBC_signals/BNS_simulator/ET_Triangle_EMR_BNS_config.yaml?ref_type=heads).
 It is equivalent to the BBH example configuration, except for:
 
 ```yaml
@@ -68,32 +81,63 @@ population_file: 18321_1yrCatalogBNS.h5
 waveform_model: IMRPhenomPv2_NRTidalv2
 ```
 
-BNS signals are injected in zero noise from the [18321_1yrCatalogBNS.h5](https://apps.et-gw.eu/tds/?content=3&r=18321) population file used in the CoBa study and publicly available.
+BNS signals are injected into zero noise from the [18321_1yrCatalogBNS.h5](https://apps.et-gw.eu/tds/?content=3&r=18321) population file used in the CoBA study and publicly available.
 The [IMRPhenomPv2_NRTidalv2](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.100.044003) waveform model is used, with a low-frequency cutoff of 2 Hz and including Earth rotation effects.
 
 To generate the ET data with BNS signals, run:
 
 ```bash
+# Copy configuration file to your working directory
+gwsim config --get ET_Triangle_EMR_BNS_config.yaml
+
+# Run simulation
 gwsim simulate ET_Triangle_EMR_BNS_config.yaml
 ```
 
+!!! note
+    The configuration file automatically downloads the BNS population file from a [Zenodo repository]().
+    To speed up data generation, you may instead download the population file manually and place it in your working directory (i.e., the directory from which you launch the command).
+
+
 ## Generating Transient Noise Artifacts (Glitches)
 
-Glitches can be generated using configuration files in the [`examples/glitches`]() directory.
-Glitch generation uses the [`gengli`](https://pypi.org/project/gengli/) package and currently supports only *blip* glitches.
+Glitches can be generated using configuration files in the [`examples/glitches`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples/glitches/gengli_simulator?ref_type=heads) directory.
+Glitch generation uses the [gengli](https://pypi.org/project/gengli/) package and currently supports only *blip* glitches.
 
-To generate the ET data with glitches, run:
+An example configuration for producing one day of ET data for the E1 detector containing blip glitches from a realistic population is provided in [`ET_E1_Triangle_EMR_glitch_config.yaml`]():
+
+```yaml
+--8<-- "examples/glitches/gengli_simulator/ET_E1_Triangle_EMR_glitch_config.yaml"
+```
+
+This configuration file generates one day of data for the E1 detector, divided into 4096-second frame files (for a total of 22 frames), starting on 1 January 2030.
+
+Blip glitches are injected into zero noise from the [blip_glitch_population_1.h5]() population file, which was generated with gengli using the [following script]().
+These glitches are modeled on LIGO blip glitches observed during the O3 observing run and recolored to match the ET sensitivity.
+
+To generate the ET data for detector E1 with glitches, run:
 
 ```bash
-COMPLETE WITH ACTUAL CONFIG
+# Copy configuration file to your working directory
+gwsim config --get ET_E1_Triangle_EMR_glitch_config.yaml
 
-gwsim simulate CONFIG.yaml
+# Run simulation
+gwsim simulate ET_E1_Triangle_EMR_glitch_config.yaml
 ```
+
+!!! note
+    The configuration file automatically downloads the glitch population file from a [Zenodo repository]().
+    To speed up data generation, you may instead download the population file manually and place it in your working directory (i.e., the directory from which you launch the command).
+
+!!! note
+    The [`GengliGlitchSimulator`]() currently supports only a single detector at a time.
+    To generate glitch-containing data for detectors E2 and E3, rerun the command above using the [`ET_E2_Triangle_EMR_glitch_config.yaml`]() and [`ET_E3_Triangle_EMR_glitch_config.yaml`]() configuration files, respectively.
+    Note that a different glitch population is used for each detector.
 
 
 ## Using Different Detector Configurations
 
-gwsim includes several pre-configured Einstein Telescope detector geometries, available in [`gwsim/detector/detectors`]():
+gwsim includes several pre-configured Einstein Telescope detector geometries, available in [`gwsim/detector/detectors`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/src/gwsim/detector/detectors?ref_type=heads):
 
 Triangular Configuration (Meuse-Rhine Euregion)
 
@@ -134,8 +178,8 @@ detectors:
 
 ## Using Different Sensitivity Curves
 
-Multiple Einstein Telescope sensitivity curves (PSD files) are available in [`gwsim/detector/noise_curves/`]().
-These correspond to those used in the CoBa study.
+Multiple Einstein Telescope sensitivity curves (PSD files) are available in [`gwsim/detector/noise_curves/`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/src/gwsim/detector/noise_curves?ref_type=heads).
+These correspond to those used in the CoBA study.
 
 To use a specific sensitivity curve:
 
@@ -220,7 +264,7 @@ simulators:
 gwsim uses a windowing approach to generate long-duration datasets.
 If the input CSD varies rapidly with frequency, this windowing can introduce artifacts in the resulting frame files.
 
-A diagnostic tool is provided to check whether your CSD file is susceptible to such issues; it is available at [`ADD_PATH_TO_TEST`].
+A diagnostic tool to check whether your CSD file is susceptible to such issues will be provided soon.
 
 ## Resume Interrupted Simulations
 
