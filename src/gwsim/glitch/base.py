@@ -15,7 +15,7 @@ from gwsim.simulator.base import Simulator
 
 
 class GlitchSimulator(PopulationReaderMixin, TimeSeriesMixin, RandomnessMixin, DetectorMixin, Simulator):
-    """Base class for glitch simulators."""
+    """Base class for glitch simulators"""
 
     def __init__(
         self,
