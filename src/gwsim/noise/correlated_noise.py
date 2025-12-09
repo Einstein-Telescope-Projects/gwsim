@@ -7,7 +7,6 @@ import logging
 from pathlib import Path
 
 import numpy as np
-from gwpy.timeseries import TimeSeries
 from scipy.interpolate import interp1d
 from scipy.linalg import cholesky
 from scipy.sparse import block_diag, coo_matrix
@@ -20,7 +19,7 @@ logger = logging.getLogger("gwsim")
 
 
 class CorrelatedNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-instance-attributes
-    """Correlated noise simulator for multiple gravitational wave detectors.
+    """Correlated noise simulator for multiple gravitational wave detectors
 
     This class generates noise time series with specified power spectral density (PSD)
     and cross-spectral density (CSD) for multiple detectors. The correlations between
