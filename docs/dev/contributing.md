@@ -125,11 +125,11 @@ Clearly describe the motivation and scope of your change, especially how it impa
 
 ✅ **Good commits:**
 ```
-feat(noise): implement colored noise with PSD shaping
-fix(cli): resolve frame file path resolution on Windows
-docs: clarify metadata JSON schema in README
-test(validate): add edge case tests for boundary conditions
-refactor(simulator): simplify noise factory registration
+feat(noise): Implement colored noise with PSD shaping
+fix(cli): Resolve frame file path resolution on Windows
+docs: Clarify metadata JSON schema in README
+test(validate): Add edge case tests for boundary conditions
+refactor(simulator): Simplify noise factory registration
 ```
 
 ❌ **Bad commits:**
