@@ -30,22 +30,26 @@ def validate_command(  # pylint: disable=too-many-branches,too-many-statements,t
     """Validate output files against metadata hashes and other checks.
 
     This command verifies the integrity of generated simulation files by:
+
     1. Loading metadata files and extracting expected file hashes
     2. Recomputing hashes for actual output files
     3. Comparing hashes and reporting mismatches
     4. Future: Add sampling rate and continuity checks
 
     The command automatically detects whether provided paths are:
+
     - Output files (.gwf, etc.) - will find corresponding metadata
     - Metadata files (.metadata.yaml) - will validate their output files
     - Directories - will scan for both types of files
 
     Examples:
         Validate specific output files (finds metadata automatically):
-        gwsim validate H1-NOISE-123.gwf L1-SIGNAL-456.gwf
+
+        - `gwsim validate H1-NOISE-123.gwf L1-SIGNAL-456.gwf`
 
         Validate specific metadata files:
-        gwsim validate --metadata signal-0.metadata.yaml noise-0.metadata.yaml
+
+        - `gwsim validate --metadata signal-0.metadata.yaml noise-0.metadata.yaml`
 
         Validate all files in a directory:
         gwsim validate /path/to/output/

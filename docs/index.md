@@ -35,23 +35,18 @@ It focuses on **usability**, **robustness**, and **extensibility**, to become a 
 
 ## Architecture
 
-The gwsim package uses a **mixin-based composition** pattern for maximum flexibility:
+gwsim uses a **mixin-based architecture**:
 
-- **Base Simulator**: Core interface with state management and iteration capabilities.
-- **Mixins**: Modular functionality (RandomnessMixin, DetectorMixin, TimeSeriesMixin, etc.).
-- **Specialized Simulators**: Combine base + mixins for specific use cases (NoiseSimulator, SignalSimulator).
+- **Base Simulators** providing core interfaces and state handling
+- Modular **mixins** for detectors, randomness, and time series
+- **Specialized simulators** for noise and signal generation
 
-This design allows:
+This enables flexible composition, code reuse, and consistent interfaces.
 
-- Easy extension with new simulator types.
-- Consistent interfaces across all simulators.
-- Code reuse and maintainability.
-
-## Community Standard
+## Community Focus
 
 gwsim is designed to become a standard tool for MDC generation in the gravitational-wave community by providing:
 
-- **Production-Ready**: Thread-safety, comprehensive logging, graceful error handling.
 - **Integration-Friendly**: Uses thin wrappers around existing tools instead of re-implementing functionality.
 - **Documentation**: Includes extensive examples and API documentation.
 - **Testing**: A comprehensive test suite with high coverage.

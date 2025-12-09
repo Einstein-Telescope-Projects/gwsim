@@ -26,6 +26,8 @@ theme:
     - navigation.top
     - search.highlight
     - content.code.copy
+extra_css:
+  - style/api.css
 
 plugins:
   - search
@@ -35,14 +37,27 @@ plugins:
         python:
           paths: [src]
           options:
+            show_docstring_attributes: true
+            show_docstring_description: true
+            show_attributes: true
+            show_members: true
+            members_order: source
+            group_by_category: true
+            separate_signature: true
             docstring_style: google
             show_source: true
             show_root_heading: true
-            show_root_full_path: true
+            show_root_full_path: false
             show_submodules: false
             show_bases: true
             show_category_heading: true
-            members_order: source
+            show_signature: true
+            merge_init_into_class: true
+            show_signature_annotations: true
+            show_symbol_type_heading: true
+            signature_crossrefs: false
+            show_object_full_path: false
+            heading_level: 2
             filters:
               - '!^_'
   - gen-files:
@@ -57,7 +72,7 @@ nav:
     - Generating Data: user-guide/generating-data.md
     - Reading Data: user-guide/reading-data.md
     - Configuration Files: user-guide/configuration.md
-    - Metadata files: user-guide/metadata.md
+    - Metadata Files: user-guide/metadata.md
     - Examples: user-guide/examples.md
     - Publishing Data to Zenodo: user-guide/repository.md
   - API Reference:
@@ -73,6 +88,7 @@ nav:
     - gwsim.glitch:
       - Overview: reference/gwsim/glitch/index.md
       - base: reference/gwsim/glitch/base.md
+      - gengli: reference/gwsim/glitch/gengli_glitch.md
     - gwsim.mixin:
       - Overview: reference/gwsim/mixin/index.md
       - detector: reference/gwsim/mixin/detector.md
@@ -82,10 +98,14 @@ nav:
     - gwsim.noise:
       - Overview: reference/gwsim/noise/index.md
       - base: reference/gwsim/noise/base.md
+      - white: reference/gwsim/noise/white_noise.md
+      - colored: reference/gwsim/noise/colored_noise.md
+      - correlated: reference/gwsim/noise/correlated_noise.md
     - gwsim.population: reference/gwsim/population/index.md
     - gwsim.signal:
       - Overview: reference/gwsim/signal/index.md
       - base: reference/gwsim/signal/base.md
+      - cbc: reference/gwsim/signal/cbc.md
     - gwsim.simulator:
       - Overview: reference/gwsim/simulator/index.md
       - base: reference/gwsim/simulator/base.md

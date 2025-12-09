@@ -186,15 +186,20 @@ def simulate_command(
 
     1. **Config Mode**: Provide a single YAML configuration file to create a simulation plan.
        Executes all simulators with state tracking for reproducibility.
-       Example: `gwsim simulate config.yaml`
+       Example:
+
+         `gwsim simulate config.yaml`
 
     2. **Reproduction Mode**: Provide one or more metadata files to reproduce specific batches.
        Each metadata file contains the exact configuration and pre-batch state needed for
        exact reproducibility. Users can distribute individual metadata files, and anyone
        can reproduce those specific batches independently.
-       Example: `gwsim simulate signal-0.metadata.yaml signal-1.metadata.yaml`
+       Example:
 
-    Path Overrides:
+         `gwsim simulate signal-0.metadata.yaml signal-1.metadata.yaml`
+
+    **Path Overrides:**
+
     - Use `--output-dir` to specify where output files should be saved
     - Use `--metadata-dir` to specify where metadata should be saved (config mode only)
     - These override paths from the configuration or metadata files

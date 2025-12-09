@@ -145,9 +145,55 @@ def default_config_command(
     overwrite: Annotated[bool, typer.Option("--overwrite", help="Overwrite existing files")] = False,
 ) -> None:
     """
-    Manage default configuration files
+    Manage default and example configuration files.
 
-    Exactly one of --init, --list, or --get must be provided.
+    This command provides utilities to list available example configuration files,
+    generate a default configuration, or copy one or more example configurations
+    into a target directory.
+
+    Exactly **one** of ``--init``, ``--list``, or ``--get`` must be provided.
+
+    **Options:**
+
+    - `--init`
+          Generate a default configuration file in the output directory.
+
+    - `--list`
+          Print the names of all available example configuration files and exit.
+
+    - `--get <NAME> [<NAME> ...]`
+          Copy one or more example configuration files into the output directory.
+            The names must match the values shown by ``--list``.
+
+    - `--output <PATH>`
+          Output directory where configuration files will be written.
+            Defaults to the current directory. The directory is created if it
+            does not already exist.
+
+    - `--overwrite`
+          Overwrite existing files in the output directory. If not set,
+            the command fails when a target file already exists.
+
+    Examples:
+        List available example configuration files:
+
+            gwsim config --list
+
+        Generate a default configuration file in the current directory:
+
+            gwsim config --init
+
+        Generate a default configuration file in a specific directory:
+
+            gwsim config --init --output ./config
+
+        Copy specific example configuration files:
+
+            gwsim config --get basic.yaml
+
+        Copy example configuration files and overwrite existing ones:
+
+            gwsim config --get basic.yaml --overwrite
 
     Args:
         output: Path to the output directory for --init or --get operations.
