@@ -79,8 +79,8 @@ class TestPopulationReaderMixin:
             simulator = MockPopulationSimulator(file_path, population_sort_by="tc", start_time=0, duration=100)
             metadata = simulator.metadata
             assert metadata["population_reader"]["arguments"]["population_file"] == str(file_path)
-            assert metadata["population_reader"]["simulation"] == "test"
-            assert metadata["population_reader"]["version"] == 1
+            assert metadata["population_reader"]["population_metadata"]["simulation"] == "test"
+            assert metadata["population_reader"]["population_metadata"]["version"] == 1
 
     def test_url_population_file(self, mock_h5py_data):
         """Test initialization with a URL population file."""
