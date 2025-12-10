@@ -10,6 +10,7 @@ import numpy as np
 from astropy.units.quantity import Quantity
 from gwpy.timeseries import TimeSeries as GWPyTimeSeries
 
+from gwsim.cli.utils.template import expand_template_variables
 from gwsim.data.time_series.time_series import TimeSeries
 from gwsim.data.time_series.time_series_list import TimeSeriesList
 from gwsim.simulator.state import StateAttribute
@@ -253,7 +254,6 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
         self,
         data: TimeSeries,
         file_name: str | Path | np.ndarray[Any, np.dtype[np.object_]],
-        channel_names: str | None = None,
         **kwargs,
     ) -> None:
         """Save time series data to a file.
@@ -263,8 +263,20 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
             file_name: Path to the output file.
             **kwargs: Additional arguments for the saving function.
         """
+        if "channel" in kwargs:
+            channel = kwargs.pop("channel")
+            channel = expand_template_variables(value=channel, simulator_instance=self)
+            if isinstance(channel, str):
+                channel = [channel] * data.num_of_channels
+            elif isinstance(channel, list):
+                if len(channel) != data.num_of_channels:
+                    raise ValueError("Length of channel list must match number of channels in data.")
+            else:
+                raise ValueError("channel must be a string or list of strings.")
+        else:
+            channel = [None] * data.num_of_channels
         if data.num_of_channels == 1 and isinstance(file_name, (str, Path)):
-            self._save_gwf_data(data=data[0], file_name=file_name, **kwargs)
+            self._save_gwf_data(data=data[0], file_name=file_name, channel=channel[0], **kwargs)
         elif (
             data.num_of_channels > 1
             and isinstance(file_name, np.ndarray)
@@ -273,7 +285,8 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
         ):
             for i in range(data.num_of_channels):
                 single_file_name = cast(Path, file_name[i])
-                self._save_gwf_data(data=data[i], file_name=single_file_name, **kwargs)
+                single_channel = channel[i]
+                self._save_gwf_data(data=data[i], file_name=single_file_name, channel=single_channel, **kwargs)
         else:
             raise ValueError(
                 "file_name must be a single path for single-channel data or an array of paths for multi-channel data."
