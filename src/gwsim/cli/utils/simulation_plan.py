@@ -9,9 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from gwsim.cli.utils.config import Config, GlobalsConfig, SimulatorConfig
+from gwsim.cli.utils.metadata import load_metadata_with_external_state
 from gwsim.utils.log import get_dependency_versions
 
 logger = logging.getLogger("gwsim")
@@ -146,11 +145,12 @@ class SimulationPlan:
         return [b for b in self.batches if b.simulator_name == simulator_name]
 
 
-def parse_batch_metadata(metadata_file: Path) -> dict[str, Any]:
+def parse_batch_metadata(metadata_file: Path, metadata_dir: Path | None = None) -> dict[str, Any]:
     """Parse a batch metadata file.
 
     Args:
         metadata_file: Path to BATCH-*.metadata.yaml file
+        metadata_dir: Directory containing external state files. If None, uses parent of metadata_file
 
     Returns:
         Parsed metadata dictionary
@@ -159,17 +159,10 @@ def parse_batch_metadata(metadata_file: Path) -> dict[str, Any]:
         FileNotFoundError: If file doesn't exist
         ValueError: If YAML is invalid
     """
-    if not metadata_file.exists():
-        raise FileNotFoundError(f"Metadata file not found: {metadata_file}")
-
-    try:
-        with metadata_file.open(encoding="utf-8") as f:
-            metadata = yaml.safe_load(f)
-    except yaml.YAMLError as e:
-        raise ValueError(f"Failed to parse metadata YAML: {e}") from e
+    metadata = load_metadata_with_external_state(metadata_file, metadata_dir)
 
     if not isinstance(metadata, dict):
-        raise ValueError(f"Metadata must be a dictionary, got {type(metadata)}")
+        raise ValueError("Metadata must be a dictionary")
 
     return metadata
 

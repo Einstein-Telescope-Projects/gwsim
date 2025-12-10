@@ -47,6 +47,7 @@ mathjax
 modindex
 mollweide
 MSRC
+nbytes
 ndarray
 NSBH
 Nyquist
