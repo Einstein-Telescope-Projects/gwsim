@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 
 
-def publish(  # pylint: disable=import-outside-toplevel
+def publish_command(  # pylint: disable=import-outside-toplevel
     deposition_id: Annotated[str, typer.Argument(help="Deposition ID")],
     sandbox: Annotated[bool, typer.Option("--sandbox", help="Use sandbox environment")] = False,
     token: Annotated[str | None, typer.Option("--token", help="Zenodo access token")] = None,

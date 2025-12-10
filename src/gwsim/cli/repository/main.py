@@ -23,6 +23,7 @@ def register_commands() -> None:
         list_depositions_command,
     )
     from gwsim.cli.repository.metadata.main import metadata_app  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.repository.publish import publish_command  # pylint: disable=import-outside-toplevel
     from gwsim.cli.repository.upload import upload_command  # pylint: disable=import-outside-toplevel
     from gwsim.cli.repository.verify import verify_command  # pylint: disable=import-outside-toplevel
 
@@ -32,6 +33,7 @@ def register_commands() -> None:
     repository_app.command("list")(list_depositions_command)
     repository_app.command("delete")(delete_command)
     repository_app.command("verify")(verify_command)
+    repository_app.command("publish")(publish_command)
     repository_app.add_typer(metadata_app, name="metadata", help="Manage Zenodo metadata")
 
 
