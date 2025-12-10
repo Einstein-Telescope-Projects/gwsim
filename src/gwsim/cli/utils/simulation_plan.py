@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from gwsim.cli.utils.config import Config, GlobalsConfig, SimulatorConfig
+from gwsim.cli.utils.config_resolution import resolve_max_samples
 from gwsim.cli.utils.metadata import load_metadata_with_external_state
 from gwsim.utils.log import get_dependency_versions
 
@@ -267,7 +268,7 @@ def create_plan_from_config(
         global_sim_args = {k.replace("-", "_"): v for k, v in config.globals.simulator_arguments.items()}
         local_sim_args = {k.replace("-", "_"): v for k, v in simulator_config.arguments.items()}
 
-        max_samples = local_sim_args.get("max_samples", global_sim_args.get("max_samples", 1))
+        max_samples = resolve_max_samples(simulator_args=local_sim_args, global_args=global_sim_args)
 
         for _ in range(max_samples):
             batch = SimulationBatch(
