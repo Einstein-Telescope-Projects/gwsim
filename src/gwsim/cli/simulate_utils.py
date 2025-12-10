@@ -18,6 +18,7 @@ from tqdm import tqdm
 from gwsim.cli.utils.checkpoint import CheckpointManager
 from gwsim.cli.utils.config import SimulatorConfig, resolve_class_path
 from gwsim.cli.utils.hash import compute_file_hash
+from gwsim.cli.utils.metadata import save_metadata_with_external_state
 from gwsim.cli.utils.simulation_plan import (
     SimulationBatch,
     SimulationPlan,
@@ -285,8 +286,7 @@ def save_batch_metadata(
     metadata_file = metadata_directory / metadata_file_name
     logger.debug("Saving batch metadata to %s with %d output files", metadata_file, len(output_files))
 
-    with metadata_file.open("w") as f:
-        yaml.safe_dump(metadata, f)
+    save_metadata_with_external_state(metadata=metadata, metadata_file=metadata_file)
 
     # Update the metadata index for quick lookup
     update_metadata_index(metadata_directory, output_files, metadata_file_name)
