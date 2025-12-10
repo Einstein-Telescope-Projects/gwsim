@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import yaml
 from tqdm import tqdm
 
@@ -24,9 +25,9 @@ from gwsim.cli.utils.simulation_plan import (
     SimulationPlan,
     create_batch_metadata,
 )
+from gwsim.cli.utils.template import expand_template_variables
 from gwsim.cli.utils.utils import handle_signal, import_attribute
 from gwsim.simulator.base import Simulator
-from gwsim.utils.io import get_file_name_from_template
 
 logger = logging.getLogger("gwsim")
 logger.setLevel(logging.DEBUG)
@@ -335,18 +336,14 @@ def process_batch(
     )
 
     # Resolve the output file names (may be multiple if template contains arrays)
-    output_files = get_file_name_from_template(
-        template=file_name_template,
-        instance=simulator,
-        output_directory=output_directory,
-    )
+    output_files = expand_template_variables(value=file_name_template, simulator_instance=simulator)
 
     # Normalize to list of Paths
-    if isinstance(output_files, Path):
-        output_files_list = [output_files]
+    if isinstance(output_files, str):
+        output_files_list = [output_directory / Path(output_files)]
     else:
         # If it's an array (multiple detectors), flatten it
-        output_files_list = [Path(str(f)) for f in output_files.flatten()]
+        output_files_list = [output_directory / Path(str(f)) for f in np.array(output_files).flatten()]
 
     logger.debug(
         "[PROCESS] Batch %s: Resolved filenames - %s", batch.batch_index, [str(f.name) for f in output_files_list]
