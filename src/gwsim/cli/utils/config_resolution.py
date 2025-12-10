@@ -21,8 +21,8 @@ def resolve_max_samples(
     without instantiating simulators.
 
     Priority order:
-    1. Explicit max_samples in simulator_args
-    2. Computed from total_duration / duration (simulator or global)
+    1. Computed from total_duration / duration (simulator or global)
+    2. Explicit max_samples in simulator_args
     3. Explicit max_samples in global_args
     4. Default to 1
 
@@ -40,11 +40,7 @@ def resolve_max_samples(
         ... )
         900  # 3600 seconds / 4 seconds
     """
-    # Check for explicit max_samples in simulator args (highest priority)
-    if "max_samples" in simulator_args:
-        return int(simulator_args["max_samples"])
-
-    # Try to compute from total_duration and duration
+    # Try to compute from total_duration and duration (highest priority)
     total_duration = simulator_args.get("total_duration") or global_args.get("total_duration")
     duration = simulator_args.get("duration") or global_args.get("duration", 4)
 
@@ -74,6 +70,10 @@ def resolve_max_samples(
             duration_seconds,
         )
         return computed_samples
+
+    # Fall back to explicit max_samples in simulator args
+    if "max_samples" in simulator_args:
+        return int(simulator_args["max_samples"])
 
     # Fall back to explicit max_samples in global args
     if "max_samples" in global_args:
