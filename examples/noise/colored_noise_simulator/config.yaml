@@ -3,19 +3,19 @@ globals:
     sampling-frequency: 4096
     duration: 1024
     start-time: 1577491218
-  working-directory: "./gwsim_output"
-  output-directory: "data"
-  metadata-directory: "metadata"
+    total-duration: "5 hours"
+  working-directory: .
+  output-directory: output
+  metadata-directory: metadata
 
 simulators:
   noise:
     class: ColoredNoiseSimulator
     arguments:
-      psd_file: /Users/isaacwong/projects/software/gwsim/src/gwsim/detector/noise_curves/ET_10_full_cryo_psd.txt
+      psd_file: ET_10_full_cryo_psd.txt
       seed: 42
       detectors: ["E1"]
-      max_samples: 1
     output:
       file_name: "{{ detectors }}-NOISE_STRAIN-{{ start_time }}-{{ duration }}.gwf"
       arguments:
-        channel: STRAIN
+        channel: "{{ detectors }}-STRAIN"

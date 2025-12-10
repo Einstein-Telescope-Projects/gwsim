@@ -10,6 +10,7 @@ import numpy as np
 from astropy.units.quantity import Quantity
 from gwpy.timeseries import TimeSeries as GWPyTimeSeries
 
+from gwsim.cli.utils.config_resolution import resolve_max_samples
 from gwsim.cli.utils.template import expand_template_variables
 from gwsim.data.time_series.time_series import TimeSeries
 from gwsim.data.time_series.time_series_list import TimeSeriesList
@@ -145,7 +146,9 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
             logger.info("Total duration set to %s seconds.", self.total_duration)
 
             # Set the max_samples based on total_duration and duration
-            self.max_samples = int(self.total_duration.value / self.duration.value)
+            self.max_samples = resolve_max_samples(
+                {"total_duration": self.total_duration.value, "duration": self.duration.value}, {}
+            )
             logger.info("Setting max_samples to %s based on total_duration and duration.", self.max_samples)
         else:
             self._total_duration = self.duration * self.max_samples
