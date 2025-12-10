@@ -82,8 +82,11 @@ def load_metadata_with_external_state(
         metadata_dir = Path(metadata_dir)
 
     # Load YAML metadata
-    with metadata_file.open("r", encoding=encoding) as f:
-        metadata = yaml.safe_load(f)
+    try:
+        with metadata_file.open("r", encoding=encoding) as f:
+            metadata = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ValueError(f"Failed to parse metadata YAML: {e}") from e
 
     # Reconstruct pre_batch_state from external files
     if "pre_batch_state" in metadata:
