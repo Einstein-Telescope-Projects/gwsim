@@ -2,25 +2,24 @@ globals:
   simulator-arguments:
     sampling-frequency: 4096
     duration: 4096
-    total-duration: "1 day"
+    total-duration: "2 hours"
     start-time: 1577491218
   working-directory: "./ET_2L_Aligned_BNS"
-  output-directory: "data"
-  metadata-directory: "metadata"
+  output-directory: output
+  metadata-directory: metadata
 
 simulators:
   signal:
     class: CBCSignalSimulator
     arguments:
-      population_file: 18321_1yrCatalogBNS.h5
-      waveform_model: IMRPhenomPv2_NRTidalv2,
+      population_file: https://sandbox.zenodo.org/records/413548/files/18321_1yrCatalogBNS.h5
+      waveform_model: IMRPhenomPv2_NRTidalv2
       waveform_arguments:
-          earth_rotation: true
-          time_dependent_timedelay: true
-      minimum_frequency: 2
+          reference_frequency: 50
+      minimum_frequency: 20
       detectors:
-        - E1_2L_Aligned_Sardinia
-        - E2_2L_Aligned_EMR
+        - E1_2L_aligned_sardinia
+        - E2_2L_aligned_emr
     output:
       file_name: "E-{{ detectors }}_STRAIN_BNS-{{ start_time }}-{{ duration }}.gwf"
       arguments:
