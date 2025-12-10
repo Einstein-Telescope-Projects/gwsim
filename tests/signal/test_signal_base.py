@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,8 +14,11 @@ from gwsim.signal.base import SignalSimulator
 
 
 @pytest.fixture
-def signal_simulator_with_mocks():
+def signal_simulator_with_mocks(tmp_path):
     """Create a SignalSimulator with all mixins properly mocked."""
+    dummy_file = tmp_path / "dummy_file.csv"
+    dummy_file.write_text("")  # Create empty CSV file
+
     with (
         patch("gwsim.mixin.population_reader.PopulationReaderMixin.__init__", return_value=None),
         patch("gwsim.mixin.waveform.WaveformMixin.__init__", return_value=None),
@@ -24,7 +28,7 @@ def signal_simulator_with_mocks():
     ):
 
         simulator = SignalSimulator(
-            population_file="dummy_file.csv",
+            population_file=str(dummy_file),
             waveform_model="IMRPhenomD",
             start_time=0,
             duration=100.0,
@@ -44,8 +48,13 @@ def signal_simulator_with_mocks():
         simulator.counter = 0
         simulator.signals_injected = []
         simulator.waveform_factory = MagicMock()
-        simulator.population_file = "dummy_file.csv"  # Required for metadata property
+        simulator.population_file = str(dummy_file)  # Required for metadata property
         simulator.population_file_type = "pycbc"  # Required for metadata property
+        simulator.population_parameter_name_mapper = {}  # Required for metadata
+        simulator.population_sort_by = None  # Required for metadata
+        simulator.population_cache_dir = Path.home() / ".gwsim" / "population"  # Required for metadata
+        simulator.population_download_timeout = 300  # Required for metadata
+        simulator._population_metadata = {}  # Required for metadata
 
         return simulator
 
@@ -53,11 +62,14 @@ def signal_simulator_with_mocks():
 class TestSignalSimulatorInitialization:
     """Test SignalSimulator initialization with mocks."""
 
-    def test_init_requires_population_file(self):
+    def test_init_requires_population_file(self, tmp_path):
         """Test that initialization requires a population file parameter."""
-        with patch("gwsim.signal.base.SignalSimulator.__init__", return_value=None):
+        dummy_file = tmp_path / "test.csv"
+        dummy_file.write_text("")
+
+        with patch("gwsim.mixin.population_reader.PopulationReaderMixin.__init__", return_value=None):
             # Just verify the class can be instantiated with mocked init
-            simulator = SignalSimulator(population_file="test.csv")
+            simulator = SignalSimulator(population_file=str(dummy_file))
             assert simulator is not None
 
     def test_waveform_arguments_initialization(self, signal_simulator_with_mocks):

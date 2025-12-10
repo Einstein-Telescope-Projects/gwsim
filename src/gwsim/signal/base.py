@@ -25,7 +25,10 @@ class SignalSimulator(PopulationReaderMixin, WaveformMixin, TimeSeriesMixin, Det
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
         self,
         population_file: str | Path,
-        population_file_type: str = "pycbc",
+        population_parameter_name_mapper: dict[str, str] | None = None,
+        population_sort_by: str | None = None,
+        population_cache_dir: str | Path | None = None,
+        population_download_timeout: int = 300,
         waveform_model: str | Callable = "IMRPhenomXPHM",
         waveform_arguments: dict[str, Any] | None = None,
         start_time: int = 0,
@@ -41,7 +44,10 @@ class SignalSimulator(PopulationReaderMixin, WaveformMixin, TimeSeriesMixin, Det
 
         Args:
             population_file: Path to the population file.
-            population_file_type: Type of the population file (e.g., 'pycbc').
+            population_parameter_name_mapper: Dict mapping population column names to simulator parameter names.
+            population_sort_by: Column name to sort the population by.
+            population_cache_dir: Directory to cache downloaded population files.
+            population_download_timeout: Timeout in seconds for downloading population files. Default is 300.
             waveform_model: Name (from registry) or callable for waveform generation.
             waveform_arguments: Fixed parameters to pass to waveform model.
             start_time: Start time of the first signal segment in GPS seconds. Default is 0.
@@ -65,7 +71,10 @@ class SignalSimulator(PopulationReaderMixin, WaveformMixin, TimeSeriesMixin, Det
 
         super().__init__(
             population_file=population_file,
-            population_file_type=population_file_type,
+            population_parameter_name_mapper=population_parameter_name_mapper,
+            population_sort_by=population_sort_by,
+            population_cache_dir=population_cache_dir,
+            population_download_timeout=population_download_timeout,
             waveform_model=waveform_model,
             waveform_arguments=waveform_arguments,
             detectors=detectors,

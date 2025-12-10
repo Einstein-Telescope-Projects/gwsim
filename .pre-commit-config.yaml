@@ -75,6 +75,7 @@ repos:
             mkdocs-gen-files,
             pymap3d,
             pytest,
+            filelock,
           ]
 
   - repo: https://github.com/asottile/pyupgrade
