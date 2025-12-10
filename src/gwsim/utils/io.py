@@ -62,7 +62,7 @@ def check_file_exist():
     return decorator
 
 
-def get_file_name_from_template(  # pylint: disable=too-many-locals
+def get_file_name_from_template(  # pylint: disable=too-many-locals,duplicate-code
     template: str,
     instance: object | None = None,
     output_directory: str | Path | None = None,

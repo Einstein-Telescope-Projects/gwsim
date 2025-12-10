@@ -112,7 +112,7 @@ def expand_template_variables(
     return value
 
 
-def _expand_string_template(
+def _expand_string_template(  # pylint: disable=duplicate-code
     template_str: str,
     simulator_instance: Any,
 ) -> str | list[str]:
