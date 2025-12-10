@@ -33,8 +33,7 @@ class WaveformMixin:  # pylint: disable=too-few-public-methods
         self.waveform_factory = WaveformFactory()
         if waveform_model not in self.waveform_factory.list_models():
             # Register the model if not already registered
-            self.waveform_factory.register_model(
-                name=str(waveform_model), factory_func=waveform_model)
+            self.waveform_factory.register_model(name=str(waveform_model), factory_func=waveform_model)
         self.waveform_model = str(waveform_model)
         self.waveform_arguments = waveform_arguments or {}
 
