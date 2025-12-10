@@ -5,13 +5,13 @@ from __future__ import annotations
 from gwsim.cli.utils.config_resolution import resolve_max_samples
 
 
-def test_explicit_max_samples_takes_priority():
-    """Explicit max_samples overrides computed value."""
+def test_computed_from_total_duration_takes_priority():
+    """Computed total_duration takes priority over explicit max_samples."""
     result = resolve_max_samples(
         {"max_samples": 5, "total_duration": 100, "duration": 4},
         {"max_samples": 10},
     )
-    assert result == 5
+    assert result == 25  # 100 / 4, not 5
 
 
 def test_computed_from_total_duration():
