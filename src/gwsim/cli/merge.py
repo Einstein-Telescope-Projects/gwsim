@@ -11,19 +11,14 @@ import typer
 def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     file_names: Annotated[list[Path], typer.Argument(..., help="List of frame files to merge")],
     channel: Annotated[str, typer.Option("--channel", help="Channel name to merge")] = "STRAIN",
-    output: Annotated[str, typer.Option(
-        "--output", help="Output merged frame file name")] = "merged.gwf",
+    output: Annotated[str, typer.Option("--output", help="Output merged frame file name")] = "merged.gwf",
     output_channel: (
-        Annotated[str, typer.Option(
-            "--output-channel", help="Channel name for the output file")] | None
+        Annotated[str, typer.Option("--output-channel", help="Channel name for the output file")] | None
     ) = None,
-    metadata: Annotated[list[str], typer.Option(
-        "--metadata", help="Metadata file to use for merging")] | None = None,
-    author: Annotated[str, typer.Option(
-        "--author", help="Author of the merged file")] | None = None,
+    metadata: Annotated[list[str], typer.Option("--metadata", help="Metadata file to use for merging")] | None = None,
+    author: Annotated[str, typer.Option("--author", help="Author of the merged file")] | None = None,
     email: Annotated[str, typer.Option("--email", help="Email of the author")] | None = None,
-    force: Annotated[bool, typer.Option(
-        "--force", help="Bypass the requirements of providing metadata files")] = False,
+    force: Annotated[bool, typer.Option("--force", help="Bypass the requirements of providing metadata files")] = False,
 ):
     """Merge multiple frame files into a single file.
 
@@ -101,8 +96,7 @@ def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many
         if next_frame_data.duration != duration:
             raise ValueError(f"Duration mismatch: {next_frame_data.duration} != {duration}")
         if next_frame_data.sample_rate != sampling_frequency:
-            raise ValueError(
-                f"Sampling frequency mismatch: {next_frame_data.sample_rate} != {sampling_frequency}")
+            raise ValueError(f"Sampling frequency mismatch: {next_frame_data.sample_rate} != {sampling_frequency}")
 
         frame_data = frame_data.inject(next_frame_data)
 
