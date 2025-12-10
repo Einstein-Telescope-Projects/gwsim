@@ -159,7 +159,12 @@ def parse_batch_metadata(metadata_file: Path, metadata_dir: Path | None = None) 
         FileNotFoundError: If file doesn't exist
         ValueError: If YAML is invalid
     """
-    return load_metadata_with_external_state(metadata_file, metadata_dir)
+    metadata = load_metadata_with_external_state(metadata_file, metadata_dir)
+
+    if not isinstance(metadata, dict):
+        raise ValueError("Metadata must be a dictionary")
+
+    return metadata
 
 
 def create_batch_metadata(
