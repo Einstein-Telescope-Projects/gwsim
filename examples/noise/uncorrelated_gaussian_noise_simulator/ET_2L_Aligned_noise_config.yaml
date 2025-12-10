@@ -5,8 +5,8 @@ globals:
     total-duration: "1 day"
     start-time: 1577491218
   working-directory: "./ET_2L_Aligned_noise"
-  output-directory: "data"
-  metadata-directory: "metadata"
+  output-directory: output
+  metadata-directory: metadata
 
 simulators:
   noise:
@@ -14,8 +14,7 @@ simulators:
     arguments:
       psd_file: ET_15_full_cryo_psd.txt
       detectors:
-        - E1_2L_Aligned_Sardinia
-        - E2_2L_Aligned_EMR
+        - E1_2L_aligned_sardinia
       low_frequency_cutoff: 2
       seed: 42
     output:
