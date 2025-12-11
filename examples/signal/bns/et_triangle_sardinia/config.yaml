@@ -1,0 +1,44 @@
+globals:
+  simulator-arguments:
+    # Sampling frequency in Hz (affects time resolution and file size)
+    sampling-frequency: 4096
+    # Duration of each generated segment in seconds
+    duration: 4096
+    # Human-friendly total duration (may be parsed by the config loader)
+    total-duration: '2 hours'
+    # GPS start time for the simulation
+    start-time: 1577491218
+  # Working directory for generated outputs (relative or absolute)
+  working-directory: './ET_Triangle_Sardinia_BNS'
+  # Default directory where generated frame files are written
+  output-directory: output
+  # Directory to store metadata sidecars and checkpoints
+  metadata-directory: metadata
+
+simulators:
+  # Compact binary coalescence (CBC) gravitational-wave signal simulator configuration
+  signal:
+    class: CBCSignalSimulator
+    arguments:
+      # Path or URL to population file (HDF5) containing simulated BNS events
+      population_file: https://sandbox.zenodo.org/records/413548/files/18321_1yrCatalogBNS.h5
+      # Waveform model and arguments for signal generation
+      waveform_model: IMRPhenomPv2_NRTidalv2
+      # Additional waveform model arguments
+      waveform_arguments:
+        # Reference frequency in Hz for waveform generation
+        reference_frequency: 50
+      # Minimum frequency in Hz for the waveform generation
+      minimum_frequency: 20
+      # List of detector names to generate noise for (network support)
+      detectors:
+        - E1_triangle_sardinia
+        - E2_triangle_sardinia
+        - E3_triangle_sardinia
+    output:
+      # Template used to construct the output file name at runtime. Uses template variables
+      # such as `detectors`, `start_time` and `duration` expanded by the config loader.
+      file_name: 'E-{{ detectors }}_STRAIN_BNS-{{ start_time }}-{{ duration }}.gwf'
+      arguments:
+        # Channel name (template) for the output frame (e.g. "E1_triangle_sardinia:STRAIN")
+        channel: '{{ detectors }}:STRAIN'
