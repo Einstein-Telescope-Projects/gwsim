@@ -84,7 +84,7 @@ def register_commands() -> None:
     """Register all CLI commands."""
 
     # Fast imports
-    from gwsim.cli.default_config import default_config_command  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.config import config_command  # pylint: disable=import-outside-toplevel
     from gwsim.cli.merge import merge_command  # pylint: disable=import-outside-toplevel
     from gwsim.cli.repository.main import repository_app  # pylint: disable=import-outside-toplevel
     from gwsim.cli.simulate import simulate_command  # pylint: disable=import-outside-toplevel
@@ -92,7 +92,7 @@ def register_commands() -> None:
 
     app.command("simulate")(simulate_command)
     app.command("merge")(merge_command)
-    app.command("config")(default_config_command)
+    app.command("config")(config_command)
     app.command("validate")(validate_command)
 
     app.add_typer(repository_app, name="repository", help="Manage Zenodo repositories")
