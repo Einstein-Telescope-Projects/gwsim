@@ -9,9 +9,9 @@ globals:
   # Working directory for generated outputs (relative or absolute)
   working-directory: .
   # Default directory where generated frame files are written
-  output-directory: 'data'
+  output-directory: output
   # Directory to store metadata sidecars and checkpoints
-  metadata-directory: 'metadata'
+  metadata-directory: metadata
 
 simulators:
   noise:
