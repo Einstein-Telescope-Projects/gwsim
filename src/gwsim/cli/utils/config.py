@@ -4,6 +4,7 @@ Utility functions to load and save configuration files.
 
 from __future__ import annotations
 
+import importlib.resources
 import logging
 from pathlib import Path
 from typing import Any
@@ -345,3 +346,27 @@ def get_output_directories(
         metadata_directory = working_dir / "metadata" / simulator_name
 
     return output_directory, metadata_directory
+
+
+def get_examples_dir() -> Path:
+    """Get the path to the examples directory.
+
+    Returns:
+        Path to the examples directory.
+    """
+    try:
+        examples_resource = importlib.resources.files("gwsim") / "examples"
+        examples_path = Path(str(examples_resource))
+        if examples_path.exists() and list(examples_path.rglob("*.yaml")):
+            return examples_path
+    except (TypeError, AttributeError):
+        logger.warning("Could not access examples via importlib.resources, falling back to filesystem search.")
+
+    try:
+        project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
+        examples_path = project_root / "examples"
+        if examples_path.exists():
+            return examples_path
+    except Exception:  # pylint: disable=broad-except
+        logger.error("Could not determine project root for examples directory.")
+    raise FileNotFoundError("Could not locate the examples directory.")
