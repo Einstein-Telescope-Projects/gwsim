@@ -244,7 +244,10 @@ class TimeSeries(JSONSerializable):
             TimeSeries end time, otherwise None.
         """
         if len(other) != len(self):
-            raise ValueError("Number of channels in chunk must match number of channels in segment.")
+            raise ValueError(
+                f"Number of channels of other ({other.num_of_channels}) must "
+                f"match number of channels of self ({self.num_of_channels})."
+            )
 
         # Enforce that other has the same sampling frequency as self
         if not other.sampling_frequency == self.sampling_frequency:
