@@ -51,6 +51,7 @@ mollweide
 MSRC
 nbytes
 ndarray
+npy
 NSBH
 Nyquist
 objname
