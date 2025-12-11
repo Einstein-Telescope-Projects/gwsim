@@ -5,7 +5,7 @@ globals:
     # Duration of each generated segment in seconds
     duration: 4096
     # Human-friendly total duration (may be parsed by the config loader)
-    total-duration: '2 hours'
+    total-duration: 1 day
     # GPS start time for the simulation
     start-time: 1577491218
   # Working directory for generated outputs (relative or absolute)
