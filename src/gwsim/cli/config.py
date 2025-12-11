@@ -70,13 +70,18 @@ def _config_command_impl(  # pylint: disable=too-many-locals,too-many-branches,t
     if list_:
         available_labels = set()
         for config_file in examples_dir.rglob("config.yaml"):
-            available_labels.add(config_file.parent.name)
-        logger.info("Available example configuration labels:")
+            # Show the full relative path from examples_dir, excluding the filename
+            relative_path = config_file.relative_to(examples_dir)
+            available_labels.add(relative_path.parent)
+        logger.info("[bold cyan]Available example configuration labels:[/bold cyan]")
         for label in sorted(available_labels):
             logger.info("  - %s", label)
 
-        logger.info("To copy example configuration files, use the --get option with a label.")
-        logger.info("For example: gwsim config --get noise/colored_noise_simulator --output config.yaml")
+        logger.info("To copy example configuration files, use the [bold green]--get[/bold green] option with a label.")
+        logger.info(
+            "For example: %s",
+            f"[bold green]gwsim config --get {sorted(available_labels)[0]} --output config.yaml[/bold green]",
+        )
         return
 
     if get is not None:
@@ -89,7 +94,7 @@ def _config_command_impl(  # pylint: disable=too-many-locals,too-many-branches,t
         else:
             dst_path = output
         copy_config_file(src_path=src_path, dst_path=dst_path, overwrite=overwrite)
-        logger.info("Copied example configuration file: %s to %s", src_path, dst_path)
+        logger.info("Copied example configuration file: %s to %s", get / "config.yaml", dst_path)
         return
 
     typer.echo("Error: No action specified. Please provide one of --init, --list, or --get.", err=True)
