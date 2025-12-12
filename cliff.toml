@@ -16,7 +16,7 @@ body = """
     {% for commit in commits %}
         - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
             {% if commit.breaking %}[**breaking**] {% endif %}\
-            {{ commit.message | upper_first }}\
+            {{ commit.message | upper_first }} ([{{ commit.id | truncate(length=8, end="") }}](<REPO>/-/commit/{{ commit.id }}))\
     {% endfor %}
 {% endfor %}
 """
@@ -27,7 +27,7 @@ render_always = true
 # An array of regex based postprocessors to modify the changelog.
 postprocessors = [
     # Replace the placeholder <REPO> with a URL.
-    #{ pattern = '<REPO>', replace = "https://github.com/orhun/git-cliff" },
+    { pattern = '<REPO>', replace = 'https://gitlab.et-gw.eu/et-projects/software/gwsim' }
 ]
 # render body even when there are no releases to process
 # render_always = true
