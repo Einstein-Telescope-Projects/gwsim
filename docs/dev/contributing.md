@@ -133,7 +133,7 @@ Clearly describe the motivation and scope of your change, especially how it impa
 ```
 feat(noise): Implement colored noise with PSD shaping
 fix(cli): Resolve frame file path resolution on Windows
-docs: Clarify metadata JSON schema in README
+docs(metadata): Clarify metadata JSON schema in README
 test(validate): Add edge case tests for boundary conditions
 refactor(simulator): Simplify noise factory registration
 ```
