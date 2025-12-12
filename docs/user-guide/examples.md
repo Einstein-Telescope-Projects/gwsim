@@ -67,13 +67,23 @@ Example configurations for generating detector glitches with various configurati
 
 **Einstein Telescope - Triangular**
 
-- EMR location: [`glitch/gengli/et_triangle_emr/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/glitch/gengli/et_triangle_emr/config.yaml)
-- Sardinia location: [`glitch/gengli/et_triangle_sardinia/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_sardinia/config.yaml)
+- EMR location
+  - E1: [`glitch/gengli/et_triangle_emr/e1/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_emr/e1/config.yaml)
+  - E2: [`glitch/gengli/et_triangle_emr/e2/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_emr/e2/config.yaml)
+  - E3: [`glitch/gengli/et_triangle_emr/e3/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_emr/e3/config.yaml)
+- Sardinia location
+  - E1: [`glitch/gengli/et_triangle_sardinia/e1/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_sardinia/e1/config.yaml)
+  - E2: [`glitch/gengli/et_triangle_sardinia/e2/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_sardinia/e2/config.yaml)
+  - E3: [`glitch/gengli/et_triangle_sardinia/e3/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_sardinia/e3/config.yaml)
 
 **Einstein Telescope - 2L**
 
-- Aligned configuration: [`glitch/gengli/et_2l_aligned/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_2l_aligned/config.yaml)
-- Misaligned configuration: [`glitch/gengli/et_2l_misaligned/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/examples/glitch/gengli/et_2l_misaligned/config.yaml)
+- Aligned configuration
+  - E1: [`glitch/gengli/et_2l_aligned/e1/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_2l_aligned/e1/config.yaml)
+  - E2: [`glitch/gengli/et_2l_aligned/e2/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_2l_aligned/e2/config.yaml)
+- Misaligned configuration
+  - E1: [`glitch/gengli/et_2l_misaligned/e1/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_2l_misaligned/e1/config.yaml)
+  - E2: [`glitch/gengli/et_2l_misaligned/e2/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_2l_misaligned/e2/config.yaml)
 
 ## Storage Estimates
 

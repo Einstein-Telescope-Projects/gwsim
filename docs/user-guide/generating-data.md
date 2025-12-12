@@ -25,6 +25,10 @@ A low-frequency cutoff of 2 Hz is used.
 To generate the ET noise data, run:
 
 ```bash
+# Create working directory
+mkdir noise_et_triangle_emr
+cd noise_et_triangle_emr
+
 # Copy configuration file to your working directory
 gwsim config --get noise/uncorrelated_gaussian/et_triangle_emr --output config.yaml
 
@@ -115,26 +119,26 @@ gwsim simulate config.yaml
 Glitches can be generated using configuration files in the [`examples/glitch`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples/glitch/gengli) directory.
 Glitch generation uses the [gengli](https://pypi.org/project/gengli/) package and currently supports only _blip_ glitches.
 
-An example configuration for producing one day of ET data for the E1 detector containing blip glitches from a realistic population is provided in [`glitch/gengli/et_triangle_emr/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_emr/config.yaml):
+An example configuration for producing one day of ET data for the E1 detector containing blip glitches from a realistic population is provided in [`glitch/gengli/et_triangle_emr/e1/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_emr/e1/config.yaml):
 
 ```yaml
---8<-- "examples/glitch/gengli/et_triangle_emr/config.yaml"
+--8<-- "examples/glitch/gengli/et_triangle_emr/e1/config.yaml"
 ```
 
 This configuration file generates one day of data for the E1 detector, divided into 4096-second frame files (for a total of 21 frames), starting on 1 January 2030.
 
-Blip glitches are injected into zero noise from the [blip_glitch_population_E1.h5](https://sandbox.zenodo.org/records/413548) population file, which was generated with gengli using the [following script (FIXME: Link Missing)]().
+Blip glitches are injected into zero noise from the [blip_glitch_population_E1.h5](https://sandbox.zenodo.org/records/413548) population file, which was generated with gengli using the [following script](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/src/gwsim/population/glitch.py?ref_type=heads).
 These glitches are modeled on LIGO blip glitches observed during the O3 observing run and recolored to match the ET sensitivity.
 
 To generate the ET data for detector E1 with glitches, run:
 
 ```bash
 # Create working directory
-mkdir glitch_et_triangle_emr
-cd glitch_et_triangle_emr
+mkdir -p glitch_et_triangle_emr/e1
+cd glitch_et_triangle_emr/e1
 
 # Copy configuration file to your working directory for glitch simulation
-gwsim config --get glitch/gengli/et_triangle_emr --output config.yaml
+gwsim config --get glitch/gengli/et_triangle_emr/e1 --output config.yaml
 
 # Run simulation
 gwsim simulate config.yaml
@@ -149,7 +153,7 @@ gwsim simulate config.yaml
 <!-- prettier-ignore -->
 !!! note
     The [`GengliGlitchSimulator`](/reference/gwsim/glitch/gengli_glitch) currently supports only a single detector at a time.
-    To generate glitch-containing data for detectors E2 and E3, rerun the command above using the [`glitch/gengli/et_triangle_emr/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_emr/config.yaml) configuration file with a different glitch population file, seed, and detector name.
+    To generate glitch-containing data for detectors E2 and E3, rerun the command above using the [`glitch/gengli/et_triangle_emr/e2/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_emr/e2/config.yaml) and [`glitch/gengli/et_triangle_emr/e3/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_emr/e3/config.yaml) configuration files respectively (updating the working directory name).
     Note that a different glitch population is used for each detector.
 
 ## Using Different Detector Configurations
