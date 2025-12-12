@@ -22,6 +22,7 @@ Before using the repository commands, you need a Zenodo API token:
 2. **Sandbox (Testing):** Go to https://sandbox.zenodo.org/account/settings/applications/tokens/new
 
 When creating a token, ensure it has these scopes:
+
 - `deposit:write` — Write access to create/upload files
 - `deposit:actions` — Permission to publish depositions
 
@@ -128,28 +129,28 @@ Enhance your deposition with structured metadata:
 
 ```yaml
 creators:
-  - name: "Jane Doe"
-    affiliation: "LIGO Laboratory"
-    orcid: "0000-0000-0000-0000"
-  - name: "John Smith"
-    affiliation: "Virgo Collaboration"
+  - name: 'Jane Doe'
+    affiliation: 'LIGO Laboratory'
+    orcid: '0000-0000-0000-0000'
+  - name: 'John Smith'
+    affiliation: 'Virgo Collaboration'
 
 keywords:
-  - "gravitational waves"
-  - "mock data challenge"
-  - "binary black holes"
-  - "LIGO"
-  - "Virgo"
+  - 'gravitational waves'
+  - 'mock data challenge'
+  - 'binary black holes'
+  - 'LIGO'
+  - 'Virgo'
 
-license: "cc-by-4.0"
+license: 'cc-by-4.0'
 contributors:
-  - name: "LIGO Laboratory"
-    role: "Hosting institution"
+  - name: 'LIGO Laboratory'
+    role: 'Hosting institution'
 
 related_identifiers:
-  - identifier: "10.7935/gqm7-wf12"
-    relation: "references"
-    resource_type: "publication"
+  - identifier: '10.7935/gqm7-wf12'
+    relation: 'references'
+    resource_type: 'publication'
 ```
 
 **Upload metadata**:
@@ -283,7 +284,6 @@ gwsim repository download 123456 \
 
 ## Metadata Best Practices
 
-
 When publishing GW simulation data, include:
 
 1. Title: Clear, descriptive (e.g., "GW Mock Data Challenge v1: Binary Black Holes")
@@ -296,7 +296,7 @@ When publishing GW simulation data, include:
 **Example**:
 
 ```yaml
-title: "GW Mock Data Challenge v1: Synthetic Binary Black Hole Signals"
+title: 'GW Mock Data Challenge v1: Synthetic Binary Black Hole Signals'
 
 description: |
   Simulated gravitational-wave strain data for LIGO Hanford, LIGO Livingston,
@@ -310,19 +310,19 @@ description: |
   Generated using PyCBC v1.18.4 and LALSuite v7.0.
 
 creators:
-  - name: "Jane Doe"
-    orcid: "0000-0001-2345-6789"
-    affiliation: "LIGO Laboratory, Caltech"
+  - name: 'Jane Doe'
+    orcid: '0000-0001-2345-6789'
+    affiliation: 'LIGO Laboratory, Caltech'
 
 keywords:
-  - "gravitational waves"
-  - "LIGO"
-  - "Virgo"
-  - "binary black holes"
-  - "mock data challenge"
-  - "synthetic data"
+  - 'gravitational waves'
+  - 'LIGO'
+  - 'Virgo'
+  - 'binary black holes'
+  - 'mock data challenge'
+  - 'synthetic data'
 
-license: "cc-by-4.0"
+license: 'cc-by-4.0'
 ```
 
 ## Troubleshooting

@@ -6,28 +6,34 @@ It is designed to provide full provenance, traceability, and exact reproducibili
 Each metadata file includes:
 
 - **Author information**
-    - Author name
-    - Contact email (if provided)
+
+  - Author name
+  - Contact email (if provided)
 
 - **File integrity information**
-    - File hashes used to uniquely identify outputs and to detect changes
+
+  - File hashes used to uniquely identify outputs and to detect changes
 
 - **Configuration snapshots**
-    - Global configuration options from the configuration file
-    - Simulator-specific configuration options from the configuration file
+
+  - Global configuration options from the configuration file
+  - Simulator-specific configuration options from the configuration file
 
 - **Simulation context**
-    - Simulator name
-    - Versions of all packages used during the simulation
+
+  - Simulator name
+  - Versions of all packages used during the simulation
 
 - **Execution state**
-    - Pre-batch state, describing the state before execution (e.g., random seeds, initial conditions)
+
+  - Pre-batch state, describing the state before execution (e.g., random seeds, initial conditions)
 
 - **Output tracking**
-    - List of generated output files
+
+  - List of generated output files
 
 - **Timing information**
-    - Timestamp marking the start of the simulation
+  - Timestamp marking the start of the simulation
 
 ## File Format and Organization
 

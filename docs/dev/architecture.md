@@ -16,6 +16,7 @@ gwsim is designed as an orchestration layer that leverages existing third-party 
 ### 1. Avoid Reinventing the Wheel
 
 gwsim wraps existing, battle-tested libraries rather than reimplementing signal processing algorithms. This approach:
+
 - Ensures correctness by relying on established implementations
 - Reduces maintenance burden
 - Allows users to leverage decades of gravitational-wave research
@@ -166,6 +167,7 @@ gwsim/
 - `PopulationReaderMixin`: Population file reading
 
 **Mixin pattern example:**
+
 ```python
 class NoiseSimulator(BaseSimulator, RandomnessMixin, DetectorMixin, TimeSeriesMixin):
     """Noise simulator with randomness, detector, and time series support."""
@@ -201,6 +203,7 @@ class PyCBCStationaryGaussianNoiseSimulator(NoiseSimulator):
 - Runtime variable substitution
 
 **Example flow:**
+
 ```
 config.yaml (user input)
     ↓
@@ -220,6 +223,7 @@ Validated SimulationPlan
 **Purpose**: Resume interrupted simulations
 
 **Checkpoint structure:**
+
 ```json
 {
   "last_completed_batch": 5,
@@ -242,6 +246,7 @@ Validated SimulationPlan
 **Purpose**: Track simulator state across batches
 
 **StateAttribute descriptor:**
+
 ```python
 class StateAttribute:
     """Descriptor for state tracking without class-level pollution."""
@@ -327,6 +332,7 @@ gwf file + metadata
 ### Adding a New Noise Simulator
 
 1. **Create new class** in `noise/`:
+
 ```python
 class MyCustomNoise(BaseNoise, RandomnessMixin, TimeSeriesMixin):
     def generate(self, **params):
@@ -337,6 +343,7 @@ class MyCustomNoise(BaseNoise, RandomnessMixin, TimeSeriesMixin):
 2. **Register in CLI** (automatic via entry points or manual in registry)
 
 3. **Use in config**:
+
 ```yaml
 simulators:
   my_noise:
@@ -348,6 +355,7 @@ simulators:
 ### Adding a New Mixin
 
 1. **Create mixin class**:
+
 ```python
 class MyMixin:
     """Provides custom functionality."""
@@ -357,6 +365,7 @@ class MyMixin:
 ```
 
 2. **Use in simulator**:
+
 ```python
 class MySimulator(BaseSimulator, MyMixin):
     pass

@@ -92,38 +92,44 @@ Clearly describe the motivation and scope of your change, especially how it impa
 ### Rules
 
 1. **One type of change per commit**
+
    - Do not mix different types of changes (e.g., bug fixes, features, refactoring) in a single commit.
    - Example: if you refactor code AND add a feature, make two separate commits.
 
 2. **Descriptive and meaningful messages**
-   - Describe *what* changed and *why*, not just *what* was edited.
+
+   - Describe _what_ changed and _why_, not just _what_ was edited.
    - Avoid vague messages like "fix bug" or "update code"; instead use "fix: prevent signal saturation in noise simulation" or "feat: add support for multi-detector frame merging".
 
 3. **Follow Conventional Commits format**
-    - All commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) standard.
-    - Format: `<type>(<scope>): <subject>`
-    - Allowed types:
-        - build: Changes that affect the build system or external dependencies
-        - ci: Changes to our CI configuration files and scripts
-        - docs: Documentation only changes
-        - feat: A new feature
-        - fix: A bug fix
-        - perf: A code change that improves performance
-        - refactor: A code change that neither fixes a bug nor adds a feature
-        - style: Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc)
-        - test: Adding missing tests or correcting existing tests
-    - Example:
-        ```
-        feat(signal): add BBH waveform generation for aligned-spin systems
 
-        This commit introduces support for aligned-spin binary black hole
-        waveforms using PyCBC, enabling more realistic simulations.
-        ```
-    - Commitlint will validate your message format automatically.
+   - All commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) standard.
+   - Format: `<type>(<scope>): <subject>`
+   - Allowed types:
+     - build: Changes that affect the build system or external dependencies
+     - ci: Changes to our CI configuration files and scripts
+     - docs: Documentation only changes
+     - feat: A new feature
+     - fix: A bug fix
+     - perf: A code change that improves performance
+     - refactor: A code change that neither fixes a bug nor adds a feature
+     - style: Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc)
+     - test: Adding missing tests or correcting existing tests
+   - Example:
+
+     ```
+     feat(signal): add BBH waveform generation for aligned-spin systems
+
+     This commit introduces support for aligned-spin binary black hole
+     waveforms using PyCBC, enabling more realistic simulations.
+     ```
+
+   - Commitlint will validate your message format automatically.
 
 ### Examples
 
 ✅ **Good commits:**
+
 ```
 feat(noise): Implement colored noise with PSD shaping
 fix(cli): Resolve frame file path resolution on Windows
@@ -133,6 +139,7 @@ refactor(simulator): Simplify noise factory registration
 ```
 
 ❌ **Bad commits:**
+
 ```
 fixed stuff
 wip: many changes

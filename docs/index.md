@@ -17,17 +17,20 @@ It focuses on **usability**, **robustness**, and **extensibility**, to become a 
 ## Features
 
 ### Signal Simulation
+
 - **Compact Binary Coalescence (CBC)**: Generates gravitational-wave signals using PyCBC and LALSuite.
 - **Flexible Waveform Models**: Supports a wide range of approximants.
 - **Population Models**: Generates signals from astrophysically realistic populations.
 
 ### Noise Simulation
+
 - **Colored Noise**: Generates noise with a specified power spectral density (PSD).
 - **Correlated Noise**: Produces multi-detector correlated noise using a cross-power spectral density (CSD).
 - **Standard Noise Models**: Integrates PyCBC and Bilby for standard detector noise models.
 - **Glitches**: Injects glitches from realistic populations to simulate transient noise artifacts.
 
 ### Data Management
+
 - **Reproducible Workflows**: Tracks full configuration and state information with checksums.
 - **Safe File Operations**: Writes output atomically, with rollback on failure.
 - **Metadata Tracking**: Stores complete provenance for every generated segment.
@@ -60,4 +63,4 @@ gwsim is designed to become a standard tool for MDC generation in the gravitatio
 
 ---
 
-*gwsim is developed for gravitational-wave research.*
+_gwsim is developed for gravitational-wave research._

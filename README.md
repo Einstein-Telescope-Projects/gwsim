@@ -63,6 +63,7 @@ gwsim simulate config.yaml
 gwsim uses YAML configuration files for reproducible simulations. See `examples/config.yaml` for a complete example.
 
 Key configuration sections:
+
 - `globals`: Shared parameters (sampling rate, duration, etc.)
 - `simulators`: List of noise, signal, and glitch generators
 

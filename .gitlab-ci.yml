@@ -7,7 +7,7 @@ stages:
 
 # Global variables and cache
 variables:
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PIP_CACHE_DIR: '$CI_PROJECT_DIR/.cache/pip'
 
 cache:
   paths:
@@ -143,22 +143,22 @@ create-changelog:
     paths:
       - release_notes.md
     expire_in: 1 hour
-  allow_failure: true  # Don't fail pipeline if changelog generation has issues
+  allow_failure: true # Don't fail pipeline if changelog generation has issues
 
 create-release-page:
   <<: *base_release
   stage: release
   needs:
     - job: create-changelog
-      artifacts: true  # Pulls release_notes.md
+      artifacts: true # Pulls release_notes.md
   image: registry.gitlab.com/gitlab-org/release-cli:latest
   script:
     - echo "Creating GitLab release page for version ${CI_COMMIT_TAG}"
   release:
-    name: "Release ${CI_COMMIT_TAG}"
-    description: release_notes.md  # Inserts the generated notes
+    name: 'Release ${CI_COMMIT_TAG}'
+    description: release_notes.md # Inserts the generated notes
     tag_name: ${CI_COMMIT_TAG}
-    ref: ${CI_COMMIT_TAG}  # Simpler: points to the tag
+    ref: ${CI_COMMIT_TAG} # Simpler: points to the tag
 
 publish_to_pypi:
   stage: publish
@@ -193,7 +193,7 @@ publish_to_testpypi:
     # 2. Publish to TestPyPI using twine with token authentication
     - python -m twine upload dist/* -r testpypi -u __token__ -p $TESTPYPI_PASSWORD
   rules:
-    - if: '$CI_COMMIT_TAG =~ /-rc|-a|-b|-alpha|-beta/'   # pre-releases
+    - if: '$CI_COMMIT_TAG =~ /-rc|-a|-b|-alpha|-beta/' # pre-releases
   needs:
     - job: create-release-page
   artifacts:

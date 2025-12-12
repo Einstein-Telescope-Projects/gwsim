@@ -68,57 +68,57 @@ nav:
   - Home: index.md
   - Installation: user-guide/installation.md
   - User Guide:
-    - Quick Start: user-guide/quickstart.md
-    - Generating Data: user-guide/generating-data.md
-    - Reading Data: user-guide/reading-data.md
-    - Configuration Files: user-guide/configuration.md
-    - Metadata Files: user-guide/metadata.md
-    - Examples: user-guide/examples.md
-    - Publishing Data to Zenodo: user-guide/repository.md
+      - Quick Start: user-guide/quickstart.md
+      - Generating Data: user-guide/generating-data.md
+      - Reading Data: user-guide/reading-data.md
+      - Configuration Files: user-guide/configuration.md
+      - Metadata Files: user-guide/metadata.md
+      - Examples: user-guide/examples.md
+      - Publishing Data to Zenodo: user-guide/repository.md
   - API Reference:
-    - Overview: reference/index.md
-    - gwsim.cli:
-      - Overview: reference/gwsim/cli/index.md
-      - main: reference/gwsim/cli/main.md
-      - simulate: reference/gwsim/cli/simulate.md
-      - config: reference/gwsim/cli/config.md
-    - gwsim.config: reference/gwsim/config/index.md
-    - gwsim.data: reference/gwsim/data/index.md
-    - gwsim.detector: reference/gwsim/detector/index.md
-    - gwsim.glitch:
-      - Overview: reference/gwsim/glitch/index.md
-      - base: reference/gwsim/glitch/base.md
-      - gengli: reference/gwsim/glitch/gengli_glitch.md
-    - gwsim.mixin:
-      - Overview: reference/gwsim/mixin/index.md
-      - detector: reference/gwsim/mixin/detector.md
-      - randomness: reference/gwsim/mixin/randomness.md
-      - time_series: reference/gwsim/mixin/time_series.md
-      - waveform: reference/gwsim/mixin/waveform.md
-    - gwsim.noise:
-      - Overview: reference/gwsim/noise/index.md
-      - base: reference/gwsim/noise/base.md
-      - white: reference/gwsim/noise/white_noise.md
-      - colored: reference/gwsim/noise/colored_noise.md
-      - correlated: reference/gwsim/noise/correlated_noise.md
-    - gwsim.population: reference/gwsim/population/index.md
-    - gwsim.signal:
-      - Overview: reference/gwsim/signal/index.md
-      - base: reference/gwsim/signal/base.md
-      - cbc: reference/gwsim/signal/cbc.md
-    - gwsim.simulator:
-      - Overview: reference/gwsim/simulator/index.md
-      - base: reference/gwsim/simulator/base.md
-      - state: reference/gwsim/simulator/state.md
-    - gwsim.utils:
-      - Overview: reference/gwsim/utils/index.md
-      - io: reference/gwsim/utils/io.md
-      - log: reference/gwsim/utils/log.md
-      - random: reference/gwsim/utils/random.md
-    - gwsim.waveform: reference/gwsim/waveform/index.md
+      - Overview: reference/index.md
+      - gwsim.cli:
+          - Overview: reference/gwsim/cli/index.md
+          - main: reference/gwsim/cli/main.md
+          - simulate: reference/gwsim/cli/simulate.md
+          - config: reference/gwsim/cli/config.md
+      - gwsim.config: reference/gwsim/config/index.md
+      - gwsim.data: reference/gwsim/data/index.md
+      - gwsim.detector: reference/gwsim/detector/index.md
+      - gwsim.glitch:
+          - Overview: reference/gwsim/glitch/index.md
+          - base: reference/gwsim/glitch/base.md
+          - gengli: reference/gwsim/glitch/gengli_glitch.md
+      - gwsim.mixin:
+          - Overview: reference/gwsim/mixin/index.md
+          - detector: reference/gwsim/mixin/detector.md
+          - randomness: reference/gwsim/mixin/randomness.md
+          - time_series: reference/gwsim/mixin/time_series.md
+          - waveform: reference/gwsim/mixin/waveform.md
+      - gwsim.noise:
+          - Overview: reference/gwsim/noise/index.md
+          - base: reference/gwsim/noise/base.md
+          - white: reference/gwsim/noise/white_noise.md
+          - colored: reference/gwsim/noise/colored_noise.md
+          - correlated: reference/gwsim/noise/correlated_noise.md
+      - gwsim.population: reference/gwsim/population/index.md
+      - gwsim.signal:
+          - Overview: reference/gwsim/signal/index.md
+          - base: reference/gwsim/signal/base.md
+          - cbc: reference/gwsim/signal/cbc.md
+      - gwsim.simulator:
+          - Overview: reference/gwsim/simulator/index.md
+          - base: reference/gwsim/simulator/base.md
+          - state: reference/gwsim/simulator/state.md
+      - gwsim.utils:
+          - Overview: reference/gwsim/utils/index.md
+          - io: reference/gwsim/utils/io.md
+          - log: reference/gwsim/utils/log.md
+          - random: reference/gwsim/utils/random.md
+      - gwsim.waveform: reference/gwsim/waveform/index.md
   - Developer Guide:
-    - Contributing: dev/contributing.md
-    - Architecture: dev/architecture.md
+      - Contributing: dev/contributing.md
+      - Architecture: dev/architecture.md
   - Troubleshooting: dev/troubleshooting.md
 
 markdown_extensions:
