@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
-from gwsim.utils.io import get_file_name_from_template
+from gwsim.utils.io import atomic_writer, get_file_name_from_template
 
 
 class MockInstance:
@@ -177,3 +178,96 @@ class TestGetFileNameFromTemplate:
         template = "{{ name }}.txt"
         result = get_file_name_from_template(template, instance, output_directory=None)
         assert result == Path("test.txt")
+
+
+class TestAtomicWriter:
+    """Test suite for atomic_writer context manager."""
+
+    def test_successful_write_with_open(self, tmp_path):
+        """Test successful atomic write using built-in open."""
+        file_path = tmp_path / "test.txt"
+        test_content = "Hello, World!"
+
+        with atomic_writer(file_path, mode="w") as f:
+            f.write(test_content)
+
+        # Check final file exists and has content
+        assert file_path.exists()
+        assert file_path.read_text() == test_content
+
+        # Check temp file is cleaned up
+        temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+        assert not temp_path.exists()
+
+    def test_failure_during_write(self, tmp_path):
+        """Test that temp file is cleaned up on failure."""
+        file_path = tmp_path / "test.txt"
+
+        def _write_and_fail():
+            with atomic_writer(file_path, mode="w") as f:
+                f.write("partial content")
+                raise ValueError("Simulated failure")
+
+        with pytest.raises(ValueError, match="Simulated failure"):
+            _write_and_fail()
+
+        # Check final file does not exist
+        assert not file_path.exists()
+
+        # Check temp file is cleaned up
+        temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+        assert not temp_path.exists()
+
+    def test_custom_open_func(self, tmp_path, monkeypatch):
+        """Test atomic_writer with a custom open function (e.g., h5py)."""
+        file_path = tmp_path / "test.h5"
+
+        # Mock a file-like object
+        mock_file = MagicMock()
+        mock_open_func = MagicMock(return_value=mock_file)
+
+        # Mock shutil.move to avoid actual file operations
+        mock_move = MagicMock()
+        monkeypatch.setattr("shutil.move", mock_move)
+
+        with atomic_writer(file_path, mock_open_func, mode="w") as f:
+            f.write("data")
+
+        # Verify the mock was called with temp path
+        temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+        mock_open_func.assert_called_once_with(str(temp_path), mode="w")
+
+        # Verify file was closed and move was attempted
+        mock_file.close.assert_called_once()
+        mock_move.assert_called_once_with(str(temp_path), str(file_path))
+
+    def test_file_already_exists_overwrite(self, tmp_path):
+        """Test atomic write when final file already exists."""
+        file_path = tmp_path / "test.txt"
+        file_path.write_text("existing content")
+
+        new_content = "new content"
+        with atomic_writer(file_path, mode="w") as f:
+            f.write(new_content)
+
+        # Check content was overwritten
+        assert file_path.read_text() == new_content
+
+    def test_temp_file_cleanup_on_exception_in_yield(self, tmp_path):
+        """Test temp file cleanup when exception occurs inside the context."""
+        file_path = tmp_path / "test.txt"
+
+        def _write_and_fail():
+            with atomic_writer(file_path, mode="w") as f:
+                f.write("start")
+                raise RuntimeError("Error inside context")
+
+        with pytest.raises(RuntimeError):
+            _write_and_fail()
+
+        # Final file should not exist
+        assert not file_path.exists()
+
+        # Temp file should be cleaned up
+        temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+        assert not temp_path.exists()
