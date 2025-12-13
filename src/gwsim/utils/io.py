@@ -5,8 +5,12 @@ from __future__ import annotations
 import itertools
 import logging
 import re
+import shutil
+from collections.abc import Callable
+from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from astropy.units import Quantity
@@ -165,3 +169,50 @@ def get_file_name_from_template(  # pylint: disable=too-many-locals,duplicate-co
         return np.array(reshape_to_nested(results, lengths))
     # No arrays: return single string
     return results[0] if results else Path("")
+
+
+@contextmanager
+def atomic_writer(file_name: str | Path, open_func: Callable[..., Any] = open, **kwargs: Any) -> Any:
+    """
+    Context manager for atomic file writing.
+    Writes to a temporary file and moves it to the target location upon successful completion.
+
+    Args:
+        file_name (str | Path): Target file name to write to.
+        open_func (Callable): Function to open the file (default is built-in open).
+        **kwargs: Additional keyword arguments for the open function.
+
+    Yields:
+        File object opened for writing.
+
+    Example:
+        with atomic_writer('output.txt', mode='w') as f:
+            f.write('Hello, World!')
+    """
+    file_name = Path(file_name)
+    temp_file_name = file_name.with_suffix(file_name.suffix + ".tmp")
+
+    file_obj = None
+    try:
+        # Open the temp file using the provided function
+        file_obj = open_func(str(temp_file_name), **kwargs)
+        yield file_obj
+        # Close the file if it's not already closed (e.g., for h5py)
+        if hasattr(file_obj, "close"):
+            file_obj.close()
+        file_obj = None
+        # Atomic move on success
+        shutil.move(str(temp_file_name), str(file_name))
+        logger.debug("Successfully wrote to '%s' atomically.", file_name)
+    except Exception as e:
+        logger.error("Failed to write file atomically: %s (%s)", file_name, e)
+        if file_obj and hasattr(file_obj, "close"):
+            file_obj.close()
+        # Clean up temp file if it exists
+        if temp_file_name.exists():
+            temp_file_name.unlink()
+        raise
+    finally:
+        # Ensure temp file is removed if not moved
+        if temp_file_name.exists():
+            temp_file_name.unlink()
