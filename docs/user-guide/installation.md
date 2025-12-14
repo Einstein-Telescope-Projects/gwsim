@@ -4,14 +4,14 @@ We recommend using `uv` to manage virtual environments for installing gwsim.
 
 If you don't have `uv` installed, you can install it with pip. See the project pages for more details:
 
-- Install via pip: `pip install --upgrade pip && pip install uv`
-- Project pages: [uv on PyPI](https://pypi.org/project/uv/) | [uv on GitHub](https://github.com/astral-sh/uv)
-- Full documentation and usage guide: [uv docs](https://docs.astral.sh/uv/)
+-   Install via pip: `pip install --upgrade pip && pip install uv`
+-   Project pages: [uv on PyPI](https://pypi.org/project/uv/) | [uv on GitHub](https://github.com/astral-sh/uv)
+-   Full documentation and usage guide: [uv docs](https://docs.astral.sh/uv/)
 
 ## Requirements
 
-- Python 3.10 or higher
-- Operating System: Linux, macOS, or Windows
+-   Python 3.10 or higher
+-   Operating System: Linux, macOS, or Windows
 
 <!-- prettier-ignore -->
 !!!note
@@ -93,23 +93,23 @@ python -c "import gwsim; print(gwsim.__version__)"
 
 ### Core Dependencies
 
-- **typer**: CLI framework
-- **numpy**: Numerical computing
-- **pycbc**: Gravitational-wave data analysis
-- **bilby**: Gravitational-wave data utilities
-- **h5py**: HDF5 file format support
-- **pydantic**: Data validation
-- **tqdm**: Progress bars
+-   **typer**: CLI framework
+-   **numpy**: Numerical computing
+-   **pycbc**: Gravitational-wave data analysis
+-   **bilby**: Gravitational-wave data utilities
+-   **h5py**: HDF5 file format support
+-   **pydantic**: Data validation
+-   **tqdm**: Progress bars
 
 ### Optional Dependencies
 
-- **gengli**: Glitch generation (for transient artifacts)
+-   **gengli**: Glitch generation (for transient artifacts)
 
 ## Getting Help
 
 1. Check the [troubleshooting guide](../dev/troubleshooting.md)
 2. Search existing [issues](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/issues)
 3. Create a new issue with:
-   - Your operating system and Python version
-   - Full error message
-   - Steps to reproduce the problem
+    - Your operating system and Python version
+    - Full error message
+    - Steps to reproduce the problem

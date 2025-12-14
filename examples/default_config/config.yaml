@@ -4,29 +4,29 @@
 
 # Global configuration shared across all simulators
 globals:
-  # Simulator arguments that apply to all simulators unless overridden
-  simulator-arguments:
-    sampling-frequency: 4096 # Sampling rate in Hz (affects data quality and file size)
-    duration: 1024 # Duration of each generated segment in seconds
-    start-time: 1577491218 # GPS start time for the simulation
-    total-duration: '5 hours' # Total simulation duration (parsed from string or numeric)
-  # Directory paths (relative to working directory unless absolute)
-  working-directory: . # Base directory for all operations
-  output-directory: output # Where generated data files are saved
-  metadata-directory: metadata # Where simulation metadata and checkpoints are stored
+    # Simulator arguments that apply to all simulators unless overridden
+    simulator-arguments:
+        sampling-frequency: 4096 # Sampling rate in Hz (affects data quality and file size)
+        duration: 1024 # Duration of each generated segment in seconds
+        start-time: 1577491218 # GPS start time for the simulation
+        total-duration: '5 hours' # Total simulation duration (parsed from string or numeric)
+    # Directory paths (relative to working directory unless absolute)
+    working-directory: . # Base directory for all operations
+    output-directory: output # Where generated data files are saved
+    metadata-directory: metadata # Where simulation metadata and checkpoints are stored
 
 # List of simulators to run (each generates data independently)
 simulators:
-  # Example noise simulator configuration
-  noise:
-    class: ColoredNoiseSimulator # Full class path resolved via registry (e.g., gwsim.noise.ColoredNoiseSimulator)
-    arguments:
-      psd_file: ET_10_full_cryo_psd.txt # Power spectral density file for colored noise
-      seed: 42 # Random seed for reproducible noise generation
-      detectors: # List of detectors
-        - ET1
-    # Output configuration for this simulator
-    output:
-      file_name: '{{ detectors }}-NOISE_STRAIN-{{ start_time }}-{{ duration }}.gwf' # Template for output filename
-      arguments:
-        channel: '{{ detectors }}-STRAIN' # Channel name template for GWF frame writing
+    # Example noise simulator configuration
+    noise:
+        class: ColoredNoiseSimulator # Full class path resolved via registry (e.g., gwsim.noise.ColoredNoiseSimulator)
+        arguments:
+            psd_file: ET_10_full_cryo_psd.txt # Power spectral density file for colored noise
+            seed: 42 # Random seed for reproducible noise generation
+            detectors: # List of detectors
+                - ET1
+        # Output configuration for this simulator
+        output:
+            file_name: '{{ detectors }}-NOISE_STRAIN-{{ start_time }}-{{ duration }}.gwf' # Template for output filename
+            arguments:
+                channel: '{{ detectors }}-STRAIN' # Channel name template for GWF frame writing

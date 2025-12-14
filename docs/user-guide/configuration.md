@@ -46,10 +46,10 @@ gwsim simulate config.yaml --metadata
 
 Metadata files contain complete provenance information including:
 
-- Simulator configuration
-- Random number generator state
-- Output file names
-- Version information
+-   Simulator configuration
+-   Random number generator state
+-   Output file names
+-   Version information
 
 #### Flags `--author` and `--email` (optional)
 
@@ -121,27 +121,27 @@ Top-level shared parameters used across all simulators:
 
 ```yaml
 globals:
-  working-directory: .
-  output-directory: output
-  metadata-directory: metadata
-  simulator-arguments:
-    sampling-frequency:
-    duration:
-    start-time:
-    total-duration:
-  output-arguments: {}
+    working-directory: .
+    output-directory: output
+    metadata-directory: metadata
+    simulator-arguments:
+        sampling-frequency:
+        duration:
+        start-time:
+        total-duration:
+    output-arguments: {}
 ```
 
 **Key parameters:**
 
-- `working-directory`: Base directory for operations
-- `output-directory`: Where to save generated data files
-- `metadata-directory`: Where to save metadata files
-- `sampling-frequency`: Sample rate in Hz
-- `duration`: Duration of each segment in seconds
-- `start-time`: GPS start time
-- `total-duration`: Total duration of the dataset
-- `output-arguments`: Additional global arguments passed to the file writer
+-   `working-directory`: Base directory for operations
+-   `output-directory`: Where to save generated data files
+-   `metadata-directory`: Where to save metadata files
+-   `sampling-frequency`: Sample rate in Hz
+-   `duration`: Duration of each segment in seconds
+-   `start-time`: GPS start time
+-   `total-duration`: Total duration of the dataset
+-   `output-arguments`: Additional global arguments passed to the file writer
 
 ### Simulators
 
@@ -149,36 +149,36 @@ List of simulators to run, each with configuration:
 
 ```yaml
 simulators:
-  noise:
-    class:
-    arguments:
-    output:
-      file_name:
-      arguments:
+    noise:
+        class:
+        arguments:
+        output:
+            file_name:
+            arguments:
 ```
 
 **Simulator properties:**
 
-- `class`: Fully qualified class name of the simulator
-- `arguments`: Parameters passed to the simulator
-- `output.file_name`: Template for output file naming (supports Jinja2 syntax)
-- `output.arguments`: Channel naming and other output metadata
+-   `class`: Fully qualified class name of the simulator
+-   `arguments`: Parameters passed to the simulator
+-   `output.file_name`: Template for output file naming (supports Jinja2 syntax)
+-   `output.arguments`: Channel naming and other output metadata
 
 For details on simulator-specific `arguments`, refer to the [API Reference](../reference/index.md) page.
 
 Available `noise` simulators includes:
 
-- [`BaseNoise`](/reference/gwsim/noise/base/#gwsim.noise.base.NoiseSimulator)
-- [`ColoredNoiseSimulator`](/reference/gwsim/noise/colored_noise/?h=colorednoise#gwsim.noise.colored_noise.ColoredNoiseSimulator)
-- [`CorrelatedNoiseSimulator`](/reference/gwsim/noise/correlated_noise/?h=correlatednoise#gwsim.noise.correlated_noise.CorrelatedNoiseSimulator)
+-   [`BaseNoise`](/reference/gwsim/noise/base/#gwsim.noise.base.NoiseSimulator)
+-   [`ColoredNoiseSimulator`](/reference/gwsim/noise/colored_noise/?h=colorednoise#gwsim.noise.colored_noise.ColoredNoiseSimulator)
+-   [`CorrelatedNoiseSimulator`](/reference/gwsim/noise/correlated_noise/?h=correlatednoise#gwsim.noise.correlated_noise.CorrelatedNoiseSimulator)
 
 Available `signal` simulators includes:
 
-- [`CBCSignalSimulator`](/reference/gwsim/signal/cbc/?h=gwsim.signal.cbc.cbcsignalsimulator#gwsim.signal.cbc.CBCSignalSimulator)
+-   [`CBCSignalSimulator`](/reference/gwsim/signal/cbc/?h=gwsim.signal.cbc.cbcsignalsimulator#gwsim.signal.cbc.CBCSignalSimulator)
 
 Available `glitch` simulators includes:
 
-- [`GengliGlitchSimulator`](/reference/gwsim/glitch/gengli_glitch/?h=gwsim.glitch.gengli_glitch.gengliglitchsimulator#gwsim.glitch.gengli_glitch.GengliGlitchSimulator)
+-   [`GengliGlitchSimulator`](/reference/gwsim/glitch/gengli_glitch/?h=gwsim.glitch.gengli_glitch.gengliglitchsimulator#gwsim.glitch.gengli_glitch.GengliGlitchSimulator)
 
 ## Template Variables
 
@@ -186,25 +186,25 @@ You can use Jinja2-style templates in configuration values such as file names an
 
 ```yaml
 simulators:
-  noise:
-    arguments:
-      detectors:
-        - E1_Triangle_EMR
-        - E2_Triangle_EMR
-        - E3_Triangle_EMR
-    output:
-      file_name: 'E-{{ detectors }}_NOISE_STRAIN-{{ start_time }}-{{ duration }}.gwf'
-      arguments:
-        channel: '{{ detectors }}:STRAIN'
+    noise:
+        arguments:
+            detectors:
+                - E1_Triangle_EMR
+                - E2_Triangle_EMR
+                - E3_Triangle_EMR
+        output:
+            file_name: 'E-{{ detectors }}_NOISE_STRAIN-{{ start_time }}-{{ duration }}.gwf'
+            arguments:
+                channel: '{{ detectors }}:STRAIN'
 ```
 
 In this example, `file_name` and `channel` are automatically updated for each detector being processed.
 
 **Common variables:**
 
-- `{{ start_time }}`: GPS start time from globals
-- `{{ duration }}`: Segment duration from globals
-- `{{ detectors }}`: Current detector being processed
+-   `{{ start_time }}`: GPS start time from globals
+-   `{{ duration }}`: Segment duration from globals
+-   `{{ detectors }}`: Current detector being processed
 
 ## Checkpointing
 
@@ -224,9 +224,9 @@ gwsim simulate config.yaml
 
 The checkpoint contains:
 
-- Simulator state
-- Progress information
-- Already-generated file tracking
+-   Simulator state
+-   Progress information
+-   Already-generated file tracking
 
 ## Best Practices
 

@@ -1,38 +1,38 @@
 globals:
-  simulator-arguments:
-    # Sampling frequency in Hz (affects time resolution and file size)
-    sampling-frequency: 4096
-    # Duration of each generated segment in seconds
-    duration: 4096
-    # Human-friendly total duration (may be parsed by the config loader)
-    total-duration: 1 day
-    # GPS start time for the simulation
-    start-time: 1577491218
-  # Working directory for generated outputs (relative or absolute)
-  working-directory: .
-  # Default directory where generated frame files are written
-  output-directory: output
-  # Directory to store metadata sidecars and checkpoints
-  metadata-directory: metadata
+    simulator-arguments:
+        # Sampling frequency in Hz (affects time resolution and file size)
+        sampling-frequency: 4096
+        # Duration of each generated segment in seconds
+        duration: 4096
+        # Human-friendly total duration (may be parsed by the config loader)
+        total-duration: 1 day
+        # GPS start time for the simulation
+        start-time: 1577491218
+    # Working directory for generated outputs (relative or absolute)
+    working-directory: .
+    # Default directory where generated frame files are written
+    output-directory: output
+    # Directory to store metadata sidecars and checkpoints
+    metadata-directory: metadata
 
 simulators:
-  # Gengli glitch simulator configuration
-  glitch:
-    class: GengliGlitchSimulator
-    arguments:
-      # Path or URL to population file (HDF5) containing simulated glitch events
-      population_file: https://sandbox.zenodo.org/records/413548/files/blip_glitch_population_E2.hdf5
-      # PSD to recolor the glitches
-      psd_file: ET_10_full_cryo_psd.txt
-      # List of detector names to generate glitch for (NO network support)
-      detectors:
-        - E2_triangle_emr
-      # Random seed for glitch generation
-      seed: 42
-    output:
-      # Template used to construct the output file name at runtime. Uses template variables
-      # such as `detectors`, `start_time` and `duration` expanded by the config loader.
-      file_name: 'E-{{ detectors }}_STRAIN_GLITCH-{{ start_time }}-{{ duration }}.gwf'
-      arguments:
-        # Channel name (template) for the output frame (e.g. "E1_2L_aligned_sardinia:STRAIN")
-        channel: '{{ detectors }}:STRAIN'
+    # Gengli glitch simulator configuration
+    glitch:
+        class: GengliGlitchSimulator
+        arguments:
+            # Path or URL to population file (HDF5) containing simulated glitch events
+            population_file: https://sandbox.zenodo.org/records/413548/files/blip_glitch_population_E2.hdf5
+            # PSD to recolor the glitches
+            psd_file: ET_10_full_cryo_psd.txt
+            # List of detector names to generate glitch for (NO network support)
+            detectors:
+                - E2_triangle_emr
+            # Random seed for glitch generation
+            seed: 42
+        output:
+            # Template used to construct the output file name at runtime. Uses template variables
+            # such as `detectors`, `start_time` and `duration` expanded by the config loader.
+            file_name: 'E-{{ detectors }}_STRAIN_GLITCH-{{ start_time }}-{{ duration }}.gwf'
+            arguments:
+                # Channel name (template) for the output frame (e.g. "E1_2L_aligned_sardinia:STRAIN")
+                channel: '{{ detectors }}:STRAIN'

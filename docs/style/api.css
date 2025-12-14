@@ -1,18 +1,18 @@
 /* Indent the description under each attribute/function name */
 .md-typeset .doc-attribute-description,
 .md-typeset .doc-function-description {
-  margin-left: 1rem;
-  margin-top: 0.15rem;
+    margin-left: 1rem;
+    margin-top: 0.15rem;
 }
 
 .md-typeset .doc-contents {
-  padding-left: 0.8rem;
-  border-left: 2px solid #e5e5e5;
+    padding-left: 0.8rem;
+    border-left: 2px solid #e5e5e5;
 }
 
 /* Indent the description under each param name (global, but applies here) */
 .md-typeset .doc-param-description,
 .md-typeset .doc-return-description {
-  margin-left: 1rem;
-  margin-top: 0.15rem;
+    margin-left: 1rem;
+    margin-top: 0.15rem;
 }

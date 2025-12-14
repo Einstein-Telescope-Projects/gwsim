@@ -13,13 +13,13 @@ A Python package for generating Mock Data Challenge (MDC) datasets for the gravi
 
 ## Features
 
-- **Modular Design**: Uses mixins for flexible simulator composition
-- **Detector Support**: Built-in support for various GW detectors with custom configuration options
-- **Waveform Generation**: Integrates with PyCBC and LALSuite for accurate signal simulation
-- **Noise Models**: Supports colored and correlated noise generation (In-Progress)
-- **Population Models**: Handles injection populations for signals and glitches
-- **Data Formats**: Outputs in standard GW formats (GWF frames)
-- **CLI Interface**: Command-line tools for easy simulation workflows
+-   **Modular Design**: Uses mixins for flexible simulator composition
+-   **Detector Support**: Built-in support for various GW detectors with custom configuration options
+-   **Waveform Generation**: Integrates with PyCBC and LALSuite for accurate signal simulation
+-   **Noise Models**: Supports colored and correlated noise generation (In-Progress)
+-   **Population Models**: Handles injection populations for signals and glitches
+-   **Data Formats**: Outputs in standard GW formats (GWF frames)
+-   **CLI Interface**: Command-line tools for easy simulation workflows
 
 ## Installation
 
@@ -27,9 +27,9 @@ We recommend using `uv` to manage virtual environments for installing gwsim.
 
 If you don't have `uv` installed, you can install it with pip. See the project pages for more details:
 
-- Install via pip: `pip install --upgrade pip && pip install uv`
-- Project pages: [uv on PyPI](https://pypi.org/project/uv/) | [uv on GitHub](https://github.com/astral-sh/uv)
-- Full documentation and usage guide: [uv docs](https://docs.astral.sh/uv/)
+-   Install via pip: `pip install --upgrade pip && pip install uv`
+-   Project pages: [uv on PyPI](https://pypi.org/project/uv/) | [uv on GitHub](https://github.com/astral-sh/uv)
+-   Full documentation and usage guide: [uv docs](https://docs.astral.sh/uv/)
 
 **Note:** The package is built and tested against Python 3.10-3.12. When creating a virtual environment with `uv`, specify the Python version to ensure compatibility: `uv venv --python 3.10` (replace `3.10` with your preferred version in the 3.10-3.12 range). This avoids potential issues with unsupported Python versions.
 
@@ -68,8 +68,8 @@ gwsim uses YAML configuration files for reproducible simulations. See `examples/
 
 Key configuration sections:
 
-- `globals`: Shared parameters (sampling rate, duration, etc.)
-- `simulators`: List of noise, signal, and glitch generators
+-   `globals`: Shared parameters (sampling rate, duration, etc.)
+-   `simulators`: List of noise, signal, and glitch generators
 
 ## Documentation
 
