@@ -54,11 +54,11 @@ for path in sorted(src.rglob("*.py")):
         continue
 
     with mkdocs_gen_files.open(full_doc_path, "w") as fd:
-        IDENT = ".".join(parts)
+        indent = ".".join(parts)
 
         # Generate improved page content
-        fd.write(f"# `{IDENT}`\n\n")
-        fd.write("::: " + IDENT + "\n")
+        fd.write(f"# `{indent}`\n\n")
+        fd.write("::: " + indent + "\n")
         fd.write("    options:\n")
         fd.write("      docstring_style: google\n")
         fd.write("      show_source: true\n")
