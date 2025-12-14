@@ -82,7 +82,7 @@ Contributions are welcome!
 2. Create a feature branch
 3. Make your changes
 4. Add tests
-5. Submit a pull request
+5. Submit a merge request
 
 ## Testing
 
