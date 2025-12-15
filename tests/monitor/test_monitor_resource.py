@@ -181,12 +181,12 @@ class TestResourceMonitor:
 
         expected_calls = [
             call("Resource Usage Summary:"),
-            call("  %s: %s", "cpu_core_hours", 1.5),
-            call("  %s: %s", "peak_memory_gb", 2.0),
+            call("  %s: %s", "CPU Core Hours", 1.5),
+            call("  %s: %s", "Peak Memory (GB)", 2.0),
             call("  IO Operations:"),
-            call("    %s: %d", "read_count", 100),
-            call("    %s: %d", "write_count", 50),
-            call("  %s: %s", "wall_time", "00:00:10"),
+            call("    %s: %d", "Read Count", 100),
+            call("    %s: %d", "Write Count", 50),
+            call("  %s: %s", "Wall Time", "00:00:10"),
         ]
         mock_logger.info.assert_has_calls(expected_calls)
 
@@ -203,8 +203,8 @@ class TestResourceMonitor:
 
         expected_calls = [
             call("Resource Usage Summary:"),
-            call("  %s: %s", "cpu_core_hours", 0.5),
-            call("  %s: %s", "io_operations", {}),
+            call("  %s: %s", "CPU Core Hours", 0.5),
+            call("  %s: %s", "IO Operations", {}),
         ]
         mock_logger.info.assert_has_calls(expected_calls)
 
