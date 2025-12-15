@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import contextmanager
 from datetime import timedelta
@@ -126,3 +127,18 @@ class ResourceMonitor:  # pylint: disable=too-few-public-methods
                 "wall_time": str(timedelta(seconds=int(wall_seconds))),
                 "total_cpu_seconds": round(total_cpu_seconds, 3),
             }
+
+    def log_summary(self, logger: logging.Logger) -> None:
+        """Log the resource usage summary.
+
+        Args:
+            logger: Logger to use for logging.
+        """
+        logger.info("Resource Usage Summary:")
+        for key, value in self.metrics.items():
+            if key == "io_operations" and isinstance(value, dict) and value:
+                logger.info("  IO Operations:")
+                for io_key, io_value in value.items():
+                    logger.info("    %s: %d", io_key, io_value)
+            else:
+                logger.info("  %s: %s", key, value)
