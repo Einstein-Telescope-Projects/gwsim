@@ -88,6 +88,7 @@ repos:
                     pytest,
                     filelock,
                     hatchling,
+                    psutil,
                 ]
             stages: [pre-commit]
 
