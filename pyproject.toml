@@ -32,6 +32,7 @@ dependencies = [
     "bilby",
     "pydantic",
     "pymap3d",
+    "psutil",
 ]
 
 [project.optional-dependencies]
