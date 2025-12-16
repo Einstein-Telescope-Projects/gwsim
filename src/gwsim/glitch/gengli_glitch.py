@@ -9,7 +9,6 @@ from pathlib import Path
 
 import gengli  # pylint: disable=E0401
 import numpy as np
-from pycbc.types.timeseries import TimeSeries as PyCBCTimeSeries
 from scipy.interpolate import interp1d
 from scipy.signal.windows import tukey
 
@@ -46,7 +45,7 @@ class GengliGlitchSimulator(GlitchSimulator):
         dtype: type = np.float64,
         seed: int | None = None,
         detectors: str | None = None,
-        low_frequency_cutoff: float = 2.0,
+        low_frequency_cutoff: float = 5.0,
         high_frequency_cutoff: float | None = None,
         gengli_detector: str = "L1",
         **kwargs,
@@ -143,35 +142,48 @@ class GengliGlitchSimulator(GlitchSimulator):
         # Frequency properties
         df = 1.0 / duration
         n_samples = int(duration * self.sampling_frequency.value)
-        k_min = int(self.low_frequency_cutoff / df)
-        k_max = int(self.high_frequency_cutoff / df) + 1
+        k_min = np.ceil(self.low_frequency_cutoff / df).astype(int)
+        k_max = np.floor(self.high_frequency_cutoff / df).astype(int) + 1
         frequency = np.arange(0.0, n_samples / 2.0 + 1) * df
 
         # Interpolate the PSD to the relevant frequencies
         freqs = frequency[k_min:k_max]
-        psd_interp = interp1d(psd_data[:, 0], psd_data[:, 1], bounds_error=False, fill_value="extrapolate")(freqs)
+        psd_interp = interp1d(psd_data[:, 0], psd_data[:, 1],
+                              bounds_error=False, fill_value="extrapolate")(freqs)
 
         # Add a roll-off at the edges using a Tukey window
         window = tukey(len(freqs), alpha=1e-3)
 
         return psd_interp * window
 
-    def _color_glitch(self, glitch: np.ndarray, psd: np.ndarray, start_time: float) -> np.ndarray:
+    def _color_glitch(self, glitch: np.ndarray, psd: np.ndarray, duration: float) -> np.ndarray:
         """Color the glitch with the PSD.
 
         Args:
             glitch: White glitch time series data as a numpy array.
             psd: PSD values for the frequency bins.
-            start_time: Start time of the glitch in GPS seconds.
+            duration: Duration of the glitch in seconds.
 
         Returns:
             np.ndarray: Colored glitch array.
         """
+        # Define frequency properties
+        df = 1.0 / duration
+        dt = 1 / self.sampling_frequency.value
+        n_samples = int(duration * self.sampling_frequency.value)
+        k_min = np.ceil(self.low_frequency_cutoff / df).astype(int)
+        k_max = np.floor(self.high_frequency_cutoff / df).astype(int) + 1
 
-        white_glitch = PyCBCTimeSeries(glitch, epoch=start_time, delta_t=1 / self.sampling_frequency.value)
-        colored_glitch = (white_glitch.to_frequencyseries() * np.sqrt(psd)).to_timeseries()
+        white_glitch_fd = np.fft.rfft(glitch) / self.sampling_frequency.value
 
-        return colored_glitch.data
+        # Color glitch in frequency domain
+        colored_glitch_fd = np.zeros_like(white_glitch_fd, dtype=np.complex128)
+        colored_glitch_fd[k_min:k_max] = white_glitch_fd[k_min:k_max] * np.sqrt(psd)
+
+        colored_glitch = np.fft.irfft(colored_glitch_fd, n=n_samples) * \
+            self.sampling_frequency.value
+
+        return colored_glitch
 
     def _simulate(self, *args, **kwargs) -> TimeSeriesList:
         """Simulate glitches for the current segment.
@@ -205,7 +217,8 @@ class GengliGlitchSimulator(GlitchSimulator):
 
             # Define glitch time properties
             glitch_duration = len(glitch_instance) / self.sampling_frequency.value
-            glitch_start_time = parameters["gps_time"] - glitch_duration / 2  # Center the glitch at gps_time
+            glitch_start_time = parameters["gps_time"] - \
+                glitch_duration / 2  # Center the glitch at gps_time
 
             # Interpolate the PSD
             psd_instance = self._initialize_psd(self._psd_array, glitch_duration)
@@ -214,7 +227,7 @@ class GengliGlitchSimulator(GlitchSimulator):
             glitch_data = np.zeros((1, int(glitch_duration * self.sampling_frequency.value)))
 
             # Color the glitch
-            glitch_data[0, :] = self._color_glitch(glitch_instance, psd_instance, glitch_start_time)
+            glitch_data[0, :] = self._color_glitch(glitch_instance, psd_instance, glitch_duration)
 
             strain = TimeSeries(
                 data=glitch_data, start_time=glitch_start_time, sampling_frequency=self.sampling_frequency.value
