@@ -26,7 +26,7 @@ class GengliGlitchSimulator(GlitchSimulator):
     """Glitch simulator based on `gengli`.
 
     This class simulates gravitational wave detector glitches using the gengli package for glitch generation.
-    Glitches are generated as white time series and colored using the provided PSD.
+    Glitches are generated as white time series and colored using the provided PSD
 
     Only 'Blip' glitches generation is supported for now!
 
@@ -148,8 +148,7 @@ class GengliGlitchSimulator(GlitchSimulator):
 
         # Interpolate the PSD to the relevant frequencies
         freqs = frequency[k_min:k_max]
-        psd_interp = interp1d(psd_data[:, 0], psd_data[:, 1],
-                              bounds_error=False, fill_value="extrapolate")(freqs)
+        psd_interp = interp1d(psd_data[:, 0], psd_data[:, 1], bounds_error=False, fill_value="extrapolate")(freqs)
 
         # Add a roll-off at the edges using a Tukey window
         window = tukey(len(freqs), alpha=1e-3)
@@ -169,7 +168,6 @@ class GengliGlitchSimulator(GlitchSimulator):
         """
         # Define frequency properties
         df = 1.0 / duration
-        dt = 1 / self.sampling_frequency.value
         n_samples = int(duration * self.sampling_frequency.value)
         k_min = np.ceil(self.low_frequency_cutoff / df).astype(int)
         k_max = np.floor(self.high_frequency_cutoff / df).astype(int) + 1
@@ -180,8 +178,7 @@ class GengliGlitchSimulator(GlitchSimulator):
         colored_glitch_fd = np.zeros_like(white_glitch_fd, dtype=np.complex128)
         colored_glitch_fd[k_min:k_max] = white_glitch_fd[k_min:k_max] * np.sqrt(psd)
 
-        colored_glitch = np.fft.irfft(colored_glitch_fd, n=n_samples) * \
-            self.sampling_frequency.value
+        colored_glitch = np.fft.irfft(colored_glitch_fd, n=n_samples) * self.sampling_frequency.value
 
         return colored_glitch
 
@@ -217,8 +214,7 @@ class GengliGlitchSimulator(GlitchSimulator):
 
             # Define glitch time properties
             glitch_duration = len(glitch_instance) / self.sampling_frequency.value
-            glitch_start_time = parameters["gps_time"] - \
-                glitch_duration / 2  # Center the glitch at gps_time
+            glitch_start_time = parameters["gps_time"] - glitch_duration / 2  # Center the glitch at gps_time
 
             # Interpolate the PSD
             psd_instance = self._initialize_psd(self._psd_array, glitch_duration)
