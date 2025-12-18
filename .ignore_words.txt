@@ -13,6 +13,7 @@ checkpointing
 Checkpointing
 cireddu
 coalescences
+condapath
 coba
 colorbar
 commitlint
@@ -54,6 +55,7 @@ nbytes
 ndarray
 npy
 NSBH
+ntasks
 Nyquist
 objname
 objtype
@@ -72,6 +74,8 @@ representer
 retryable
 rtol
 RUSAGE
+sbatch
+SBATCH
 SEOBN
 snrs
 srange

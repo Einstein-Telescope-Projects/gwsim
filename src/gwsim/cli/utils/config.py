@@ -89,11 +89,28 @@ class GlobalsConfig(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
+class BatchConfig(BaseModel):
+    """Batch configuration applying to all simulators."""
+
+    scheduler: str = Field(
+        default="slurm", alias="scheduler", description="Name of the scheduler (only `slurm` currently supported)"
+    )
+    job_name: str = Field(default=None, alias="job-name", description="Name of the job")
+    resources: dict[str, Any] = Field(
+        default_factory=dict,
+        alias="resources",
+        description="Default resources for the simulation (e.g., nodes, ntasks_per_node, cpus_per_task, mem)",
+    )
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
 class Config(BaseModel):
     """Top-level configuration model."""
 
     globals: GlobalsConfig = Field(default_factory=GlobalsConfig, description="Global configuration")
     simulators: dict[str, SimulatorConfig] = Field(..., description="Dictionary of simulators")
+    batch: BatchConfig | None = Field(default=None, description="Resources and scheduler configuration")
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
