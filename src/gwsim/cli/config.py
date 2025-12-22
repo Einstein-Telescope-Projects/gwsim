@@ -84,6 +84,7 @@ def _config_command_impl(  # pylint: disable=too-many-locals,too-many-branches,t
         )
         return
 
+    # pylint: disable=duplicate-code
     if get is not None:
         src_path = examples_dir / get / "config.yaml"
         if not src_path.exists():

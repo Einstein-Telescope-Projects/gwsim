@@ -75,6 +75,7 @@ nav:
           - Metadata Files: user-guide/metadata.md
           - Examples: user-guide/examples.md
           - Publishing Data to Zenodo: user-guide/repository.md
+          - Running Simulations on a Cluster: user-guide/cluster.md
     - API Reference:
           - Overview: reference/index.md
           - gwsim.cli:

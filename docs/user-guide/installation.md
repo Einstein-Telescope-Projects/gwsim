@@ -62,7 +62,7 @@ To set up for development:
 
 ```bash
 git clone https://gitlab.et-gw.eu/et-projects/software/gwsim.git
-ce gwsim
+cd gwsim
 
 # Create a virtual environment (recommended with uv)
 uv venv --python 3.10

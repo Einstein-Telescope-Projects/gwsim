@@ -74,10 +74,10 @@ gwsim config --list
 
 #### Flag `--get`
 
-Copy one of the available example configuration files from the [`examples`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples) directory into the working directory.
+Copy one of the available example configuration files from the [`examples`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples) directory into the working directory. The `<example_label>` must be one of the example names listed by the `gwsim config --list` command.
 
 ```bash
-gwsim config --get <config.yaml>
+gwsim config --get <example_label>
 ```
 
 #### Flag `--init`
