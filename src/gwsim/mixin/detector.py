@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import cast
 
 import numpy as np
+from gwpy.frequencyseries import FrequencySeries
 from gwpy.timeseries import TimeSeries as GWpyTimeSeries
 from scipy.interpolate import interp1d
 
+from gwsim.calibration.calibration import CalibrationModel
 from gwsim.data.time_series.time_series import TimeSeries
 from gwsim.detector.base import Detector
-from gwsim.detector.utils import DEFAULT_DETECTOR_BASE_PATH
 
 
 class DetectorMixin:  # pylint: disable=too-few-public-methods
@@ -51,10 +52,27 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
         elif isinstance(value, list):
             self._detectors = []
             for det in value:
-                if Path(det).is_file() or (DEFAULT_DETECTOR_BASE_PATH / det).is_file():
-                    self._detectors.append(Detector(configuration_file=det))
+
+                # NEW: detector specified as a dict (with optional calibration)
+                if isinstance(det, dict):
+                    name = det["name"]
+                    detector = Detector(name=name)
+
+                    if "calibration" in det:
+                        cal_file = Path(det["calibration"]["file"])
+                        freqs, amp, phase = np.loadtxt(cal_file, unpack=True)
+                        detector.calibration = CalibrationModel(freqs, amp, phase)
+                    else:
+                        detector.calibration = None
+
+                    self._detectors.append(detector)
+
+                # BACKWARD COMPATIBILITY: detector specified as string
                 else:
-                    self._detectors.append(Detector(name=str(det)))
+                    detector = Detector(name=str(det))
+                    detector.calibration = None
+                    self._detectors.append(detector)
+
         else:
             raise ValueError("detectors must be a list.")
 
@@ -67,6 +85,39 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
         if all(det.is_configured() for det in self.detectors):
             return True
         return False
+
+    def apply_calibration_fd(
+        self,
+        polarizations_fd: dict[str, FrequencySeries],
+    ) -> dict[str, FrequencySeries]:
+        """Apply detector calibration in the frequency domain.
+
+        This method applies the detector calibration transfer function
+        to frequency-domain plus and cross polarizations.
+
+        Calibration is applied before any inverse Fourier transform
+        to avoid redundant FFTs.
+
+        Args:
+            polarizations_fd:
+                Dictionary with 'plus' and 'cross' FrequencySeries.
+
+        Returns:
+            Dictionary with calibrated FrequencySeries.
+        """
+        if not hasattr(self, "calibration") or self.calibration is None:
+            return polarizations_fd
+
+        hp = polarizations_fd["plus"]
+        hc = polarizations_fd["cross"]
+
+        freqs = hp.frequencies.to_value()
+        cal = self.calibration.transfer_function(freqs)
+
+        hp_cal = hp * cal
+        hc_cal = hc * cal
+
+        return {"plus": hp_cal, "cross": hc_cal}
 
     def project_polarizations(  # pylint: disable=too-many-locals,unused-argument
         self,

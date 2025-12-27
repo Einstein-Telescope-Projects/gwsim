@@ -28,7 +28,6 @@ dependencies = [
     "numpy",
     "h5py",
     "pycbc",
-    "gengli",
     "bilby",
     "pydantic",
     "pymap3d",
