@@ -16,10 +16,10 @@ Calibration is treated as a detector property and is fully configured through th
 
 The following functionality was added:
 
-- A new frequency-domain calibration model
-- Support for detector-specific calibration through the configuration system
-- A detector-level hook to apply calibration in the frequency domain
-- No changes to existing time-domain detector projection logic
+-   A new frequency-domain calibration model
+-   Support for detector-specific calibration through the configuration system
+-   A detector-level hook to apply calibration in the frequency domain
+-   No changes to existing time-domain detector projection logic
 
 Earth rotation, antenna pattern evaluation, and time delays are handled exactly as before.
 
@@ -32,9 +32,10 @@ A new file was added:
 This file defines a `CalibrationModel` class that represents fixed, frequency-dependent calibration errors.
 
 The model stores:
-- A frequency grid
-- Fractional amplitude errors
-- Phase errors in radians
+
+-   A frequency grid
+-   Fractional amplitude errors
+-   Phase errors in radians
 
 Amplitude and phase errors are interpolated linearly in frequency. Outside the provided frequency range, errors default to zero.
 
@@ -94,3 +95,5 @@ This change is backward compatible with existing configuration files.
 When a calibration block is present, the detector loads a calibration model at initialization time and stores it as a detector attribute.
 
 ---
+=======
+```

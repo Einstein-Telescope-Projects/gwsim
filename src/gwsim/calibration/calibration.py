@@ -1,5 +1,11 @@
-# gwsim/calibration.py
+# pylint: disable=too-few-public-methods
+"""
+Frequency-domain calibration models for gravitational-wave detectors.
 
+This module defines calibration utilities used to model fixed,
+frequency-dependent amplitude and phase errors applied to strain
+data in the frequency domain.
+"""
 from __future__ import annotations
 
 import numpy as np
