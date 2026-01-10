@@ -8,6 +8,18 @@ import mkdocs_gen_files
 
 src = Path(__file__).parent.parent / "src"
 
+root_dir = Path(__file__).parent.parent
+
+# Copy CONTRIBUTING.md to docs directory
+contributing_src = root_dir / "CONTRIBUTING.md"
+contributing_dest = Path("CONTRIBUTING.md")
+if contributing_src.exists():
+    with open(contributing_src, encoding="utf-8") as src_fd:
+        content = src_fd.read()
+    with mkdocs_gen_files.open("CONTRIBUTING.md", "w") as fd:
+        fd.write(content)
+    mkdocs_gen_files.set_edit_path(Path("CONTRIBUTING.md"), contributing_src)
+
 # Generate the index page
 with mkdocs_gen_files.open("reference/index.md", "w") as fd:
     fd.write("# API Reference\n\n")

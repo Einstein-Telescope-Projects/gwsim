@@ -118,7 +118,7 @@ nav:
           - random: reference/gwsim/utils/random.md
       - gwsim.waveform: reference/gwsim/waveform/index.md
   - Developer Guide:
-      - Contributing: dev/contributing.md
+      - Contributing: CONTRIBUTING.md
       - Architecture: dev/architecture.md
   - Troubleshooting: dev/troubleshooting.md
 
