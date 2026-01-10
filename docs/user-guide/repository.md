@@ -23,8 +23,8 @@ Before using the repository commands, you need a Zenodo API token:
 
 When creating a token, ensure it has these scopes:
 
--   `deposit:write` — Write access to create/upload files
--   `deposit:actions` — Permission to publish depositions
+- `deposit:write` — Write access to create/upload files
+- `deposit:actions` — Permission to publish depositions
 
 ### Set Environment Variables
 
@@ -108,9 +108,9 @@ gwsim repository upload 123456 \
 
 **Features**:
 
--   Files are uploaded with automatic timeout adjustment (10 seconds per MB)
--   Progress bar shows upload status
--   Failed uploads are reported; retry-safe via exponential backoff
+- Files are uploaded with automatic timeout adjustment (10 seconds per MB)
+- Progress bar shows upload status
+- Failed uploads are reported; retry-safe via exponential backoff
 
 **Output**:
 
@@ -129,28 +129,28 @@ Enhance your deposition with structured metadata:
 
 ```yaml
 creators:
-    - name: 'Jane Doe'
-      affiliation: 'LIGO Laboratory'
-      orcid: '0000-0000-0000-0000'
-    - name: 'John Smith'
-      affiliation: 'Virgo Collaboration'
+  - name: 'Jane Doe'
+    affiliation: 'LIGO Laboratory'
+    orcid: '0000-0000-0000-0000'
+  - name: 'John Smith'
+    affiliation: 'Virgo Collaboration'
 
 keywords:
-    - 'gravitational waves'
-    - 'mock data challenge'
-    - 'binary black holes'
-    - 'LIGO'
-    - 'Virgo'
+  - 'gravitational waves'
+  - 'mock data challenge'
+  - 'binary black holes'
+  - 'LIGO'
+  - 'Virgo'
 
 license: 'cc-by-4.0'
 contributors:
-    - name: 'LIGO Laboratory'
-      role: 'Hosting institution'
+  - name: 'LIGO Laboratory'
+    role: 'Hosting institution'
 
 related_identifiers:
-    - identifier: '10.7935/gqm7-wf12'
-      relation: 'references'
-      resource_type: 'publication'
+  - identifier: '10.7935/gqm7-wf12'
+    relation: 'references'
+    resource_type: 'publication'
 ```
 
 **Upload metadata**:
@@ -299,28 +299,28 @@ When publishing GW simulation data, include:
 title: 'GW Mock Data Challenge v1: Synthetic Binary Black Hole Signals'
 
 description: |
-    Simulated gravitational-wave strain data for LIGO Hanford, LIGO Livingston,
-    and Virgo detectors. Includes 1000 binary black hole coalescence waveforms
-    with varying masses (10-100 solar masses), spins, and sky positions.
+  Simulated gravitational-wave strain data for LIGO Hanford, LIGO Livingston,
+  and Virgo detectors. Includes 1000 binary black hole coalescence waveforms
+  with varying masses (10-100 solar masses), spins, and sky positions.
 
-    Sampling rate: 16384 Hz
-    Duration: 8 seconds per event
-    Frequency range: 20-512 Hz
+  Sampling rate: 16384 Hz
+  Duration: 8 seconds per event
+  Frequency range: 20-512 Hz
 
-    Generated using PyCBC v1.18.4 and LALSuite v7.0.
+  Generated using PyCBC v1.18.4 and LALSuite v7.0.
 
 creators:
-    - name: 'Jane Doe'
-      orcid: '0000-0001-2345-6789'
-      affiliation: 'LIGO Laboratory, Caltech'
+  - name: 'Jane Doe'
+    orcid: '0000-0001-2345-6789'
+    affiliation: 'LIGO Laboratory, Caltech'
 
 keywords:
-    - 'gravitational waves'
-    - 'LIGO'
-    - 'Virgo'
-    - 'binary black holes'
-    - 'mock data challenge'
-    - 'synthetic data'
+  - 'gravitational waves'
+  - 'LIGO'
+  - 'Virgo'
+  - 'binary black holes'
+  - 'mock data challenge'
+  - 'synthetic data'
 
 license: 'cc-by-4.0'
 ```

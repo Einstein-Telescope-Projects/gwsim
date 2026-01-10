@@ -38,31 +38,31 @@ mem: 16GB
 
 ### Commonly used options (only allowed with `--get`)
 
--   `--job-name <name>`
-    Job name that will appear in SLURM (stored as `batch.job-name`). Default: `gwsim_job`.
+- `--job-name <name>`
+  Job name that will appear in SLURM (stored as `batch.job-name`). Default: `gwsim_job`.
 
--   `--scheduler <scheduler>`
-    Name of the scheduler (only `slurm` currently supported). Default: `slurm`.
+- `--scheduler <scheduler>`
+  Name of the scheduler (only `slurm` currently supported). Default: `slurm`.
 
--   `--account <account>`
-    SLURM account/project to charge.
+- `--account <account>`
+  SLURM account/project to charge.
 
--   `--cluster <partition>`
-    SLURM cluster or partition to run on.
+- `--cluster <partition>`
+  SLURM cluster or partition to run on.
 
--   `--time <time>`
-    Wall time limit in `hh:mm:ss` format.
+- `--time <time>`
+  Wall time limit in `hh:mm:ss` format.
 
--   `--extra-line '<command>'`
-    Add a custom shell line to the submit script before the simulation command (e.g. environment setup, module loads, conda activate).
-    Can be repeated multiple times.
+- `--extra-line '<command>'`
+  Add a custom shell line to the submit script before the simulation command (e.g. environment setup, module loads, conda activate).
+  Can be repeated multiple times.
 
--   `--output <path>`
-    Destination for the new configuration file.
-    Default: `config.yaml` in the current directory.
+- `--output <path>`
+  Destination for the new configuration file.
+  Default: `config.yaml` in the current directory.
 
--   `--overwrite`
-    Overwrite the output configuration file if it already exists.
+- `--overwrite`
+  Overwrite the output configuration file if it already exists.
 
 ### Example
 
@@ -83,21 +83,21 @@ add the following `batch` section to the configuration file:
 
 ```yaml
 batch:
-    scheduler: slurm # Default
-    job-name: gwsim_test
-    resources:
-        nodes: 1 # Default
-        ntasks-per-node: 1 # Default
-        cpus-per-task: 1 # Default
-        mem: 16GB # Default
-    submit:
-        account: my_account
-        cluster: cluster_name
-        time: 02:00:00
-    extra_lines:
-        - export export PATH="/my_account/miniconda3/bin:$PATH"
-        - eval "$(conda shell.bash hook)"
-        - conda activate /my_account/miniconda3/envs/my_env
+  scheduler: slurm # Default
+  job-name: gwsim_test
+  resources:
+    nodes: 1 # Default
+    ntasks-per-node: 1 # Default
+    cpus-per-task: 1 # Default
+    mem: 16GB # Default
+  submit:
+    account: my_account
+    cluster: cluster_name
+    time: 02:00:00
+  extra_lines:
+    - export export PATH="/my_account/miniconda3/bin:$PATH"
+    - eval "$(conda shell.bash hook)"
+    - conda activate /my_account/miniconda3/envs/my_env
 ```
 
 ## 2. Generate and Submit a Slurm Job
@@ -113,27 +113,27 @@ When executed, the following actions are performed:
 
 1. Directories are created under `<working-directory>/slurm/`:
 
-    - `output/` – stdout files
-    - `error/` – stderr files
-    - `submit/` – the generated `.submit` script
+   - `output/` – stdout files
+   - `error/` – stderr files
+   - `submit/` – the generated `.submit` script
 
 2. A SLURM submit script is written containing:
 
-    - All `#SBATCH` directives from `batch.resources`
-    - Any additional `#SBATCH` directives from `batch.submit` (account, cluster, time, etc.)
-    - All custom lines from `batch.extra_lines` (if present)
-    - The command `gwsim simulate <absolute_path_to_config.yaml>`
+   - All `#SBATCH` directives from `batch.resources`
+   - Any additional `#SBATCH` directives from `batch.submit` (account, cluster, time, etc.)
+   - All custom lines from `batch.extra_lines` (if present)
+   - The command `gwsim simulate <absolute_path_to_config.yaml>`
 
 3. If `--submit` is used, `sbatch` is called.
 
 ### Optional
 
--   `--submit`
-    Immediately submit the generated job using `sbatch`.
-    Without this flag, only the submit script is created.
+- `--submit`
+  Immediately submit the generated job using `sbatch`.
+  Without this flag, only the submit script is created.
 
--   `--overwrite`
-    Overwrite an existing submit script if it already exists.
+- `--overwrite`
+  Overwrite an existing submit script if it already exists.
 
 ### Example
 

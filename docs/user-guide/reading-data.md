@@ -17,8 +17,8 @@ data = TimeSeries.read("filename.gwf", channel="E1:STRAIN")
 
 **Parameters:**
 
--   `filename`: Path to the GWF file
--   `channel`: Channel name to read (common format: `DETECTOR:CHANNEL_NAME`)
+- `filename`: Path to the GWF file
+- `channel`: Channel name to read (common format: `DETECTOR:CHANNEL_NAME`)
 
 ### Example
 
@@ -122,11 +122,11 @@ print(metadata["output_files"])
 
 **Metadata includes:**
 
--   Simulator configuration
--   Random number generator state (for reproducibility)
--   Output file names
--   Version information
--   Generation timestamps
+- Simulator configuration
+- Random number generator state (for reproducibility)
+- Output file names
+- Version information
+- Generation timestamps
 
 For a quick guide on how to inspect and reuse metadata files to reproduce a dataset, see the [Metadata Files](metadata.md) page.
 

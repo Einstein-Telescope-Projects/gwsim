@@ -6,10 +6,10 @@ This document describes the high-level architecture and design principles of gws
 
 gwsim is designed as an orchestration layer that leverages existing third-party packages (PyCBC, LALSuite, scipy, astropy) for actual signal processing and waveform generation. The package provides:
 
--   **Configuration Management**: YAML-based configuration with inheritance and template expansion
--   **Reproducible Workflows**: Full state tracking with checksums and metadata
--   **Unified Interfaces**: Consistent APIs across different simulator types
--   **Extensibility**: Easy addition of new simulators without CLI modifications
+- **Configuration Management**: YAML-based configuration with inheritance and template expansion
+- **Reproducible Workflows**: Full state tracking with checksums and metadata
+- **Unified Interfaces**: Consistent APIs across different simulator types
+- **Extensibility**: Easy addition of new simulators without CLI modifications
 
 ## Core Design Principles
 
@@ -17,24 +17,24 @@ gwsim is designed as an orchestration layer that leverages existing third-party 
 
 gwsim wraps existing, battle-tested libraries rather than reimplementing signal processing algorithms. This approach:
 
--   Ensures correctness by relying on established implementations
--   Reduces maintenance burden
--   Allows users to leverage decades of gravitational-wave research
+- Ensures correctness by relying on established implementations
+- Reduces maintenance burden
+- Allows users to leverage decades of gravitational-wave research
 
 **Key dependencies:**
 
--   **PyCBC**: Waveform generation and data analysis
--   **LALSuite**: LAL algorithms for GW science
--   **scipy**: Scientific computing utilities
--   **astropy**: Astronomical utilities and units
+- **PyCBC**: Waveform generation and data analysis
+- **LALSuite**: LAL algorithms for GW science
+- **scipy**: Scientific computing utilities
+- **astropy**: Astronomical utilities and units
 
 ### 2. Stable CLI Interface
 
 The command-line interface remains unchanged regardless of underlying implementation changes. New features are added through:
 
--   New simulator classes in `signal/`, `noise/`, `glitch/` modules
--   Updated configuration options
--   No CLI modifications required
+- New simulator classes in `signal/`, `noise/`, `glitch/` modules
+- Updated configuration options
+- No CLI modifications required
 
 ### 3. Mixin-Based Composition
 
@@ -55,10 +55,10 @@ Specialized Simulators (NoiseSimulator, SignalSimulator, GlitchSimulator)
 
 Benefits:
 
--   Code reuse across simulator types
--   Clean separation of concerns
--   Easy to combine functionality
--   Simple to extend with new mixins
+- Code reuse across simulator types
+- Clean separation of concerns
+- Easy to combine functionality
+- Simple to extend with new mixins
 
 ## Project Structure
 
@@ -135,15 +135,15 @@ gwsim/
 
 **Key files:**
 
--   `main.py`: Typer application with commands
--   `simulate.py`: Main simulation command
--   `utils/`: Configuration loading, checkpointing, templating
+- `main.py`: Typer application with commands
+- `simulate.py`: Main simulation command
+- `utils/`: Configuration loading, checkpointing, templating
 
 **Features:**
 
--   Commands: `gwsim simulate config.yaml`
--   Flags: `--overwrite`, `--dry-run`, `--metadata`
--   Argument validation and help text
+- Commands: `gwsim simulate config.yaml`
+- Flags: `--overwrite`, `--dry-run`, `--metadata`
+- Argument validation and help text
 
 ### 2. Simulator Framework (`simulator/`)
 
@@ -151,8 +151,8 @@ gwsim/
 
 **Key classes:**
 
--   `Simulator`: Abstract base with state management
--   `StateAttribute`: Descriptor for state tracking
+- `Simulator`: Abstract base with state management
+- `StateAttribute`: Descriptor for state tracking
 
 ### 3. Mixin System (`mixin/`)
 
@@ -160,11 +160,11 @@ gwsim/
 
 **Key mixins:**
 
--   `RandomnessMixin`: Seeded RNG management
--   `DetectorMixin`: Multi-detector support
--   `TimeSeriesMixin`: Time series handling
--   `WaveformMixin`: Waveform generation
--   `PopulationReaderMixin`: Population file reading
+- `RandomnessMixin`: Seeded RNG management
+- `DetectorMixin`: Multi-detector support
+- `TimeSeriesMixin`: Time series handling
+- `WaveformMixin`: Waveform generation
+- `PopulationReaderMixin`: Population file reading
 
 **Mixin pattern example:**
 
@@ -197,10 +197,10 @@ class PyCBCStationaryGaussianNoiseSimulator(NoiseSimulator):
 
 **Features:**
 
--   YAML parsing and validation
--   Jinja2 template expansion
--   Configuration inheritance
--   Runtime variable substitution
+- YAML parsing and validation
+- Jinja2 template expansion
+- Configuration inheritance
+- Runtime variable substitution
 
 **Example flow:**
 
@@ -346,10 +346,10 @@ class MyCustomNoise(BaseNoise, RandomnessMixin, TimeSeriesMixin):
 
 ```yaml
 simulators:
-    my_noise:
-        class: gwsim.noise.MyCustomNoise
-        arguments:
-            param1: value1
+  my_noise:
+    class: gwsim.noise.MyCustomNoise
+    arguments:
+      param1: value1
 ```
 
 ### Adding a New Mixin
@@ -375,58 +375,58 @@ class MySimulator(BaseSimulator, MyMixin):
 
 **Current implementation:**
 
--   Single-threaded batch processing
--   Checkpointing ensures fault tolerance
--   Random state management prevents seed collisions
+- Single-threaded batch processing
+- Checkpointing ensures fault tolerance
+- Random state management prevents seed collisions
 
 **Future considerations:**
 
--   Thread-pool execution for batch parallelization
--   Process-pool for computationally intensive simulations
--   Distributed simulation across multiple machines
+- Thread-pool execution for batch parallelization
+- Process-pool for computationally intensive simulations
+- Distributed simulation across multiple machines
 
 ## Testing Strategy
 
 ### Unit Tests
 
--   Mock third-party libraries
--   Test configuration parsing
--   Test state management
--   Test CLI argument handling
+- Mock third-party libraries
+- Test configuration parsing
+- Test state management
+- Test CLI argument handling
 
 ### Integration Tests
 
--   End-to-end simulation workflows
--   Checkpoint/resume functionality
--   File I/O operations
+- End-to-end simulation workflows
+- Checkpoint/resume functionality
+- File I/O operations
 
 ### Performance Tests
 
--   Benchmark common operations
--   Memory profiling for large datasets
--   Stress testing with extended simulations
+- Benchmark common operations
+- Memory profiling for large datasets
+- Stress testing with extended simulations
 
 ## Design Decisions
 
 ### Why Mixins?
 
--   **Flexibility**: Combine features as needed
--   **Reusability**: Same mixin in multiple simulators
--   **Maintainability**: Changes in one mixin don't affect others
--   **Testability**: Easy to mock individual mixins
+- **Flexibility**: Combine features as needed
+- **Reusability**: Same mixin in multiple simulators
+- **Maintainability**: Changes in one mixin don't affect others
+- **Testability**: Easy to mock individual mixins
 
 ### Why StateAttribute?
 
--   **Instance isolation**: Prevents test interference
--   **Clean interface**: Transparent to users
--   **Automatic tracking**: Integrated with checkpointing
+- **Instance isolation**: Prevents test interference
+- **Clean interface**: Transparent to users
+- **Automatic tracking**: Integrated with checkpointing
 
 ### Why Registry?
 
--   **Dynamic loading**: Simulators added without code changes
--   **Configuration-driven**: Full control via YAML
--   **Third-party integration**: Easy to wrap external libraries
--   **Discovery**: Automatic detection of available simulators
+- **Dynamic loading**: Simulators added without code changes
+- **Configuration-driven**: Full control via YAML
+- **Third-party integration**: Easy to wrap external libraries
+- **Discovery**: Automatic detection of available simulators
 
 ## Performance Considerations
 
@@ -438,7 +438,7 @@ class MySimulator(BaseSimulator, MyMixin):
 
 ## References
 
--   [PyCBC Documentation](https://pycbc.org/)
--   [LALSuite Documentation](https://lscsoft.docs.ligo.org/lalsuite/)
--   [GWpy Documentation](https://gwpy.github.io/)
--   [Bilby Documentation](https://bilby.readthedocs.io/)
+- [PyCBC Documentation](https://pycbc.org/)
+- [LALSuite Documentation](https://lscsoft.docs.ligo.org/lalsuite/)
+- [GWpy Documentation](https://gwpy.github.io/)
+- [Bilby Documentation](https://bilby.readthedocs.io/)

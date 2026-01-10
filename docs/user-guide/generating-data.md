@@ -40,9 +40,9 @@ gwsim simulate config.yaml
 
 Each GWF file is approximately 123 MB. For three detectors with 21 files each:
 
--   **Data files**: ~7.6 GB
--   **Metadata**: ~52.5 KB
--   **Total**: ~7.6 GB
+- **Data files**: ~7.6 GB
+- **Metadata**: ~52.5 KB
+- **Total**: ~7.6 GB
 
 ## Generating CBC Signals
 
@@ -162,39 +162,39 @@ gwsim simulate config.yaml
 
 Triangular Configuration (Meuse-Rhine Euregion)
 
--   `E1_triangle_emr`
--   `E2_triangle_emr`
--   `E3_triangle_emr`
+- `E1_triangle_emr`
+- `E2_triangle_emr`
+- `E3_triangle_emr`
 
 Triangular Configuration (Sardinia)
 
--   `E1_triangle_sardinia`
--   `E2_triangle_sardinia`
--   `E3_triangle_sardinia`
+- `E1_triangle_sardinia`
+- `E2_triangle_sardinia`
+- `E3_triangle_sardinia`
 
 2L Aligned Configuration
 
--   `E1_2L_aligned_sardinia`
--   `E2_2L_aligned_emr`
+- `E1_2L_aligned_sardinia`
+- `E2_2L_aligned_emr`
 
 2L Misaligned Configuration
 
--   `E1_2L_misaligned_sardinia`
--   `E2_2L_misaligned_emr`
+- `E1_2L_misaligned_sardinia`
+- `E2_2L_misaligned_emr`
 
 To use a specific configuration, update the `detectors` list in your configuration file:
 
 ```yaml
 detectors:
-    - E1_2L_aligned_sardinia
-    - E2_2L_aligned_emr
+  - E1_2L_aligned_sardinia
+  - E2_2L_aligned_emr
 ```
 
 You don't need to include all detectors. For example, to generate only E1 data:
 
 ```yaml
 detectors:
-    - E1_2L_aligned_sardinia
+  - E1_2L_aligned_sardinia
 ```
 
 ## Using Different Sensitivity Curves
@@ -206,9 +206,9 @@ To use a specific sensitivity curve:
 
 ```yaml
 simulators:
-    noise:
-        arguments:
-            psd: ET_15_HF_psd.txt
+  noise:
+    arguments:
+      psd: ET_15_HF_psd.txt
 ```
 
 <!-- prettier-ignore -->
@@ -282,31 +282,31 @@ You can generate multi-detector correlated noise by specifying a cross-power spe
 
 ```yaml
 globals:
-    simulator-arguments:
-        sampling-frequency: 4096
-        duration: 4096
-        total-duration: '1 day'
-        start-time: 1577491218
-    working-directory: './ET_Triangle_EMR_correlated_noise'
-    output-directory: 'data'
-    metadata-directory: 'metadata'
+  simulator-arguments:
+    sampling-frequency: 4096
+    duration: 4096
+    total-duration: '1 day'
+    start-time: 1577491218
+  working-directory: './ET_Triangle_EMR_correlated_noise'
+  output-directory: 'data'
+  metadata-directory: 'metadata'
 
 simulators:
-    noise:
-        class: CorrelatedNoiseSimulator
-        arguments:
-            psd_file: ET_10_full_cryo_psd.txt
-            csd_file: path_to_csd_file.txt
-            detectors:
-                - E1_Triangle_EMR
-                - E2_Triangle_EMR
-                - E3_Triangle_EMR
-            low_frequency_cutoff: 2
-            seed: 42
-        output:
-            file_name: 'E-{{ detectors }}_CORRELATED-NOISE_STRAIN-{{ start_time }}-{{ duration }}.gwf'
-            arguments:
-                channel: '{{ detectors }}:STRAIN'
+  noise:
+    class: CorrelatedNoiseSimulator
+    arguments:
+      psd_file: ET_10_full_cryo_psd.txt
+      csd_file: path_to_csd_file.txt
+      detectors:
+        - E1_Triangle_EMR
+        - E2_Triangle_EMR
+        - E3_Triangle_EMR
+      low_frequency_cutoff: 2
+      seed: 42
+    output:
+      file_name: 'E-{{ detectors }}_CORRELATED-NOISE_STRAIN-{{ start_time }}-{{ duration }}.gwf'
+      arguments:
+        channel: '{{ detectors }}:STRAIN'
 ```
 
 `gwsim` uses a windowing approach to generate long-duration datasets.

@@ -1,202 +1,202 @@
 stages:
-    - .pre
-    - test
-    - coverage
-    - release
-    - publish
+  - .pre
+  - test
+  - coverage
+  - release
+  - publish
 
 # Global variables and cache
 variables:
-    PIP_CACHE_DIR: '$CI_PROJECT_DIR/.cache/pip'
+  PIP_CACHE_DIR: '$CI_PROJECT_DIR/.cache/pip'
 
 cache:
-    paths:
-        - .cache/pip
-        - venv/
+  paths:
+    - .cache/pip
+    - venv/
 
 # ------------- Commit Lint -------------
 
 commitlint:
-    stage: .pre
-    image: node:18
-    before_script:
-        - npm install -g @commitlint/cli @commitlint/config-conventional
-    rules:
-        # Run on every merge request
-        - if: $CI_MERGE_REQUEST_IID
-    script:
-        - git fetch origin $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
-        # Lint all commits introduced by this MR
-        - echo "Linting commits in MR !$CI_MERGE_REQUEST_IID"
-        - commitlint --from origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME --to HEAD --verbose --config commitlint.config.js
-    allow_failure: false
+  stage: .pre
+  image: node:18
+  before_script:
+    - npm install -g @commitlint/cli @commitlint/config-conventional
+  rules:
+    # Run on every merge request
+    - if: $CI_MERGE_REQUEST_IID
+  script:
+    - git fetch origin $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+    # Lint all commits introduced by this MR
+    - echo "Linting commits in MR !$CI_MERGE_REQUEST_IID"
+    - commitlint --from origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME --to HEAD --verbose --config commitlint.config.js
+  allow_failure: false
 
 # ------------- Pre-commit Job -------------
 
 pre-commit:
-    stage: test
-    image: python:3.12
-    before_script:
-        - python -m pip install --upgrade pip
-        - python -m pip install pre-commit
-    script:
-        - pre-commit run --all-files
-    rules:
-        - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-        - if: '$CI_COMMIT_BRANCH == "main"'
+  stage: test
+  image: python:3.12
+  before_script:
+    - python -m pip install --upgrade pip
+    - python -m pip install pre-commit
+  script:
+    - pre-commit run --all-files
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
 
 # ------------- Base Templates -------------
 
 .test-template: &test-template
-    stage: test
-    before_script:
-        - python -m pip install --upgrade pip setuptools wheel
-        - python -m pip install -e .[test]
-    script:
-        - python -c "import gwsim; print('gwsim version:', gwsim.__version__)"
-        - gwsim --help
-        - export COVERAGE_FILE=.coverage.$CI_JOB_NAME
-        - pytest
-    artifacts:
-        when: always
-        paths:
-            - .coverage.*
-            - test-results.xml
-        reports:
-            junit: test-results.xml
-    rules:
-        - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-        - if: '$CI_COMMIT_BRANCH == "main"'
-        - if: '$CI_COMMIT_TAG'
+  stage: test
+  before_script:
+    - python -m pip install --upgrade pip setuptools wheel
+    - python -m pip install -e .[test]
+  script:
+    - python -c "import gwsim; print('gwsim version:', gwsim.__version__)"
+    - gwsim --help
+    - export COVERAGE_FILE=.coverage.$CI_JOB_NAME
+    - pytest
+  artifacts:
+    when: always
+    paths:
+      - .coverage.*
+      - test-results.xml
+    reports:
+      junit: test-results.xml
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG'
 
 # ------------- Test Jobs -------------
 
 test-python-3.10:
-    <<: *test-template
-    image: python:3.10
+  <<: *test-template
+  image: python:3.10
 
 test-python-3.11:
-    <<: *test-template
-    image: python:3.11
+  <<: *test-template
+  image: python:3.11
 
 test-python-3.12:
-    <<: *test-template
-    image: python:3.12
+  <<: *test-template
+  image: python:3.12
 
 # ------------- Coverage -------------
 
 coverage-report:
-    stage: coverage
-    image: python:3.12
-    before_script:
-        - python -m pip install --upgrade pip
-        - python -m pip install coverage[toml]
-    script:
-        - echo "Combining coverage reports from all Python versions"
-        - coverage combine .coverage.*
-        - coverage report --show-missing
-        - coverage html
-        - coverage xml
-        - |
-            # Extract and log coverage percentage for GitLab badge parsing
-            COVERAGE=$(coverage report | grep TOTAL | awk '{print $NF}' || echo "0%")
-            echo "Coverage: $COVERAGE"
-        - echo "Coverage report generated successfully"
-    coverage: '/TOTAL.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
-    artifacts:
-        when: always
-        paths:
-            - htmlcov/
-            - coverage.xml
-        reports:
-            coverage_report:
-                coverage_format: cobertura
-                path: coverage.xml
-    needs:
-        - test-python-3.10
-        - test-python-3.11
-        - test-python-3.12
-    rules:
-        - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-        - if: '$CI_COMMIT_BRANCH == "main"'
-        - if: '$CI_COMMIT_TAG'
-    allow_failure: true
+  stage: coverage
+  image: python:3.12
+  before_script:
+    - python -m pip install --upgrade pip
+    - python -m pip install coverage[toml]
+  script:
+    - echo "Combining coverage reports from all Python versions"
+    - coverage combine .coverage.*
+    - coverage report --show-missing
+    - coverage html
+    - coverage xml
+    - |
+      # Extract and log coverage percentage for GitLab badge parsing
+      COVERAGE=$(coverage report | grep TOTAL | awk '{print $NF}' || echo "0%")
+      echo "Coverage: $COVERAGE"
+    - echo "Coverage report generated successfully"
+  coverage: '/TOTAL.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
+  artifacts:
+    when: always
+    paths:
+      - htmlcov/
+      - coverage.xml
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+  needs:
+    - test-python-3.10
+    - test-python-3.11
+    - test-python-3.12
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG'
+  allow_failure: true
 
 # Base for release jobs (optional DRY)
 .base_release: &base_release
-    rules:
-        - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
 
 create-changelog:
-    <<: *base_release
-    stage: release
-    image: python:3.12
-    variables:
-        GIT_STRATEGY: clone # clone entire repo instead of reusing workspace
-        GIT_DEPTH: 0 # avoid shallow clone to give cliff all the info it needs
-    before_script:
-        - python -m pip install --upgrade pip
-        - python -m pip install git-cliff
-    script:
-        - git-cliff --latest > release_notes.md
-    artifacts:
-        paths:
-            - release_notes.md
-        expire_in: 1 hour
-    allow_failure: true # Don't fail pipeline if changelog generation has issues
+  <<: *base_release
+  stage: release
+  image: python:3.12
+  variables:
+    GIT_STRATEGY: clone # clone entire repo instead of reusing workspace
+    GIT_DEPTH: 0 # avoid shallow clone to give cliff all the info it needs
+  before_script:
+    - python -m pip install --upgrade pip
+    - python -m pip install git-cliff
+  script:
+    - git-cliff --latest > release_notes.md
+  artifacts:
+    paths:
+      - release_notes.md
+    expire_in: 1 hour
+  allow_failure: true # Don't fail pipeline if changelog generation has issues
 
 create-release-page:
-    <<: *base_release
-    stage: release
-    needs:
-        - job: create-changelog
-          artifacts: true # Pulls release_notes.md
-    image: registry.gitlab.com/gitlab-org/release-cli:latest
-    script:
-        - echo "Creating GitLab release page for version ${CI_COMMIT_TAG}"
-    release:
-        name: 'Release ${CI_COMMIT_TAG}'
-        description: release_notes.md # Inserts the generated notes
-        tag_name: ${CI_COMMIT_TAG}
-        ref: ${CI_COMMIT_TAG} # Simpler: points to the tag
+  <<: *base_release
+  stage: release
+  needs:
+    - job: create-changelog
+      artifacts: true # Pulls release_notes.md
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  script:
+    - echo "Creating GitLab release page for version ${CI_COMMIT_TAG}"
+  release:
+    name: 'Release ${CI_COMMIT_TAG}'
+    description: release_notes.md # Inserts the generated notes
+    tag_name: ${CI_COMMIT_TAG}
+    ref: ${CI_COMMIT_TAG} # Simpler: points to the tag
 
 publish_to_pypi:
-    stage: publish
-    image: python:3.12
-    before_script:
-        - python -m pip install --upgrade pip
-        - python -m pip install build twine
-    script:
-        # 1. Build the package with hatch
-        - python -m build
-        # 2. Publish to PyPI using twine with token authentication
-        - python -m twine upload dist/* -u __token__ -p $PYPI_PASSWORD
-    rules:
-        # Only run on semantic version tags (v1.2.3 or 1.2.3)
-        - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
-    needs:
-        - job: create-release-page
-    artifacts:
-        paths:
-            - dist/
-        expire_in: 1 day
+  stage: publish
+  image: python:3.12
+  before_script:
+    - python -m pip install --upgrade pip
+    - python -m pip install build twine
+  script:
+    # 1. Build the package with hatch
+    - python -m build
+    # 2. Publish to PyPI using twine with token authentication
+    - python -m twine upload dist/* -u __token__ -p $PYPI_PASSWORD
+  rules:
+    # Only run on semantic version tags (v1.2.3 or 1.2.3)
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/'
+  needs:
+    - job: create-release-page
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 day
 
 publish_to_testpypi:
-    stage: publish
-    image: python:3.12
-    before_script:
-        - python -m pip install --upgrade pip
-        - python -m pip install build twine
-    script:
-        # 1. Build the package with hatch
-        - python -m build
-        # 2. Publish to TestPyPI using twine with token authentication
-        - python -m twine upload dist/* -r testpypi -u __token__ -p $TESTPYPI_PASSWORD
-    rules:
-        - if: '$CI_COMMIT_TAG =~ /-rc|-a|-b|-alpha|-beta/' # pre-releases
-    needs:
-        - job: create-release-page
-    artifacts:
-        paths:
-            - dist/
-        expire_in: 1 day
+  stage: publish
+  image: python:3.12
+  before_script:
+    - python -m pip install --upgrade pip
+    - python -m pip install build twine
+  script:
+    # 1. Build the package with hatch
+    - python -m build
+    # 2. Publish to TestPyPI using twine with token authentication
+    - python -m twine upload dist/* -r testpypi -u __token__ -p $TESTPYPI_PASSWORD
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /-rc|-a|-b|-alpha|-beta/' # pre-releases
+  needs:
+    - job: create-release-page
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 day

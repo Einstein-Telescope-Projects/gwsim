@@ -63,12 +63,12 @@ To run any gwsim simulations, you only need to provide a `.yaml` configuration f
 A collection of ready-to-use configuration files is available in the [`gwsim/examples`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples) directory.
 You can use them directly or adapt them to suit your needs.
 
--   For an overview of all available examples, see the [Examples](examples.md) page.
--   For a more complete and user-friendly guide to writing your own configuration files, see the [Configuration Files](configuration.md) page.
+- For an overview of all available examples, see the [Examples](examples.md) page.
+- For a more complete and user-friendly guide to writing your own configuration files, see the [Configuration Files](configuration.md) page.
 
 ## 4. Next Steps
 
--   [Generating Data](generating-data.md) - Quick guide for generating datasets with gwsim, including Einstein Telescope (ET) examples.
--   [Examples](examples.md) - Example configuration files for ET simulations.
--   [Request New Features](../dev/contributing.md) - How to request new features or improvements.
--   [API Reference](../reference/index.md) - Programmatic usage documentation.
+- [Generating Data](generating-data.md) - Quick guide for generating datasets with gwsim, including Einstein Telescope (ET) examples.
+- [Examples](examples.md) - Example configuration files for ET simulations.
+- [Request New Features](../dev/contributing.md) - How to request new features or improvements.
+- [API Reference](../reference/index.md) - Programmatic usage documentation.
