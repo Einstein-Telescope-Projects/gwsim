@@ -69,29 +69,6 @@ repos:
         args: [--config=pyproject.toml]
         stages: [pre-commit]
 
-  - repo: https://github.com/PyCQA/pylint
-    rev: v4.0.4
-    hooks:
-      - id: pylint
-        args: [--rcfile=pyproject.toml]
-        additional_dependencies:
-          [
-            .,
-            typer,
-            astropy,
-            gwpy,
-            pycbc,
-            bilby,
-            pydantic,
-            mkdocs-gen-files,
-            pymap3d,
-            pytest,
-            filelock,
-            hatchling,
-            psutil,
-          ]
-        stages: [pre-commit]
-
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.21.2
     hooks:
