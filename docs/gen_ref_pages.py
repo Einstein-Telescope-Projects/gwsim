@@ -20,6 +20,16 @@ if contributing_src.exists():
         fd.write(content)
     mkdocs_gen_files.set_edit_path(Path("CONTRIBUTING.md"), contributing_src)
 
+# Copy SECURITY.md to docs directory
+security_src = root_dir / "SECURITY.md"
+security_dest = Path("SECURITY.md")
+if security_src.exists():
+    with open(security_src, encoding="utf-8") as src_fd:
+        content = src_fd.read()
+    with mkdocs_gen_files.open("SECURITY.md", "w") as fd:
+        fd.write(content)
+    mkdocs_gen_files.set_edit_path(Path("SECURITY.md"), security_src)
+
 # Generate the index page
 with mkdocs_gen_files.open("reference/index.md", "w") as fd:
     fd.write("# API Reference\n\n")
