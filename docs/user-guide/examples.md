@@ -29,12 +29,12 @@ gwsim simulate config.yaml
 
 Example configurations for generating detector noise with various configurations and sensitivities.
 
-**Einstein Telescope - Triangular**
+### Einstein Telescope - Triangular
 
 - EMR location: [`noise/uncorrelated_gaussian/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/noise/uncorrelated_gaussian/et_triangle_emr/config.yaml)
 - Sardinia location: [`noise/uncorrelated_gaussian/et_triangle_sardinia/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/noise/uncorrelated_gaussian/et_triangle_sardinia/config.yaml)
 
-**Einstein Telescope - 2L**
+### Einstein Telescope - 2L
 
 - Aligned configuration: [`noise/uncorrelated_gaussian/et_2l_aligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/noise/uncorrelated_gaussian/et_2l_aligned/config.yaml)
 - Misaligned configuration: [`noise/uncorrelated_gaussian/et_2l_misaligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/noise/uncorrelated_gaussian/et_2l_misaligned/config.yaml)
@@ -43,7 +43,7 @@ Example configurations for generating detector noise with various configurations
 
 Example configurations for generating detector data with CBC signals with various configurations and sensitivities.
 
-**Einstein Telescope - Triangular**
+### Einstein Telescope - Triangular
 
 - EMR location:
   - BBH signals: [`signal/bbh/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/signal/bbh/et_triangle_emr/config.yaml)
@@ -52,7 +52,7 @@ Example configurations for generating detector data with CBC signals with variou
   - BBH signals: [`signal/bbh/et_triangle_sardinia/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/signal/bbh/et_triangle_sardinia/config.yaml)
   - BNS signals: [`signal/bns/et_triangle_sardinia/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/signal/bns/et_triangle_sardinia/config.yaml)
 
-**Einstein Telescope - 2L**
+### Einstein Telescope - 2L
 
 - Aligned configuration:
   - BBH signals: [`signal/bbh/et_2l_aligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/signal/bbh/et_2l_aligned/config.yaml)
@@ -65,7 +65,7 @@ Example configurations for generating detector data with CBC signals with variou
 
 Example configurations for generating detector glitches with various configurations and sensitivities.
 
-**Einstein Telescope - Triangular**
+### Einstein Telescope - Triangular
 
 - EMR location
   - E1: [`glitch/gengli/et_triangle_emr/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/glitch/gengli/et_triangle_emr/e1/config.yaml)
@@ -76,7 +76,7 @@ Example configurations for generating detector glitches with various configurati
   - E2: [`glitch/gengli/et_triangle_sardinia/e2/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/glitch/gengli/et_triangle_sardinia/e2/config.yaml)
   - E3: [`glitch/gengli/et_triangle_sardinia/e3/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/glitch/gengli/et_triangle_sardinia/e3/config.yaml)
 
-**Einstein Telescope - 2L**
+### Einstein Telescope - 2L
 
 - Aligned configuration
   - E1: [`glitch/gengli/et_2l_aligned/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/glitch/gengli/et_2l_aligned/e1/config.yaml)
