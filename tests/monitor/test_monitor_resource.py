@@ -251,11 +251,11 @@ class TestResourceMonitor:
         monitor = ResourceMonitor()
         monitor.metrics = {"cpu_core_hours": 1.0}
 
-        with patch.object(Path, "exists", return_value=True):
-            with pytest.raises(
-                FileExistsError, match=r"File 'test.json' already exists and overwrite is set to False."
-            ):
-                monitor.save_metrics("test.json", overwrite=False)
+        with (
+            patch.object(Path, "exists", return_value=True),
+            pytest.raises(FileExistsError, match=r"File 'test.json' already exists and overwrite is set to False."),
+        ):
+            monitor.save_metrics("test.json", overwrite=False)
 
     def test_save_metrics_custom_encoding(self):
         """Test saving metrics with custom encoding."""

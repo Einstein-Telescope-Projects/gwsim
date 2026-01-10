@@ -68,9 +68,8 @@ def test_validate_command_failure(sample_metadata, temp_dir, capsys):
     # Modify the file
     output_file.write_text("modified data")
 
-    with patch("os.getcwd", return_value=str(temp_dir)):
-        with pytest.raises(click.exceptions.Exit):
-            validate_command([], metadata_paths=[str(metadata_file)])
+    with patch("os.getcwd", return_value=str(temp_dir)), pytest.raises(click.exceptions.Exit):
+        validate_command([], metadata_paths=[str(metadata_file)])
 
     captured = capsys.readouterr()
     assert "test_output.gwf" in captured.out
@@ -140,9 +139,8 @@ def test_validate_command_missing_file(sample_metadata, temp_dir, capsys):
     # Remove the output file
     output_file.unlink()
 
-    with patch("os.getcwd", return_value=str(temp_dir)):
-        with pytest.raises(click.exceptions.Exit):
-            validate_command([], metadata_paths=[str(metadata_file)])
+    with patch("os.getcwd", return_value=str(temp_dir)), pytest.raises(click.exceptions.Exit):
+        validate_command([], metadata_paths=[str(metadata_file)])
 
     captured = capsys.readouterr()
     assert "test_output.gwf" in captured.out
@@ -151,9 +149,8 @@ def test_validate_command_missing_file(sample_metadata, temp_dir, capsys):
 
 def test_validate_command_no_metadata_files(temp_dir):
     """Test validation with no metadata files found."""
-    with patch("os.getcwd", return_value=str(temp_dir)):
-        with pytest.raises(click.exceptions.Exit) as exc_info:
-            validate_command([str(temp_dir / "nonexistent")], metadata_paths=[])
+    with patch("os.getcwd", return_value=str(temp_dir)), pytest.raises(click.exceptions.Exit) as exc_info:
+        validate_command([str(temp_dir / "nonexistent")], metadata_paths=[])
 
     # The command should exit with code 1 when no metadata files are found
     assert exc_info.value.exit_code == 1
