@@ -67,6 +67,7 @@ Phicoal
 pycbc
 pymap
 pytestmark
+pyupgrade
 realisation
 reimplementation
 relpaths
