@@ -19,7 +19,7 @@ A Python package for generating Mock Data Challenge (MDC) datasets for the gravi
 - **Noise Models**: Supports colored and correlated noise generation (In-Progress)
 - **Population Models**: Handles injection populations for signals and glitches
 - **Data Formats**: Outputs in standard GW formats (GWF frames)
-- **CLI Interface**: Command-line tools for easy simulation workflows
+- **CLI**: Command-line tools for easy simulation workflows
 
 ## Installation
 
