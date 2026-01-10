@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 class TimeSeries(JSONSerializable):
     """Class representing a time series data for multiple channels."""
 
+    __hash__ = None
+
     def __init__(self, data: np.ndarray, start_time: int | float | Quantity, sampling_frequency: float | Quantity):
         """Initialize the TimeSeries with a list of GWPy TimeSeries objects.
 
@@ -34,7 +36,8 @@ class TimeSeries(JSONSerializable):
             start_time: Start time of the time series in GPS seconds.
             sampling_frequency: Sampling frequency of the time series in Hz.
         """
-        if data.ndim != 2:
+        expected_ndim = 2
+        if data.ndim != expected_ndim:
             raise ValueError("Data must be a 2D numpy array with shape (num_of_channels, num_samples).")
 
         if isinstance(start_time, Number):
@@ -316,7 +319,7 @@ class TimeSeries(JSONSerializable):
         Returns:
             TimeSeriesList of remaining TimeSeries instances that extend beyond the current TimeSeries end time.
         """
-        from gwsim.data.time_series.time_series_list import TimeSeriesList  # pylint: disable=import-outside-toplevel
+        from gwsim.data.time_series.time_series_list import TimeSeriesList  # noqa: PLC0415
 
         remaining_ts: list[TimeSeries] = []
         for ts in ts_iterable:

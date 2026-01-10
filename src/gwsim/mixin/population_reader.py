@@ -344,10 +344,7 @@ class PopulationReaderMixin:  # pylint: disable=too-many-instance-attributes
         Returns:
             A list of strings representing the injection parameter keys.
         """
-        if not self.population_data.empty:
-            output = list(self.population_data.columns)
-        else:
-            output = []
+        output = list(self.population_data.columns) if not self.population_data.empty else []
         return output
 
     @property

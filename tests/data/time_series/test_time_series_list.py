@@ -117,7 +117,8 @@ class TestTimeSeriesList:
     def test_len(self, sample_ts, sample_ts2):
         """Test length of TimeSeriesList."""
         ts_list = TimeSeriesList([sample_ts, sample_ts2])
-        assert len(ts_list) == 2
+        expected_length = 2
+        assert len(ts_list) == expected_length
 
     def test_iter(self, sample_ts, sample_ts2):
         """Test iteration over TimeSeriesList."""
@@ -129,7 +130,8 @@ class TestTimeSeriesList:
         """Test appending a TimeSeries."""
         ts_list = TimeSeriesList([sample_ts])
         ts_list.append(sample_ts2)
-        assert len(ts_list) == 2
+        expected_length = 2
+        assert len(ts_list) == expected_length
         assert ts_list[1] is sample_ts2
 
     def test_append_invalid(self, sample_ts):
@@ -142,7 +144,8 @@ class TestTimeSeriesList:
         """Test extending with iterable of TimeSeries."""
         ts_list = TimeSeriesList([sample_ts])
         ts_list.extend([sample_ts2, sample_ts3])
-        assert len(ts_list) == 3
+        expected_length = 3
+        assert len(ts_list) == expected_length
         assert ts_list[1] is sample_ts2
         assert ts_list[2] is sample_ts3
 
@@ -156,7 +159,8 @@ class TestTimeSeriesList:
         """Test inserting a TimeSeries at index."""
         ts_list = TimeSeriesList([sample_ts])
         ts_list.insert(0, sample_ts2)
-        assert len(ts_list) == 2
+        expected_length = 2
+        assert len(ts_list) == expected_length
         assert ts_list[0] is sample_ts2
         assert ts_list[1] is sample_ts
 

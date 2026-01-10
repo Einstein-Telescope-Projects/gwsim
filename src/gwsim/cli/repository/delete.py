@@ -1,3 +1,5 @@
+# ruff: noqa PLC0415
+
 """CLI for deleting Zenodo repository depositions."""
 
 from __future__ import annotations
@@ -21,12 +23,12 @@ def delete_command(
         gwsim repository delete 123456
         gwsim repository delete 123456 --force
     """
-    import logging  # pylint: disable=import-outside-toplevel
+    import logging
 
-    from rich.console import Console  # pylint: disable=import-outside-toplevel
-    from rich.prompt import Confirm  # pylint: disable=import-outside-toplevel
+    from rich.console import Console
+    from rich.prompt import Confirm
 
-    from gwsim.cli.repository.utils import get_zenodo_client  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.repository.utils import get_zenodo_client
 
     logger = logging.getLogger("gwsim")
     console = Console()

@@ -19,9 +19,11 @@ class TestPyCBCWaveformWrapperIntegration:
     @pytest.mark.slow
     def test_real_waveform_generation(self):
         """Test actual waveform generation with IMRPhenomD."""
+        sampling_frequency = 4096
+
         result = pycbc_waveform_wrapper(
             tc=1234567890.0,
-            sampling_frequency=4096,
+            sampling_frequency=sampling_frequency,
             waveform_model="IMRPhenomD",
             mass1=40.0,
             mass2=30.0,
@@ -36,7 +38,7 @@ class TestPyCBCWaveformWrapperIntegration:
             spin1z=0.5,
             spin2z=-0.3,
             f_lower=20.0,
-            delta_t=1.0 / 4096,
+            delta_t=1.0 / sampling_frequency,
             approximant="IMRPhenomD",
         )
 
@@ -50,8 +52,8 @@ class TestPyCBCWaveformWrapperIntegration:
         assert isinstance(result["cross"], TimeSeries)
 
         # Verify waveform properties
-        assert result["plus"].sample_rate.value == 4096
-        assert result["cross"].sample_rate.value == 4096
+        assert result["plus"].sample_rate.value == sampling_frequency
+        assert result["cross"].sample_rate.value == sampling_frequency
         assert result["plus"].t0.value == float(pycbc_hp.start_time + 1234567890.0)
         assert result["cross"].t0.value == float(pycbc_hp.start_time + 1234567890.0)
 

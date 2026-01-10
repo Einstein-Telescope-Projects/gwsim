@@ -93,9 +93,12 @@ class TestCBCPopulationReaderMixin:
 
             simulator = MockCBCSimulator(file_path, start_time=0, duration=100)
             # Verify mappings - first row after sorting by tc (tc=50.0, original index 1)
-            assert simulator.population_data["mass1"].iloc[0] == 25.0  # m1[1] = 25.0
-            assert simulator.population_data["mass2"].iloc[0] == 20.0  # m2[1] = 20.0
-            assert simulator.population_data["redshift"].iloc[0] == 0.05  # z[1] = 0.05
+            expected_mass1 = 25.0
+            expected_mass2 = 20.0
+            expected_redshift = 0.05
+            assert simulator.population_data["mass1"].iloc[0] == expected_mass1  # m1[1] = 25.0
+            assert simulator.population_data["mass2"].iloc[0] == expected_mass2  # m2[1] = 20.0
+            assert simulator.population_data["redshift"].iloc[0] == expected_redshift  # z[1] = 0.05
 
     def test_post_process_compute_masses(self, mock_cbc_srcmass_data, tmp_path):
         """Test post-processing computes mass1 and mass2 from source masses and redshift."""
@@ -171,7 +174,8 @@ class TestCBCPopulationReaderMixin:
             params = simulator.get_next_injection_parameters()
             assert params is not None
             assert "tc" in params
-            assert params["tc"] == 50.0  # First after sorting
+            expected_tc = 50.0
+            assert params["tc"] == expected_tc  # First after sorting
             assert "mass1" in params
             assert "mass2" in params
             assert "redshift" in params

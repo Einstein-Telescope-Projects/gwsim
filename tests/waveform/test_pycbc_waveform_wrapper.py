@@ -59,21 +59,23 @@ class TestPyCBCWaveformWrapper:
             call_kwargs = mock_get_td.call_args[1]
             assert call_kwargs["approximant"] == "IMRPhenomD"
             assert call_kwargs["delta_t"] == 1.0 / 4096
-            assert call_kwargs["mass1"] == 40.0
-            assert call_kwargs["mass2"] == 30.0
-            assert call_kwargs["f_lower"] == 20.0
+            assert call_kwargs["mass1"] == default_params["mass1"]
+            assert call_kwargs["mass2"] == default_params["mass2"]
+            assert call_kwargs["f_lower"] == default_params["minimum_frequency"]
 
     def test_wrapper_returns_dict_with_plus_cross(self, default_params, mock_pycbc_waveform):
         """Test that wrapper returns dict with 'plus' and 'cross' keys."""
         with patch("gwsim.waveform.pycbc_wrapper.get_td_waveform") as mock_get_td:
             mock_get_td.return_value = mock_pycbc_waveform
 
+            expected_length_of_result = 2  # 'plus' and 'cross'
+
             result = pycbc_waveform_wrapper(**default_params)
 
             assert isinstance(result, dict)
             assert "plus" in result
             assert "cross" in result
-            assert len(result) == 2
+            assert len(result) == expected_length_of_result
 
     def test_wrapper_returns_gwpy_timeseries(self, default_params, mock_pycbc_waveform):
         """Test that wrapper returns GWpy TimeSeries objects."""
@@ -81,6 +83,8 @@ class TestPyCBCWaveformWrapper:
             patch("gwsim.waveform.pycbc_wrapper.get_td_waveform") as mock_get_td,
             patch("gwpy.timeseries.TimeSeries.from_pycbc") as mock_from_pycbc,
         ):
+            number_of_calls = 2
+
             mock_get_td.return_value = mock_pycbc_waveform
 
             # Mock the from_pycbc to return TimeSeries
@@ -91,7 +95,7 @@ class TestPyCBCWaveformWrapper:
 
             assert isinstance(result["plus"], MagicMock)
             assert isinstance(result["cross"], MagicMock)
-            assert mock_from_pycbc.call_count == 2
+            assert mock_from_pycbc.call_count == number_of_calls
 
     def test_wrapper_sets_coalescence_time(self, default_params, mock_pycbc_waveform):
         """Test that coalescence time is correctly added to waveform."""
@@ -136,9 +140,9 @@ class TestPyCBCWaveformWrapper:
             pycbc_waveform_wrapper(**params)
 
             call_kwargs = mock_get_td.call_args[1]
-            assert call_kwargs["eccentricity"] == 0.1
-            assert call_kwargs["f_lower"] == 20.0
-            assert call_kwargs["f_ref"] == 100.0
+            assert call_kwargs["eccentricity"] == params["eccentricity"]
+            assert call_kwargs["f_lower"] == params["minimum_frequency"]
+            assert call_kwargs["f_ref"] == params["f_ref"]
 
     def test_wrapper_missing_required_parameter(self, mock_pycbc_waveform):
         """Test that wrapper raises error when required parameters are missing."""
@@ -204,7 +208,7 @@ class TestPyCBCWaveformWrapper:
             result = pycbc_waveform_wrapper(**params)
 
             call_kwargs = mock_get_td.call_args[1]
-            assert call_kwargs["mass1"] == 100.0
+            assert call_kwargs["mass1"] == params["mass1"]
             assert call_kwargs["mass2"] == 1.0
             assert "plus" in result
 

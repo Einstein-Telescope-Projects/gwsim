@@ -32,10 +32,7 @@ def determine_dest_path(
     Returns:
         The determined destination file path.
     """
-    if outdir is None:
-        outdir = Path.cwd()
-    else:
-        outdir = Path(outdir)
+    outdir = Path.cwd() if outdir is None else Path(outdir)
 
     if dest_path is None:
         parsed_url = urlparse(url)

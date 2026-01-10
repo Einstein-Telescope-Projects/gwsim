@@ -19,10 +19,8 @@ with mkdocs_gen_files.open("reference/index.md", "w") as fd:
     gwsim_dir = src / "gwsim"
     if gwsim_dir.exists():
         for item in gwsim_dir.iterdir():
-            if item.is_dir() and (item / "__init__.py").exists():
-                # Skip private modules
-                if not item.name.startswith("_"):
-                    modules.add(item.name)
+            if item.is_dir() and (item / "__init__.py").exists() and not item.name.startswith("_"):
+                modules.add(item.name)
 
     # Generate module list
     for module in sorted(modules):

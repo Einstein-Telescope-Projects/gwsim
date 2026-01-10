@@ -230,6 +230,7 @@ lint.ignore = [
   "E501",  # Line length (handled by formatter)
   "C901",  # Disable overly strict complexity checks (optional, adjust as needed)
 ]
+lint.pylint.max-args = 10
 fix = true  # Enable autofix
 lint.unfixable = []  # List rules that should not be autofixed, if any
 exclude = [

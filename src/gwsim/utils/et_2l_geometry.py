@@ -33,7 +33,7 @@ def get_unit_vector_angles(unit_vector: np.ndarray, ellipsoid_position: np.ndarr
     return np.array([azimuth, altitude])
 
 
-def add_et_2l_detectors_at_location(  # pylint: disable=too-many-locals
+def add_et_2l_detectors_at_location(
     e1_latitude: float,
     e1_longitude: float,
     e1_height: float,

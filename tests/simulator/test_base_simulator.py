@@ -40,10 +40,9 @@ class MockSimulator(Simulator):
 
             for f, d in zip(flat_files, flat_data, strict=False):
                 # Convert numpy scalars to Python native types for YAML serialization
-                if isinstance(d, np.generic):
-                    d = d.item()
+                data = d.item() if isinstance(d, np.generic) else d
                 with Path(f).open("w", encoding="utf-8") as fp:
-                    yaml.safe_dump(d, fp)
+                    yaml.safe_dump(data, fp)
         else:
             # Handle single file
             # Convert numpy scalars to Python native types for YAML serialization
@@ -73,8 +72,9 @@ class TestSimulatorInitialization:
 
     def test_init_with_max_samples(self):
         """Test initialization with max_samples."""
-        sim = MockSimulator(max_samples=10)
-        assert sim.max_samples == 10
+        max_samples = 10
+        sim = MockSimulator(max_samples=max_samples)
+        assert sim.max_samples == max_samples
 
     def test_init_with_none_max_samples(self):
         """Test initialization with None max_samples (infinite)."""
@@ -92,9 +92,11 @@ class TestSimulatorProperties:
 
     def test_max_samples_getter_setter(self, simulator: MockSimulator):
         """Test max_samples property."""
-        assert simulator.max_samples == 5
-        simulator.max_samples = 10
-        assert simulator.max_samples == 10
+        expected_max_samples = 5
+        assert simulator.max_samples == expected_max_samples
+        new_max_samples = 10
+        simulator.max_samples = new_max_samples
+        assert simulator.max_samples == new_max_samples
 
     def test_max_samples_setter_validation(self, simulator: MockSimulator):
         """Test max_samples setter validation."""
@@ -109,8 +111,9 @@ class TestSimulatorProperties:
 
     def test_state_setter(self, simulator: MockSimulator):
         """Test state setter."""
-        simulator.state = {"counter": 5}
-        assert simulator.counter == 5
+        counter = 5
+        simulator.state = {"counter": counter}
+        assert simulator.counter == counter
 
     def test_state_setter_invalid_key(self, simulator: MockSimulator):
         """Test state setter with invalid key."""
@@ -120,7 +123,8 @@ class TestSimulatorProperties:
     def test_metadata_property(self, simulator: MockSimulator):
         """Test metadata property."""
         metadata = simulator.metadata
-        assert metadata["max_samples"] == 5
+        expected_max_samples = 5
+        assert metadata["max_samples"] == expected_max_samples
         assert metadata["counter"] == 0
         assert "version" in metadata
 
@@ -133,20 +137,24 @@ class TestSimulatorIterator:
         iterator = iter(simulator)
         assert iterator is simulator
 
+        expected_number_of_samples = 5
+
         # Generate samples
         samples = list(simulator)
-        assert len(samples) == 5
+        assert len(samples) == expected_number_of_samples
         assert samples == [0, 1, 2, 3, 4]
 
         # Counter should be updated
-        assert simulator.counter == 5
+        assert simulator.counter == expected_number_of_samples
 
     def test_iterator_stopiteration(self, simulator: MockSimulator):
         """Test StopIteration when max_samples reached."""
         samples = []
+        expected_number_of_samples = 5
+
         for sample in simulator:
             samples.append(sample)
-        assert len(samples) == 5
+        assert len(samples) == expected_number_of_samples
 
         # Next call should raise StopIteration
         with pytest.raises(StopIteration):
@@ -157,9 +165,10 @@ class TestSimulatorIterator:
         sim = MockSimulator(max_samples=None)
         iterator = iter(sim)
         # Generate a few samples
-        for i in range(3):
+        n_iter = 3
+        for i in range(n_iter):
             assert next(iterator) == i
-        assert sim.counter == 3
+        assert sim.counter == n_iter
 
 
 class TestSimulatorFileIO:
@@ -216,7 +225,7 @@ class TestSimulatorFileIO:
             # Load into new simulator
             new_sim = MockSimulator()
             new_sim.load_state(file_path)
-            assert new_sim.counter == 3
+            assert new_sim.counter == simulator.counter
 
     def test_load_state_file_not_found(self, simulator: MockSimulator):
         """Test load_state with non-existent file."""
@@ -257,7 +266,7 @@ class TestSimulatorSaveData:
 
             with file_path.open(encoding="utf-8") as f:
                 loaded_data = yaml.safe_load(f)
-            assert loaded_data == 42
+            assert loaded_data == data
 
     def test_save_data_with_template(self, simulator: MockSimulator):
         """Test save_data with template resolution."""
@@ -274,7 +283,7 @@ class TestSimulatorSaveData:
 
             with expected_path.open(encoding="utf-8") as f:
                 loaded_data = yaml.safe_load(f)
-            assert loaded_data == 100
+            assert loaded_data == data
 
     def test_save_data_array_files(self, simulator_with_attrs: MockSimulator):
         """Test save_data with array of files."""
@@ -296,7 +305,7 @@ class TestSimulatorSaveData:
             with open(f"{temp_dir}/H1-4.yaml", encoding="utf-8") as f:
                 assert yaml.safe_load(f) == 1
             with open(f"{temp_dir}/L1-8.yaml", encoding="utf-8") as f:
-                assert yaml.safe_load(f) == 4
+                assert yaml.safe_load(f) == data[1, 1]
 
     def test_save_data_array_shape_mismatch(self, simulator_with_attrs: MockSimulator):
         """Test save_data with mismatched data shape raises ValueError."""
@@ -321,11 +330,13 @@ class TestSimulatorSaveData:
     def test_save_data_overwrite_true(self, simulator: MockSimulator):
         """Test save_data overwrite=True."""
         with tempfile.TemporaryDirectory() as temp_dir:
+            new_data = 2
+
             file_path = Path(temp_dir) / "data.yaml"
 
             simulator.save_data(1, file_path)
-            simulator.save_data(2, file_path, overwrite=True)
+            simulator.save_data(new_data, file_path, overwrite=True)
 
             with open(file_path, encoding="utf-8") as f:
                 loaded_data = yaml.safe_load(f)
-            assert loaded_data == 2
+            assert loaded_data == new_data

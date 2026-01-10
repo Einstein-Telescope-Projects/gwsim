@@ -283,8 +283,9 @@ class TestExpandTemplateVariables:
             pass
 
         sim = MockSimulator()
-        result = expand_template_variables(42, sim)
-        assert result == 42
+        value = 42
+        result = expand_template_variables(value, sim)
+        assert result == value
 
     def test_expand_multiple_attributes(self):
         """Test expansion using multiple simulator attributes."""

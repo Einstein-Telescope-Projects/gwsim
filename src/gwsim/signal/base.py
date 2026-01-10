@@ -22,7 +22,7 @@ logger = logging.getLogger("gwsim")
 class SignalSimulator(PopulationReaderMixin, WaveformMixin, TimeSeriesMixin, DetectorMixin, Simulator):
     """Base class for signal simulators."""
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+    def __init__(  # noqa: PLR0913
         self,
         population_file: str | Path,
         population_parameter_name_mapper: dict[str, str] | None = None,

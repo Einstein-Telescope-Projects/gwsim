@@ -10,6 +10,7 @@ from astropy.units import Quantity
 
 from gwsim.data.time_series.time_series_list import TimeSeriesList
 from gwsim.noise.colored_noise import ColoredNoiseSimulator
+from gwsim.simulator.state import StateAttribute
 
 # ============================================================================
 # Fixtures
@@ -91,8 +92,9 @@ class TestColoredNoiseSimulatorInitialization:
             start_time=0,
             seed=42,
         )
+        expected_low_frequency_cutoff = 2.0  # Default value
         assert simulator.psd_file == temp_psd_file
-        assert simulator.low_frequency_cutoff == 2.0  # Default
+        assert simulator.low_frequency_cutoff == expected_low_frequency_cutoff  # Default
         assert simulator.sampling_frequency == Quantity(4096, unit="Hz")
         assert simulator.duration == Quantity(1024, unit="s")
 
@@ -116,7 +118,8 @@ class TestColoredNoiseSimulatorInitialization:
             duration=1024,
             seed=42,
         )
-        assert simulator._n_det == 3
+        expected_number_of_detectors = 3
+        assert simulator._n_det == expected_number_of_detectors
 
     def test_initialization_empty_detectors_raises_error(self, temp_psd_file: Path):
         """Test that empty detectors list raises ValueError."""
@@ -141,27 +144,30 @@ class TestColoredNoiseSimulatorInitialization:
 
     def test_high_frequency_cutoff_clamped_to_nyquist(self, temp_psd_file: Path):
         """Test that high_frequency_cutoff is clamped to Nyquist frequency."""
+        sampling_frequency = 4096
         simulator = ColoredNoiseSimulator(
             psd_file=temp_psd_file,
             detectors=["H1"],
-            sampling_frequency=4096,
+            sampling_frequency=sampling_frequency,
             duration=1024,
             seed=42,
             high_frequency_cutoff=3000,  # Above Nyquist (2048)
         )
-        assert simulator.high_frequency_cutoff == 2048  # Nyquist
+        expected_high_frequency_cutoff = sampling_frequency / 2
+        assert simulator.high_frequency_cutoff == expected_high_frequency_cutoff  # Nyquist
 
     def test_high_frequency_cutoff_preserved_when_valid(self, temp_psd_file: Path):
         """Test that valid high_frequency_cutoff is preserved."""
+        high_frequency_cutoff = 1000
         simulator = ColoredNoiseSimulator(
             psd_file=temp_psd_file,
             detectors=["H1"],
             sampling_frequency=4096,
             duration=1024,
             seed=42,
-            high_frequency_cutoff=1000,
+            high_frequency_cutoff=high_frequency_cutoff,
         )
-        assert simulator.high_frequency_cutoff == 1000
+        assert simulator.high_frequency_cutoff == high_frequency_cutoff
 
     def test_previous_strain_initialized_correctly(self, basic_simulator: ColoredNoiseSimulator):
         """Test that previous_strain buffer is initialized with correct shape."""
@@ -277,7 +283,8 @@ class TestSimulation:
         expected_samples = int(
             multi_detector_simulator.duration.value * multi_detector_simulator.sampling_frequency.value
         )
-        assert len(result[0]._data) == 3
+        expected_number_of_detectors = 3
+        assert len(result[0]._data) == expected_number_of_detectors
         assert len(result[0]._data[0]) == expected_samples
         assert len(result[0]._data[1]) == expected_samples
         assert len(result[0]._data[2]) == expected_samples
@@ -411,8 +418,6 @@ class TestStateManagement:
 
     def test_state_attribute_previous_strain_exists(self, basic_simulator: ColoredNoiseSimulator):
         """Test that previous_strain is a StateAttribute."""
-        from gwsim.simulator.state import StateAttribute
-
         # Check that the class has previous_strain as a StateAttribute
         assert hasattr(ColoredNoiseSimulator, "previous_strain")
         assert isinstance(ColoredNoiseSimulator.__dict__["previous_strain"], StateAttribute)
@@ -553,7 +558,8 @@ class TestStatisticalProperties:
         result = basic_simulator._simulate()
         mean = np.mean(result[0]._data[0].value)
         # Mean should be close to zero (within some tolerance for finite samples)
-        assert abs(mean) < 1e-20  # Very small mean expected
+        tolerance = 1e-20
+        assert abs(mean) < tolerance  # Very small mean expected
 
     @pytest.mark.slow
     def test_noise_variance_is_positive(self, basic_simulator: ColoredNoiseSimulator):
@@ -574,9 +580,10 @@ class TestStatisticalProperties:
         corr_02 = np.corrcoef(data[0].value, data[2].value)[0, 1]
 
         # Correlations should be small (independent noise)
-        assert abs(corr_01) < 0.1
-        assert abs(corr_12) < 0.1
-        assert abs(corr_02) < 0.1
+        tolerance = 0.1
+        assert abs(corr_01) < tolerance
+        assert abs(corr_12) < tolerance
+        assert abs(corr_02) < tolerance
 
 
 # ============================================================================
@@ -614,16 +621,17 @@ class TestEdgeCases:
 
     def test_large_start_time(self, temp_psd_file: Path):
         """Test simulation with large GPS start time."""
+        start_time = 1700000000  # Large GPS time
         simulator = ColoredNoiseSimulator(
             psd_file=temp_psd_file,
             detectors=["H1"],
             sampling_frequency=4096,
             duration=1024,
-            start_time=1700000000,  # Large GPS time
+            start_time=start_time,  # Large GPS time
             seed=42,
         )
         result = simulator._simulate()
-        assert result[0].start_time.value == 1700000000
+        assert result[0].start_time.value == start_time
 
     def test_previous_strain_too_short_raises_error(self, basic_simulator: ColoredNoiseSimulator):
         """Test that previous_strain shorter than n_overlap raises error."""

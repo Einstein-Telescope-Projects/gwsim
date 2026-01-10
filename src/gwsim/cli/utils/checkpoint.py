@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from pathlib import Path
@@ -136,10 +137,8 @@ class CheckpointManager:
             logger.error("Failed to save checkpoint: %s", e)
             # Clean up temp file if it exists
             if self.checkpoint_tmp.exists():
-                try:
+                with contextlib.suppress(OSError):
                     self.checkpoint_tmp.unlink()
-                except OSError:
-                    pass
             raise
 
     def cleanup(self) -> None:

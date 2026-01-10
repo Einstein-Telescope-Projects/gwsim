@@ -1,3 +1,4 @@
+# ruff: noqa PLC0415
 """CLI for managing Zenodo repositories."""
 
 from __future__ import annotations
@@ -7,7 +8,7 @@ from typing import Annotated
 import typer
 
 
-def verify_command(  # pylint: disable=import-outside-toplevel
+def verify_command(
     sandbox: Annotated[bool, typer.Option("--sandbox", help="Verify sandbox token")] = False,
     token: Annotated[str | None, typer.Option("--token", help="Zenodo access token to verify")] = None,
 ) -> None:

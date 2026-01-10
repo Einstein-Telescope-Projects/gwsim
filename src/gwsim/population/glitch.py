@@ -24,7 +24,8 @@ if __name__ == "__main__":
     df_l1_o3a = pd.read_csv(f"{ZENODO_ADDRESS}/L1_O3a.csv")
     df_l1_o3b = pd.read_csv(f"{ZENODO_ADDRESS}/L1_O3b.csv")
     df_l1_o3 = pd.concat([df_l1_o3a, df_l1_o3b])
-    blip_df = df_l1_o3[df_l1_o3["Blip"] >= 0.9]
+    threshold = 0.9
+    blip_df = df_l1_o3[df_l1_o3["Blip"] >= threshold]
 
     # Extract the SNR distribution
     snr_distr = blip_df["snr"]

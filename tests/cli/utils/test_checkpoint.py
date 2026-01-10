@@ -10,6 +10,10 @@ import pytest
 
 from gwsim.cli.utils.checkpoint import CheckpointManager
 
+# Constants for test assertions
+COMPLETED_BATCH_INDEX_2 = 2
+COUNTER_3 = 3
+
 
 class TestCheckpointManager:
     """Test CheckpointManager functionality."""
@@ -48,8 +52,8 @@ class TestCheckpointManager:
             assert loaded is not None
             assert loaded["completed_batch_indices"] == [0, 1, 2]
             assert loaded["last_simulator_name"] == "signal"
-            assert loaded["last_completed_batch_index"] == 2
-            assert loaded["last_simulator_state"]["counter"] == 3
+            assert loaded["last_completed_batch_index"] == COMPLETED_BATCH_INDEX_2
+            assert loaded["last_simulator_state"]["counter"] == COUNTER_3
 
     def test_load_nonexistent_checkpoint(self):
         """Test loading when no checkpoint exists."""

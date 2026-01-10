@@ -1,3 +1,5 @@
+# ruff: noqa PLC0415
+
 """CLI for managing Zenodo metadata."""
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ metadata_app = typer.Typer(
 def register_commands() -> None:
     """Register all CLI commands."""
 
-    from gwsim.cli.repository.metadata.update import update_command  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.repository.metadata.update import update_command
 
     metadata_app.command("update")(update_command)
 

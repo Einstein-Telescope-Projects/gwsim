@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 from typer.testing import CliRunner
 
@@ -44,10 +46,8 @@ def mock_examples_dir(monkeypatch, temp_examples_dir):
     # Import and patch at the module level where it's used
     monkeypatch.setattr("gwsim.cli.config.get_examples_dir", lambda: temp_examples_dir, raising=False)
     # Also patch in utils.config in case it's imported there
-    try:
+    with contextlib.suppress(ImportError, AttributeError):
         monkeypatch.setattr("gwsim.cli.utils.config.get_examples_dir", lambda: temp_examples_dir)
-    except (ImportError, AttributeError):
-        pass
 
 
 def test_config_list(runner, temp_examples_dir):

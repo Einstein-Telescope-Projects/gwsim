@@ -179,7 +179,7 @@ class GWFOutputMixin:
         # Flatten batch if needed
         if isinstance(batch, list):
             concatenated = np.concatenate(batch)
-        elif isinstance(batch, np.ndarray) and batch.ndim == 2:
+        elif isinstance(batch, np.ndarray) and batch.ndim == 2:  # noqa: PLR2004
             concatenated = batch.flatten()
         else:
             concatenated = batch

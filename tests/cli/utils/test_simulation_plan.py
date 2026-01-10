@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -9,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 
-from gwsim.cli.utils.config import GlobalsConfig, SimulatorConfig
+from gwsim.cli.utils.config import Config, GlobalsConfig, SimulatorConfig
 from gwsim.cli.utils.simulation_plan import (
     SimulationBatch,
     SimulationPlan,
@@ -204,7 +205,8 @@ class TestSimulationPlanCreation:
                 batch_index=i,
             )
             plan.add_batch(batch)
-        assert plan.total_batches == 3
+        expected_total_batches = 3
+        assert plan.total_batches == expected_total_batches
         assert all(b.batch_index == i for i, b in enumerate(plan.batches))
 
     def test_get_batches_for_simulator(
@@ -238,8 +240,10 @@ class TestSimulationPlanCreation:
         noise_batches = plan.get_batches_for_simulator("noise")
         signal_batches = plan.get_batches_for_simulator("signal")
 
-        assert len(noise_batches) == 2
-        assert len(signal_batches) == 3
+        expected_noise_batches = 2
+        assert len(noise_batches) == expected_noise_batches
+        expected_signal_batches = 3
+        assert len(signal_batches) == expected_signal_batches
         assert all(b.simulator_name == "noise" for b in noise_batches)
         assert all(b.simulator_name == "signal" for b in signal_batches)
 
@@ -290,15 +294,16 @@ class TestParseAndCreateMetadata:
     ):
         """Test creating metadata with pre-batch state."""
         state = {"rng_state": [1, 2, 3], "counter": 5}
+        batch_index = 2
         metadata = create_batch_metadata(
             simulator_name="signal",
-            batch_index=2,
+            batch_index=batch_index,
             simulator_config=simulator_config,
             globals_config=globals_config,
             pre_batch_state=state,
         )
         assert metadata["simulator_name"] == "signal"
-        assert metadata["batch_index"] == 2
+        assert metadata["batch_index"] == batch_index
         assert metadata["source"] == "config"
         assert metadata["pre_batch_state"] == state
         # Check new fields
@@ -394,8 +399,6 @@ class TestMetadataAuthorEmailTimestamp:
         simulator_config: SimulatorConfig,
     ):
         """Test creating metadata with explicit timestamp."""
-        import datetime
-
         custom_timestamp = datetime.datetime(2024, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
         metadata = create_batch_metadata(
             simulator_name="noise",
@@ -412,8 +415,6 @@ class TestMetadataAuthorEmailTimestamp:
         simulator_config: SimulatorConfig,
     ):
         """Test that timestamp defaults to current UTC time."""
-        import datetime
-
         # Capture time before creating metadata
         before = datetime.datetime.now(datetime.timezone.utc)
 
@@ -452,8 +453,6 @@ class TestMetadataAuthorEmailTimestamp:
         assert "+" in timestamp_str or "Z" in timestamp_str
 
         # Should be parseable back to datetime
-        import datetime
-
         parsed = datetime.datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
         assert isinstance(parsed, datetime.datetime)
 
@@ -488,8 +487,6 @@ class TestCreatePlanFromConfig:
         simulator_config: SimulatorConfig,
     ):
         """Create a mock Config object."""
-        from gwsim.cli.utils.config import Config
-
         config = MagicMock(spec=Config)
         config.globals = globals_config
         config.simulators = {"noise": simulator_config}
@@ -516,8 +513,6 @@ class TestCreatePlanFromConfig:
         simulator_config: SimulatorConfig,
     ):
         """Test creating a plan with multiple simulators."""
-        from gwsim.cli.utils.config import Config
-
         config = MagicMock(spec=Config)
         config.globals = globals_config
         config.simulators = {
@@ -527,7 +522,8 @@ class TestCreatePlanFromConfig:
 
         plan = create_plan_from_config(config, Path("checkpoints"))
 
-        assert plan.total_batches == 2
+        expected_total_batches = 2
+        assert plan.total_batches == expected_total_batches
         simulator_names = {batch.simulator_name for batch in plan.batches}
         assert simulator_names == {"noise", "signal"}
 
@@ -537,8 +533,6 @@ class TestCreatePlanFromConfig:
         simulator_config: SimulatorConfig,
     ):
         """Test creating a plan where a simulator generates multiple batches via global simulator_arguments."""
-        from gwsim.cli.utils.config import Config
-
         # Create a globals_config with max_samples in simulator_arguments
         globals_config.simulator_arguments = {"max_samples": 3}
 
@@ -548,9 +542,11 @@ class TestCreatePlanFromConfig:
 
         plan = create_plan_from_config(config, Path("checkpoints"))
 
-        assert plan.total_batches == 3
+        expected_total_batches = 3
+        assert plan.total_batches == expected_total_batches
         noise_batches = plan.get_batches_for_simulator("noise")
-        assert len(noise_batches) == 3
+        expected_noise_batches = 3
+        assert len(noise_batches) == expected_noise_batches
         assert all(b.batch_index == i for i, b in enumerate(noise_batches))
 
     def test_create_plan_max_samples_from_simulator_arguments(
@@ -559,8 +555,6 @@ class TestCreatePlanFromConfig:
         simulator_config: SimulatorConfig,
     ):
         """Test that max_samples from globals.simulator_arguments is used for plan creation."""
-        from gwsim.cli.utils.config import Config
-
         # Set max_samples in global simulator_arguments
         globals_config.simulator_arguments = {"max_samples": 5}
         simulator_config.arguments = {}
@@ -572,9 +566,11 @@ class TestCreatePlanFromConfig:
         plan = create_plan_from_config(config, Path("checkpoints"))
 
         # Should create 5 batches based on global max_samples
-        assert plan.total_batches == 5
+        expected_total_batches = 5
+        assert plan.total_batches == expected_total_batches
         signal_batches = plan.get_batches_for_simulator("signal")
-        assert len(signal_batches) == 5
+        expected_signal_batches = 5
+        assert len(signal_batches) == expected_signal_batches
 
     def test_create_plan_max_samples_simulator_override(
         self,
@@ -582,8 +578,6 @@ class TestCreatePlanFromConfig:
         simulator_config: SimulatorConfig,
     ):
         """Test that simulator-specific max_samples overrides global max_samples."""
-        from gwsim.cli.utils.config import Config
-
         # Set global max_samples to 3, but simulator-specific to 2
         globals_config.simulator_arguments = {"max_samples": 3}
         simulator_config.arguments = {"max_samples": 2}
@@ -595,9 +589,11 @@ class TestCreatePlanFromConfig:
         plan = create_plan_from_config(config, Path("checkpoints"))
 
         # Should create 2 batches (simulator-specific overrides global)
-        assert plan.total_batches == 2
+        expected_total_batches = 2
+        assert plan.total_batches == expected_total_batches
         noise_batches = plan.get_batches_for_simulator("noise")
-        assert len(noise_batches) == 2
+        expected_noise_batches = 2
+        assert len(noise_batches) == expected_noise_batches
 
     def test_create_plan_max_samples_with_hyphenated_keys(
         self,
@@ -605,8 +601,6 @@ class TestCreatePlanFromConfig:
         simulator_config: SimulatorConfig,
     ):
         """Test that hyphenated keys in simulator_arguments (YAML style) are normalized."""
-        from gwsim.cli.utils.config import Config
-
         # Use hyphenated keys like they come from YAML parsing
         globals_config.simulator_arguments = {"max-samples": 4, "sampling-frequency": 2048}
         simulator_config.arguments = {}
@@ -618,9 +612,11 @@ class TestCreatePlanFromConfig:
         plan = create_plan_from_config(config, Path("checkpoints"))
 
         # Should create 4 batches (hyphenated "max-samples" should be normalized)
-        assert plan.total_batches == 4
+        expected_total_batches = 4
+        assert plan.total_batches == expected_total_batches
         noise_batches = plan.get_batches_for_simulator("noise")
-        assert len(noise_batches) == 4
+        expected_noise_batches = 4
+        assert len(noise_batches) == expected_noise_batches
 
 
 # ============================================================================
@@ -688,11 +684,14 @@ class TestCreatePlanFromMetadata:
 
         plan = create_plan_from_metadata(metadata_directory, Path("checkpoints"))
 
-        assert plan.total_batches == 4
+        expected_total_batches = 4  # 2 simulators * 2 batches each
+        assert plan.total_batches == expected_total_batches
         noise_batches = plan.get_batches_for_simulator("noise")
         signal_batches = plan.get_batches_for_simulator("signal")
-        assert len(noise_batches) == 2
-        assert len(signal_batches) == 2
+        expected_noise_batches = 2
+        expected_signal_batches = 2
+        assert len(noise_batches) == expected_noise_batches
+        assert len(signal_batches) == expected_signal_batches
 
     def test_create_plan_from_metadata_with_state(
         self,
@@ -785,8 +784,6 @@ class TestSimulationPlanIntegration:
         simulator_config: SimulatorConfig,
     ):
         """Test full workflow: create plan from config, save metadata, recreate from metadata."""
-        from gwsim.cli.utils.config import Config
-
         # Step 1: Create plan from config
         config = MagicMock(spec=Config)
         config.globals = globals_config
@@ -800,12 +797,13 @@ class TestSimulationPlanIntegration:
         metadata_dir.mkdir()
 
         batch = plan1.batches[0]
+        counter = 10
         metadata = create_batch_metadata(
             simulator_name=batch.simulator_name,
             batch_index=batch.batch_index,
             simulator_config=batch.simulator_config,
             globals_config=batch.globals_config,
-            pre_batch_state={"counter": 10},
+            pre_batch_state={"counter": counter},
             author="test_author",
             email="test@example.com",
         )
@@ -818,7 +816,7 @@ class TestSimulationPlanIntegration:
         assert plan2.total_batches == 1
         assert plan2.batches[0].simulator_name == "noise"
         assert plan2.batches[0].has_state_snapshot()
-        assert plan2.batches[0].pre_batch_state["counter"] == 10
+        assert plan2.batches[0].pre_batch_state["counter"] == counter
         # Check that metadata fields are preserved
         assert plan2.batches[0].batch_metadata["author"] == "test_author"
         assert plan2.batches[0].batch_metadata["email"] == "test@example.com"
@@ -930,12 +928,14 @@ class TestMergePlans:
 
         merged = merge_plans(plan1, plan2)
 
-        assert merged.total_batches == 4
+        expected_total_batches = 2 + 2  # 2 from plan1 and 2 from plan2
+        assert merged.total_batches == expected_total_batches
         # Check batch indices are reassigned sequentially
-        assert merged.batches[0].batch_index == 0
-        assert merged.batches[1].batch_index == 1
-        assert merged.batches[2].batch_index == 2
-        assert merged.batches[3].batch_index == 3
+        expected_batch_indices = [0, 1, 2, 3]
+        assert merged.batches[0].batch_index == expected_batch_indices[0]
+        assert merged.batches[1].batch_index == expected_batch_indices[1]
+        assert merged.batches[2].batch_index == expected_batch_indices[2]
+        assert merged.batches[3].batch_index == expected_batch_indices[3]
 
     def test_merge_multiple_plans(
         self,
@@ -958,7 +958,8 @@ class TestMergePlans:
 
         merged = merge_plans(*plans)
 
-        assert merged.total_batches == 6
+        expected_total_batches = 3 * 2  # 3 plans, each with 2 batches
+        assert merged.total_batches == expected_total_batches
         # Verify sequential batch indices across all merged batches
         for i, batch in enumerate(merged.batches):
             assert batch.batch_index == i
@@ -972,13 +973,14 @@ class TestMergePlans:
         plan1 = SimulationPlan()
         plan2 = SimulationPlan()
 
+        counter = 5
         batch1 = SimulationBatch(
             simulator_name="noise",
             simulator_config=simulator_config,
             globals_config=globals_config,
             batch_index=0,
             source="config",
-            pre_batch_state={"counter": 5},
+            pre_batch_state={"counter": counter},
         )
         plan1.add_batch(batch1)
 
@@ -997,7 +999,7 @@ class TestMergePlans:
         # Original batch content should be preserved
         assert merged.batches[0].simulator_name == "noise"
         assert merged.batches[0].source == "config"
-        assert merged.batches[0].pre_batch_state["counter"] == 5
+        assert merged.batches[0].pre_batch_state["counter"] == counter
 
         assert merged.batches[1].simulator_name == "signal"
         assert merged.batches[1].source == "metadata_state"
@@ -1098,8 +1100,6 @@ class TestMergePlans:
         plan_metadata = create_plan_from_metadata(metadata_dir, Path("checkpoints"))
 
         # Create another plan from config
-        from gwsim.cli.utils.config import Config
-
         config = MagicMock(spec=Config)
         config.globals = globals_config
         config.simulators = {"signal": simulator_config}
@@ -1107,8 +1107,8 @@ class TestMergePlans:
 
         # Merge the plans
         merged_plan = merge_plans(plan_metadata, plan_config)
-
-        assert merged_plan.total_batches == 2
+        expected_total_batches = 2
+        assert merged_plan.total_batches == expected_total_batches
         # Check that metadata fields are preserved in merged plan
         noise_batch = merged_plan.get_batches_for_simulator("noise")[0]
         assert noise_batch.has_state_snapshot()

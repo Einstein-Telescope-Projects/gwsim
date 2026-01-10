@@ -67,12 +67,12 @@ class TestDetector:
 
     def test_init_with_config_file_relative_path_not_found(self):
         """Test initialization with relative path when file doesn't exist in DEFAULT_DETECTOR_BASE_PATH."""
-        with patch("gwsim.detector.base.DEFAULT_DETECTOR_BASE_PATH", Path("/fake/base")):
-            with patch.object(Path, "is_file", return_value=False):
-                with pytest.raises(
-                    FileNotFoundError, match=re.escape("Configuration file 'L1.interferometer' not found")
-                ):
-                    Detector(configuration_file="L1.interferometer")
+        with (
+            patch("gwsim.detector.base.DEFAULT_DETECTOR_BASE_PATH", Path("/fake/base")),
+            patch.object(Path, "is_file", return_value=False),
+            pytest.raises(FileNotFoundError, match=re.escape("Configuration file 'L1.interferometer' not found")),
+        ):
+            Detector(configuration_file="L1.interferometer")
 
     def test_init_both_name_and_config_file(self):
         """Test that specifying both name and config_file raises ValueError."""
@@ -105,14 +105,15 @@ class TestDetector:
     def test_time_delay_from_earth_center(self):
         """Test time_delay_from_earth_center method delegates to underlying detector."""
         with patch("gwsim.detector.base.PyCBCDetector") as mock_det_class:
+            mock_time_delay = 0.02
             mock_det = mock_det_class.return_value
-            mock_det.time_delay_from_earth_center.return_value = 0.02
+            mock_det.time_delay_from_earth_center.return_value = mock_time_delay
 
             det = Detector(name="H1")
             result = det.time_delay_from_earth_center(1.0, 2.0, 1000000000)
 
             mock_det.time_delay_from_earth_center.assert_called_once_with(1.0, 2.0, 1000000000)
-            assert result == 0.02
+            assert result == mock_time_delay
 
     def test_getattr_delegation(self):
         """Test __getattr__ delegates attribute access to underlying detector."""
@@ -121,7 +122,7 @@ class TestDetector:
             mock_det.latitude = 46.4551
 
             det = Detector(name="H1")
-            assert det.latitude == 46.4551
+            assert det.latitude == mock_det.latitude
 
     def test_str_method(self):
         """Test __str__ returns the detector name."""

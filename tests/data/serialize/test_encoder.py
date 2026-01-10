@@ -51,11 +51,12 @@ class TestEncoder:
 
     def test_encodes_serializable_object(self):
         """Test encoding an object with to_json_dict."""
-        obj = MockSerializable(value=42, name="test")
+        value = 42
+        obj = MockSerializable(value=value, name="test")
         json_str = json.dumps(obj, cls=Encoder)
         data = json.loads(json_str)
         assert data["__type__"] == "MockSerializable"
-        assert data["value"] == 42
+        assert data["value"] == value
         assert data["name"] == "test"
 
     def test_adds_type_if_missing(self):
@@ -83,7 +84,8 @@ class TestEncoder:
 
     def test_encodes_nested_structures(self):
         """Test encoding nested structures with serializable objects."""
-        serializable = MockSerializable(value=100, name="nested")
+        value = 100
+        serializable = MockSerializable(value=value, name="nested")
         nested_data = {
             "metadata": {"version": "1.0"},
             "object": serializable,
@@ -93,7 +95,7 @@ class TestEncoder:
         data = json.loads(json_str)
         assert data["metadata"]["version"] == "1.0"
         assert data["object"]["__type__"] == "MockSerializable"
-        assert data["object"]["value"] == 100
+        assert data["object"]["value"] == value
         assert data["list"][0] == 1
         assert data["list"][2]["name"] == "nested"
 

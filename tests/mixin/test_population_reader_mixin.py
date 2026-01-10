@@ -180,7 +180,8 @@ class TestPopulationReaderMixin:
             params = simulator.get_next_injection_parameters()
             assert params is not None
             assert "tc" in params
-            assert params["tc"] == 50.0  # First after sorting
+            expected_tc = 50.0
+            assert params["tc"] == expected_tc  # First after sorting
 
     def test_get_injection_parameter_keys(self, mock_h5py_data, tmp_path):
         """Test getting injection parameter keys."""

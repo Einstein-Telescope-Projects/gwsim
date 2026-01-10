@@ -64,9 +64,7 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
         Returns:
             True if all detectors are configured, False otherwise.
         """
-        if all(det.is_configured() for det in self.detectors):
-            return True
-        return False
+        return all(det.is_configured() for det in self.detectors)
 
     def project_polarizations(  # pylint: disable=too-many-locals,unused-argument
         self,

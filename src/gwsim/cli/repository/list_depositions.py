@@ -1,3 +1,4 @@
+# ruff: noqa PLC0415
 """CLI for managing Zenodo repositories."""
 
 from __future__ import annotations
@@ -7,7 +8,7 @@ from typing import Annotated
 import typer
 
 
-def list_depositions_command(  # pylint: disable=import-outside-toplevel,too-many-locals
+def list_depositions_command(
     status: Annotated[
         str, typer.Option("--status", help="Filter by status (draft, published, unsubmitted)")
     ] = "published",
@@ -47,10 +48,11 @@ def list_depositions_command(  # pylint: disable=import-outside-toplevel,too-man
         table.add_column("DOI", style="blue", width=20)
         table.add_column("Created", style="magenta", width=12)
 
+        max_length_of_title = 38
         for dep in depositions:
             dep_id = str(dep.get("id", "N/A"))
             title = dep.get("metadata", {}).get("title", "N/A")
-            if len(title) > 38:
+            if len(title) > max_length_of_title:
                 title = title[:35] + "..."
             doi = dep.get("doi", "N/A")
             created = dep.get("created", "N/A")[:10]

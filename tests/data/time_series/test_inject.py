@@ -58,7 +58,8 @@ class TestInjectBasic:
         result = inject(timeseries, other)
 
         # In the injected region, values should be 1 + 2 = 3
-        assert np.all(result.value[20:50] == 3)
+        expected_injected_value = 3
+        assert np.all(result.value[20:50] == expected_injected_value)
         # Outside injected region, values should remain 1
         assert np.all(result.value[:20] == 1)
         assert np.all(result.value[50:] == 1)
@@ -284,8 +285,9 @@ class TestInjectEdgeCases:
         result = inject(timeseries, other)
 
         # Single sample should be injected at index 25
-        assert result.value[25] == 5.0
-        assert np.sum(result.value) == 5.0
+        expected_value = 5.0
+        assert result.value[25] == expected_value
+        assert np.sum(result.value) == expected_value
 
     def test_inject_other_extends_beyond_timeseries(self):
         """Test injection when other extends beyond timeseries end."""
@@ -733,8 +735,10 @@ class TestInjectInterpolationQuality:
         # Interpolated region should have some non-zero values
         assert np.any(result.value[25:45] != 0)
         # Values should be in reasonable range (approximately -1 to 1 for sine)
-        assert np.all(result.value[25:45] <= 1.5)
-        assert np.all(result.value[25:45] >= -1.5)
+        upper_threshold = 1.5
+        lower_threshold = -1.5
+        assert np.all(result.value[25:45] <= upper_threshold)
+        assert np.all(result.value[25:45] >= lower_threshold)
 
 
 class TestInjectMixedSigns:

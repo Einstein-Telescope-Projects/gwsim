@@ -81,7 +81,8 @@ class TestJSONSerializableProtocol:
         assert isinstance(result, dict)
         assert "__type__" in result
         assert result["__type__"] == "MockSerializable"
-        assert result["value"] == 42
+        expected_value = 42
+        assert result["value"] == expected_value
         assert result["name"] == "test"
 
     def test_from_json_dict_reconstructs_object(self, mock_obj: MockSerializable):

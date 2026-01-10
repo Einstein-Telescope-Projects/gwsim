@@ -1,3 +1,4 @@
+# ruff: noqa PLC0415
 """
 A sub-command to handle data generation using simulation plans.
 """
@@ -64,10 +65,7 @@ def _simulate_impl(  # pylint: disable=too-many-locals, too-many-branches, too-m
 
     try:
         # ===== Normalize input: accept both string and list =====
-        if isinstance(config_file_names, str):
-            config_file_names_list = [config_file_names]
-        else:
-            config_file_names_list = config_file_names
+        config_file_names_list = [config_file_names] if isinstance(config_file_names, str) else config_file_names
 
         # ===== Auto-detect mode: Config file vs Metadata files =====
         if len(config_file_names_list) == 1:

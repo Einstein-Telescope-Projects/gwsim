@@ -36,7 +36,7 @@ class ColoredNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-instanc
     # State attribute to track the previous strain buffer for continuity
     previous_strain = StateAttribute(default=None)
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,duplicate-code
+    def __init__(
         self,
         psd_file: str | Path,
         detectors: list[str],
@@ -170,7 +170,8 @@ class ColoredNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-instanc
         """
         psd_data = self._load_spectral_data(self.psd_file)
 
-        if psd_data.shape[1] != 2:
+        expected_shape = (None, 2)
+        if psd_data.shape[1] != expected_shape[1]:
             raise ValueError("PSD file must have shape (N, 2).")
 
         # Interpolate the PSD to the relevant frequencies

@@ -33,7 +33,7 @@ class GengliGlitchSimulator(GlitchSimulator):
     The population file provides two injection parameters: SNR, and GPS time.
     """
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,duplicate-code
+    def __init__(  # noqa: PLR0913
         self,
         psd_file: str | Path,
         population_file: str | Path,
@@ -136,7 +136,7 @@ class GengliGlitchSimulator(GlitchSimulator):
         Returns:
             np.ndarray: Interpolated and windowed PSD values for the relevant frequencies.
         """
-        if psd_data.shape[1] != 2:
+        if psd_data.shape[1] != 2:  # noqa: PLR2004
             raise ValueError("PSD file must have shape (N, 2).")
 
         # Frequency properties
