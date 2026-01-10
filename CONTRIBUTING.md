@@ -8,8 +8,8 @@ Whether you’re fixing a typo, reporting a bug, suggesting a feature, or submit
 
 1. Open an Issue
 
--   Have a question, bug report, or feature suggestion? [Open an issue](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/issues/new) and describe your idea clearly, including its relevance to generating simulated GW data.
--   Check for existing issues before opening a new one.
+- Have a question, bug report, or feature suggestion? [Open an issue](https://github.com/Leuven-Gravity-Institute/gwsim/issues/new) and describe your idea clearly, including its relevance to generating simulated GW data.
+- Check for existing issues before opening a new one.
 
 2. Fork and Clone the Repository
 
@@ -24,9 +24,9 @@ We recommend using `uv` to manage virtual environments for installing gwsim.
 
 If you don't have `uv` installed, you can install it with pip. See the project pages for more details:
 
--   Install via pip: `pip install --upgrade pip && pip install uv`
--   Project pages: [uv on PyPI](https://pypi.org/project/uv/) | [uv on GitHub](https://github.com/astral-sh/uv)
--   Full documentation and usage guide: [uv docs](https://docs.astral.sh/uv/)
+- Install via pip: `pip install --upgrade pip && pip install uv`
+- Project pages: [uv on PyPI](https://pypi.org/project/uv/) | [uv on GitHub](https://github.com/astral-sh/uv)
+- Full documentation and usage guide: [uv docs](https://docs.astral.sh/uv/)
 
 ```shell
 uv venv
@@ -68,10 +68,10 @@ Give it a meaningful name like fix-gw-signal-generation or feature-add-noise-mod
 
 6. Make Changes
 
--   Write clear, concise, and well-documented code, ensuring it aligns with the goal of generating simulated GW data.
--   **Follow PEP 8 style conventions strictly**—linting rules are enforced via pre-commit and in CI/CD.
--   Add or update unit tests, especially for GW signal generation and noise simulation, when applicable.
--   **Keep changes atomic and focused**: one type of change per commit (e.g., do not mix refactoring with feature addition).
+- Write clear, concise, and well-documented code, ensuring it aligns with the goal of generating simulated GW data.
+- **Follow PEP 8 style conventions strictly**—linting rules are enforced via pre-commit and in CI/CD.
+- Add or update unit tests, especially for GW signal generation and noise simulation, when applicable.
+- **Keep changes atomic and focused**: one type of change per commit (e.g., do not mix refactoring with feature addition).
 
 7. Run Tests
 
@@ -93,38 +93,38 @@ Clearly describe the motivation and scope of your change, especially how it impa
 
 1. **One type of change per commit**
 
-    - Do not mix different types of changes (e.g., bug fixes, features, refactoring) in a single commit.
-    - Example: if you refactor code AND add a feature, make two separate commits.
+   - Do not mix different types of changes (e.g., bug fixes, features, refactoring) in a single commit.
+   - Example: if you refactor code AND add a feature, make two separate commits.
 
 2. **Descriptive and meaningful messages**
 
-    - Describe _what_ changed and _why_, not just _what_ was edited.
-    - Avoid vague messages like "fix bug" or "update code"; instead use "fix: prevent signal saturation in noise simulation" or "feat: add support for multi-detector frame merging".
+   - Describe _what_ changed and _why_, not just _what_ was edited.
+   - Avoid vague messages like "fix bug" or "update code"; instead use "fix: prevent signal saturation in noise simulation" or "feat: add support for multi-detector frame merging".
 
 3. **Follow Conventional Commits format**
 
-    - All commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) standard.
-    - Format: `<type>(<scope>): <subject>`
-    - Allowed types:
-        - build: Changes that affect the build system or external dependencies
-        - ci: Changes to our CI configuration files and scripts
-        - docs: Documentation only changes
-        - feat: A new feature
-        - fix: A bug fix
-        - perf: A code change that improves performance
-        - refactor: A code change that neither fixes a bug nor adds a feature
-        - style: Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc)
-        - test: Adding missing tests or correcting existing tests
-    - Example:
+   - All commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) standard.
+   - Format: `<type>(<scope>): <subject>`
+   - Allowed types:
+     - build: Changes that affect the build system or external dependencies
+     - ci: Changes to our CI configuration files and scripts
+     - docs: Documentation only changes
+     - feat: A new feature
+     - fix: A bug fix
+     - perf: A code change that improves performance
+     - refactor: A code change that neither fixes a bug nor adds a feature
+     - style: Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc.)
+     - test: Adding missing tests or correcting existing tests
+   - Example:
 
-        ```
-        feat(signal): add BBH waveform generation for aligned-spin systems
+     ```
+     feat(signal): add BBH waveform generation for aligned-spin systems
 
-        This commit introduces support for aligned-spin binary black hole
-        waveforms using PyCBC, enabling more realistic simulations.
-        ```
+     This commit introduces support for aligned-spin binary black hole
+     waveforms using PyCBC, enabling more realistic simulations.
+     ```
 
-    - Commitlint will validate your message format automatically.
+   - Commitlint will validate your message format automatically.
 
 ### Examples
 
@@ -149,11 +149,11 @@ more fixes (no type/scope)
 
 ## 💡 Tips
 
--   Be kind and constructive in your communication.
--   Keep MRs focused and atomic—smaller changes are easier to review.
--   Document new features and update existing docs, especially for new GW simulation parameters or methods.
--   Tag your MR with relevant labels if you can (e.g., `type::bug`, `type::enhancement`, `type::documentation`).
--   If commitlint rejects your message, the error will tell you why; adjust and re-commit.
+- Be kind and constructive in your communication.
+- Keep MRs focused and atomic—smaller changes are easier to review.
+- Document new features and update existing docs, especially for new GW simulation parameters or methods.
+- Tag your MR with relevant labels if you can (e.g., `type::bug`, `type::enhancement`, `type::documentation`).
+- If commitlint rejects your message, the error will tell you why; adjust and re-commit.
 
 ## 📜 Licensing
 

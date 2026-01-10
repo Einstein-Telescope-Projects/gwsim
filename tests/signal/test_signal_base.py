@@ -77,8 +77,10 @@ class TestSignalSimulatorInitialization:
         simulator = signal_simulator_with_mocks
         assert "sampling_frequency" in simulator.waveform_arguments
         assert "minimum_frequency" in simulator.waveform_arguments
-        assert simulator.waveform_arguments["sampling_frequency"] == 4096
-        assert simulator.waveform_arguments["minimum_frequency"] == 5.0
+        expected_sampling_frequency = 4096
+        expected_minimum_frequency = 5.0
+        assert simulator.waveform_arguments["sampling_frequency"] == expected_sampling_frequency
+        assert simulator.waveform_arguments["minimum_frequency"] == expected_minimum_frequency
 
     def test_detector_initialization(self, signal_simulator_with_mocks):
         """Test that detectors are properly initialized."""
@@ -180,7 +182,8 @@ class TestSignalSimulatorSimulate:
 
             # Should include first two signals (first is in segment, second triggers break but is added before break)
             # The third signal should NOT be fetched or added (loop breaks after second)
-            assert len(result) == 2
+            expected_number_of_signals = 2
+            assert len(result) == expected_number_of_signals
             assert result[0].start_time == Quantity(50, unit="s")
             assert result[1].start_time == Quantity(120, unit="s")
 
@@ -304,7 +307,8 @@ class TestSignalSimulatorUpdateState:
         initial_start_time = simulator.start_time.value
         simulator.update_state()
         expected_start_time = initial_start_time + simulator.duration.value
-        assert abs(simulator.start_time.value - expected_start_time) < 1e-10
+        tolerance = 1e-10
+        assert abs(simulator.start_time.value - expected_start_time) < tolerance
 
     def test_update_state_multiple_times(self, signal_simulator_with_mocks):
         """Test that update_state can be called multiple times."""
@@ -314,7 +318,8 @@ class TestSignalSimulatorUpdateState:
         simulator.update_state()
         simulator.update_state()
         expected_start_time = initial_start_time + 3 * simulator.duration.value
-        assert abs(simulator.start_time.value - expected_start_time) < 1e-10
+        tolerance = 1e-10
+        assert abs(simulator.start_time.value - expected_start_time) < tolerance
 
 
 class TestSignalSimulatorEdgeCases:
@@ -395,7 +400,8 @@ class TestSignalSimulatorEdgeCases:
             result = simulator._simulate()
 
             # Should include both signals
-            assert len(result) == 2
+            expected_number_of_signals = 2
+            assert len(result) == expected_number_of_signals
 
     def test_signals_injected_tracking(self, signal_simulator_with_mocks):
         """Test that signals_injected list is properly initialized."""

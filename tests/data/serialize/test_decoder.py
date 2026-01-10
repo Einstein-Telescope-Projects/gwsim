@@ -33,7 +33,7 @@ class TestDecoder:
             mock_module.MockSerializable = MockSerializable
             result = decoder._object_hook(obj_dict)
             assert isinstance(result, MockSerializable)
-            assert result.value == 42
+            assert result.value == obj_dict["value"]
 
     def test_returns_dict_for_unknown_type(self):
         """Test that unknown __type__ returns the dict unchanged."""
@@ -61,21 +61,24 @@ class TestDecoder:
 
     def test_full_json_load_with_decoder(self):
         """Test full JSON load using Decoder class."""
-        data = {"__type__": "MockSerializable", "value": 100}
+        value = 100
+        data = {"__type__": "MockSerializable", "value": value}
         json_str = json.dumps(data)
         with patch("gwsim.data.serialize.decoder.importlib.import_module") as mock_import:
             mock_module = mock_import.return_value
             mock_module.MockSerializable = MockSerializable
             result = json.loads(json_str, cls=Decoder)
             assert isinstance(result, MockSerializable)
-            assert result.value == 100
+            assert result.value == value
 
     def test_nested_decoding(self):
         """Test decoding nested structures with serializable objects."""
+        value_0 = 50
+        value_1 = 75
         nested = {
             "metadata": {"version": "1.0"},
-            "object": {"__type__": "MockSerializable", "value": 50},
-            "list": [1, {"__type__": "MockSerializable", "value": 75}],
+            "object": {"__type__": "MockSerializable", "value": value_0},
+            "list": [1, {"__type__": "MockSerializable", "value": value_1}],
         }
         json_str = json.dumps(nested)
         with patch("gwsim.data.serialize.decoder.importlib.import_module") as mock_import:
@@ -84,7 +87,7 @@ class TestDecoder:
             result = json.loads(json_str, cls=Decoder)
             assert result["metadata"]["version"] == "1.0"
             assert isinstance(result["object"], MockSerializable)
-            assert result["object"].value == 50
+            assert result["object"].value == value_0
             assert result["list"][0] == 1
             assert isinstance(result["list"][1], MockSerializable)
-            assert result["list"][1].value == 75
+            assert result["list"][1].value == value_1

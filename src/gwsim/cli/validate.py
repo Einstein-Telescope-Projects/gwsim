@@ -1,3 +1,4 @@
+# ruff: noqa PLC0415
 """
 Validation functions for CLI commands.
 """
@@ -10,7 +11,7 @@ from typing import Annotated
 import typer
 
 
-def validate_command(  # pylint: disable=too-many-branches,too-many-statements,too-many-locals,import-outside-toplevel
+def validate_command(
     paths: Annotated[
         list[Path],
         typer.Argument(

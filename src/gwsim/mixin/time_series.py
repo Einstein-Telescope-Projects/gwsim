@@ -61,9 +61,12 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
         # Get the number of channels.
         if num_of_channels is not None:
             self.num_of_channels = num_of_channels
-            if "detectors" in kwargs and kwargs["detectors"] is not None:
-                if len(kwargs["detectors"]) != num_of_channels:
-                    raise ValueError("Number of detectors does not match num_of_channels.")
+            if (
+                "detectors" in kwargs
+                and kwargs["detectors"] is not None
+                and len(kwargs["detectors"]) != num_of_channels
+            ):
+                raise ValueError("Number of detectors does not match num_of_channels.")
         elif "detectors" in kwargs and kwargs["detectors"] is not None:
             self.num_of_channels = len(kwargs["detectors"])
         else:

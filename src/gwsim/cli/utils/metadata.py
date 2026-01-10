@@ -24,13 +24,8 @@ def save_metadata_with_external_state(
         encoding: File encoding for the YAML file. Default is 'utf-8'.
     """
     metadata_file = Path(metadata_file)
-    if metadata_dir is None:
-        metadata_dir = metadata_file.parent
-    else:
-        metadata_dir = Path(metadata_dir)
-
-    metadata_dir.mkdir(parents=True, exist_ok=True)
-
+    metadata_dir = metadata_file.parent if metadata_dir is None else Path(metadata_dir)
+    metadata_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
     # Process pre_batch_state to extract all numpy arrays
     metadata_copy = metadata.copy()
     if "pre_batch_state" in metadata_copy:
@@ -77,10 +72,7 @@ def load_metadata_with_external_state(
     if not metadata_file.exists():
         raise FileNotFoundError(f"Metadata file not found: {metadata_file}")
 
-    if metadata_dir is None:
-        metadata_dir = metadata_file.parent
-    else:
-        metadata_dir = Path(metadata_dir)
+    metadata_dir = metadata_file.parent if metadata_dir is None else Path(metadata_dir)
 
     # Load YAML metadata
     try:

@@ -1,0 +1,51 @@
+name: Create Tag
+
+on:
+  schedule:
+    - cron: '0 0 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/CI.yml
+    with:
+      run_codeql: false
+
+  create_tag:
+    needs: ci
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.tag_version.outputs.new_tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Bump version and push tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          release_branches: main
+          default_bump: patch
+          tag_prefix: v
+
+      - name: Output tag information
+        run: |
+          echo "### Tag Created :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "- **New tag**: ${{ steps.tag_version.outputs.new_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Previous tag**: ${{ steps.tag_version.outputs.previous_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Changelog**: ${{ steps.tag_version.outputs.changelog }}" >> $GITHUB_STEP_SUMMARY
+
+  release:
+    needs: create_tag
+    if: needs.create_tag.outputs.new_tag != '' && needs.create_tag.outputs.new_tag != 'undefined'
+    uses: ./.github/workflows/release.yml
+    permissions:
+      contents: write
+      id-token: write
+    with:
+      tag_name: ${{ needs.create_tag.outputs.new_tag }}

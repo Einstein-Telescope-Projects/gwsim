@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from gwpy.timeseries import TimeSeries as GWpyTimeSeries
 
+from gwsim.detector import Detector
 from gwsim.mixin.detector import DetectorMixin
 from gwsim.simulator.base import Simulator
 
@@ -48,7 +49,7 @@ class TestDetectorMixin:
 
             assert sim._detectors == [mock_detector, mock_detector]
 
-            assert mock_detector_class.call_count == 2
+            assert mock_detector_class.call_count == len(detectors)
             mock_detector_class.assert_any_call(name="H1")
             mock_detector_class.assert_any_call(name="L1")
 
@@ -62,7 +63,7 @@ class TestDetectorMixin:
             detectors = ["H1.interferometer", "L1.interferometer"]
             sim = MockSimulator(detectors=detectors)
             assert sim._detectors == [mock_detector, mock_detector]
-            assert mock_detector_class.call_count == 2
+            assert mock_detector_class.call_count == len(detectors)
             mock_detector_class.assert_any_call(configuration_file="H1.interferometer")
             mock_detector_class.assert_any_call(configuration_file="L1.interferometer")
 
@@ -78,7 +79,7 @@ class TestDetectorMixin:
             detectors = ["H1.interferometer", "L1.interferometer"]
             sim = MockSimulator(detectors=detectors)
             assert sim._detectors == [mock_detector, mock_detector]
-            assert mock_detector_class.call_count == 2
+            assert mock_detector_class.call_count == len(detectors)
             mock_detector_class.assert_any_call(configuration_file="H1.interferometer")
             mock_detector_class.assert_any_call(configuration_file="L1.interferometer")
 
@@ -122,8 +123,6 @@ class TestProjectPolarizationsEarthRotation:
     @pytest.fixture
     def h1_detector(self):
         """Create a real H1 detector once for all tests in this class."""
-        from gwsim.detector import Detector
-
         return Detector(name="H1")
 
     @pytest.fixture
@@ -272,7 +271,8 @@ class TestProjectPolarizationsEarthRotation:
             relative_error = np.mean(
                 np.abs(edge_with.value - edge_without.value) / (np.abs(edge_without.value) + 1e-10)
             )
-            assert relative_error > 0.01  # At least 1% relative difference at edges
+            expected_difference_threshold = 0.01  # 1% relative difference
+            assert relative_error > expected_difference_threshold  # At least 1% relative difference at edges
 
     @pytest.mark.slow
     def test_earth_rotation_parameter_affects_antenna_pattern_calls(self, sine_wave_polarizations, h1_detector):

@@ -34,9 +34,11 @@ class TestTimeSeriesInitialization:
 
     def test_init_with_valid_data(self, sample_timeseries: TimeSeries):
         """Test initialization with valid 2D array."""
-        assert sample_timeseries.num_of_channels == 2
+        expected_num_of_channels = 2
+        assert sample_timeseries.num_of_channels == expected_num_of_channels
         assert sample_timeseries.dtype == np.float64
-        assert len(sample_timeseries) == 2
+        expected_shape = (2, 1024)
+        assert len(sample_timeseries) == expected_shape[0]
 
     def test_init_with_int_start_time(self):
         """Test initialization with int start_time."""
@@ -80,7 +82,8 @@ class TestTimeSeriesProperties:
     def test_time_array_property(self, sample_timeseries: TimeSeries):
         """Test time_array property."""
         times = sample_timeseries.time_array
-        assert len(times) == 1024
+        expected_len = 1024
+        assert len(times) == expected_len
         assert times[0] == sample_timeseries.start_time
 
 
@@ -94,12 +97,14 @@ class TestTimeSeriesIndexing:
 
     def test_len(self, sample_timeseries: TimeSeries):
         """Test __len__."""
-        assert len(sample_timeseries) == 2
+        expected_len = 2
+        assert len(sample_timeseries) == expected_len
 
     def test_iter(self, sample_timeseries: TimeSeries):
         """Test __iter__."""
         channels = list(sample_timeseries)
-        assert len(channels) == 2
+        expected_num_of_channels = 2
+        assert len(channels) == expected_num_of_channels
 
 
 class TestTimeSeriesCrop:

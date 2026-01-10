@@ -1,3 +1,5 @@
+# ruff: noqa PLC0415
+
 """
 A tool to generate and manage default configuration files.
 """
@@ -29,9 +31,9 @@ def _config_command_impl(  # pylint: disable=too-many-locals,too-many-branches,t
         overwrite: If True, overwrites existing files without raising an error.
 
     """
-    import logging  # pylint: disable=import-outside-toplevel
+    import logging
 
-    from gwsim.cli.utils.config import (  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.utils.config import (
         get_examples_dir,
         load_config,
         save_config,
@@ -90,10 +92,7 @@ def _config_command_impl(  # pylint: disable=too-many-locals,too-many-branches,t
         if not src_path.exists():
             logger.error("Example configuration '%s' does not exist in examples directory.", get)
             raise typer.Exit(1)
-        if output.is_dir():
-            dst_path = output / "config.yaml"
-        else:
-            dst_path = output
+        dst_path = output / "config.yaml" if output.is_dir() else output
         copy_config_file(src_path=src_path, dst_path=dst_path, overwrite=overwrite)
         logger.info("Copied example configuration file: %s to %s", get / "config.yaml", dst_path)
         return

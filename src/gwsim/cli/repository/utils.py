@@ -26,10 +26,7 @@ def get_zenodo_client(sandbox: bool = False, token: str | None = None) -> Zenodo
         typer.Exit: If no token is provided or found in environment.
     """
     if token is None:
-        if sandbox:
-            token = os.environ.get("ZENODO_SANDBOX_API_TOKEN")
-        else:
-            token = os.environ.get("ZENODO_API_TOKEN")
+        token = os.environ.get("ZENODO_SANDBOX_API_TOKEN") if sandbox else os.environ.get("ZENODO_API_TOKEN")
     if not token:
         if sandbox:
             console.print(

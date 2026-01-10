@@ -25,6 +25,15 @@ from gwsim.cli.utils.config import (
     validate_config,
 )
 
+# Constants for test assertions to avoid magic values
+SEED = 42
+SAMPLING_FREQUENCY_2048 = 2048
+SAMPLING_FREQUENCY_4096 = 4096
+DURATION_4 = 4
+DURATION_64 = 64
+SAMPLE_RATE_16384 = 16384
+NUM_SIMULATORS = 2
+
 
 class TestSimulatorOutputConfig:
     """Test SimulatorOutputConfig dataclass."""
@@ -76,7 +85,7 @@ class TestSimulatorConfig:
             class_="WhiteNoise",
             arguments={"seed": 42, "detectors": ["H1", "L1"]},
         )
-        assert config.arguments["seed"] == 42
+        assert config.arguments["seed"] == SEED
         assert config.arguments["detectors"] == ["H1", "L1"]
 
     def test_simulator_config_with_output(self):
@@ -118,9 +127,9 @@ class TestGlobalsConfig:
             simulator_arguments={"sampling_frequency": 4096, "duration": 64, "seed": 42},
         )
         assert config.working_directory == "/data"
-        assert config.simulator_arguments["sampling_frequency"] == 4096
-        assert config.simulator_arguments["duration"] == 64
-        assert config.simulator_arguments["seed"] == 42
+        assert config.simulator_arguments["sampling_frequency"] == SAMPLING_FREQUENCY_4096
+        assert config.simulator_arguments["duration"] == DURATION_64
+        assert config.simulator_arguments["seed"] == SEED
 
     def test_globals_config_with_output_arguments(self):
         """Test GlobalsConfig with output arguments."""
@@ -128,7 +137,7 @@ class TestGlobalsConfig:
             output_arguments={"channel": "H1:STRAIN", "sample_rate": 16384},
         )
         assert config.output_arguments["channel"] == "H1:STRAIN"
-        assert config.output_arguments["sample_rate"] == 16384
+        assert config.output_arguments["sample_rate"] == SAMPLE_RATE_16384
 
     def test_globals_config_with_aliases(self):
         """Test that YAML aliases work (snake-case keys)."""
@@ -144,8 +153,8 @@ class TestGlobalsConfig:
         assert config.working_directory == "/work"
         assert config.output_directory == "/out"
         assert config.metadata_directory == "/meta"
-        assert config.simulator_arguments["sampling-frequency"] == 2048
-        assert config.simulator_arguments["duration"] == 4
+        assert config.simulator_arguments["sampling-frequency"] == SAMPLING_FREQUENCY_2048
+        assert config.simulator_arguments["duration"] == DURATION_4
         assert config.output_arguments["channel"] == "STRAIN"
 
     def test_globals_config_serialization(self):
@@ -158,7 +167,7 @@ class TestGlobalsConfig:
         # Serialize with aliases for YAML export
         data = config.model_dump(by_alias=True, exclude_none=True)
         assert data["working-directory"] == "/data"
-        assert data["simulator-arguments"]["sampling_frequency"] == 4096
+        assert data["simulator-arguments"]["sampling_frequency"] == SAMPLING_FREQUENCY_4096
         assert data["output-arguments"]["channel"] == "H1:STRAIN"
         assert "output-directory" not in data  # None values excluded
 
@@ -199,7 +208,7 @@ class TestConfig:
                 "signal": SimulatorConfig(class_="SignalSimulator"),
             }
         )
-        assert len(config.simulators) == 2
+        assert len(config.simulators) == NUM_SIMULATORS
         assert "noise" in config.simulators
         assert "signal" in config.simulators
 
@@ -214,7 +223,7 @@ class TestConfig:
         )
         # Serialize with aliases
         data = config.model_dump(by_alias=True, exclude_none=True)
-        assert data["globals"]["simulator-arguments"]["sampling_frequency"] == 2048
+        assert data["globals"]["simulator-arguments"]["sampling_frequency"] == SAMPLING_FREQUENCY_2048
         assert data["simulators"]["noise"]["class"] == "WhiteNoise"
 
 
@@ -250,7 +259,7 @@ simulators:
         try:
             config = load_config(config_path)
             assert isinstance(config, Config)
-            assert config.globals.simulator_arguments["sampling-frequency"] == 2048
+            assert config.globals.simulator_arguments["sampling-frequency"] == SAMPLING_FREQUENCY_2048
             assert "noise" in config.simulators
             assert config.simulators["noise"].class_ == "WhiteNoise"
         finally:
@@ -325,7 +334,7 @@ class TestSaveConfig:
             with open(config_path) as f:
                 data = yaml.safe_load(f)
             assert data["globals"]["working-directory"] == "/data"
-            assert data["globals"]["simulator-arguments"]["sampling_frequency"] == 4096
+            assert data["globals"]["simulator-arguments"]["sampling_frequency"] == SAMPLING_FREQUENCY_4096
             assert data["simulators"]["noise"]["class"] == "WhiteNoise"
 
     def test_save_config_file_exists_without_overwrite(self):
@@ -391,33 +400,42 @@ class TestMergeParameters:
     def test_merge_parameters_empty_global(self):
         """Test merging with empty global config."""
         globals_cfg = GlobalsConfig()
-        sim_args = {"seed": 42}
+        seed = 42
+        sim_args = {"seed": seed}
         merged = merge_parameters(globals_cfg, sim_args)
-        assert merged["seed"] == 42
+        assert merged["seed"] == seed
         assert merged["working-directory"] == "."  # Default from globals
 
     def test_merge_parameters_with_simulator_arguments(self):
         """Test merging with simulator arguments in global config."""
+        working_directory = "/data"
+        sampling_frequency = 4096
+        global_seed = 0
+        local_seed = 42
+
         globals_cfg = GlobalsConfig(
-            working_directory="/data",
-            simulator_arguments={"sampling_frequency": 4096, "seed": 0},
+            working_directory=working_directory,
+            simulator_arguments={"sampling_frequency": sampling_frequency, "seed": global_seed},
         )
-        sim_args = {"seed": 42}  # Override seed
+        sim_args = {"seed": local_seed}  # Override seed
         merged = merge_parameters(globals_cfg, sim_args)
-        assert merged["seed"] == 42  # Simulator overrides
-        assert merged["sampling_frequency"] == 4096  # From globals
-        assert merged["working-directory"] == "/data"  # From globals
+        assert merged["seed"] == local_seed  # Simulator overrides
+        assert merged["sampling_frequency"] == sampling_frequency  # From globals
+        assert merged["working-directory"] == working_directory  # From globals
 
     def test_merge_parameters_simulator_wins(self):
         """Test that simulator parameters take precedence."""
+        global_sampling_frequency = 2048
+        global_duration = 64
+        local_sampling_frequency = 4096
         globals_cfg = GlobalsConfig(
-            simulator_arguments={"sampling_frequency": 2048, "duration": 64},
+            simulator_arguments={"sampling_frequency": global_sampling_frequency, "duration": global_duration},
         )
-        sim_args = {"sampling_frequency": 4096}
+        sim_args = {"sampling_frequency": local_sampling_frequency}
         merged = merge_parameters(globals_cfg, sim_args)
         # Simulator value should win
-        assert merged["sampling_frequency"] == 4096
-        assert merged["duration"] == 64
+        assert merged["sampling_frequency"] == local_sampling_frequency
+        assert merged["duration"] == global_duration
 
 
 class TestValidateConfig:
@@ -704,10 +722,11 @@ simulators:
 
     def test_multiple_simulators_round_trip(self):
         """Test round trip with multiple simulators."""
+        sampling_frequency = 2048
         config = Config(
             globals=GlobalsConfig(
                 working_directory="/data",
-                simulator_arguments={"sampling_frequency": 2048, "duration": 8},
+                simulator_arguments={"sampling_frequency": sampling_frequency, "duration": 8},
             ),
             simulators={
                 "noise": SimulatorConfig(
@@ -725,10 +744,11 @@ simulators:
             save_config(config_path, config)
             loaded = load_config(config_path)
 
-            assert len(loaded.simulators) == 2
+            expected_num_of_simulators = NUM_SIMULATORS
+            assert len(loaded.simulators) == expected_num_of_simulators
             assert "noise" in loaded.simulators
             assert "signal" in loaded.simulators
-            assert loaded.globals.simulator_arguments["sampling_frequency"] == 2048
+            assert loaded.globals.simulator_arguments["sampling_frequency"] == sampling_frequency
 
 
 def test_get_examples_dir_discovers_examples():

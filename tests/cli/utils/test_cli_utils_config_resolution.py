@@ -11,7 +11,8 @@ def test_computed_from_total_duration_takes_priority():
         {"max_samples": 5, "total_duration": 100, "duration": 4},
         {"max_samples": 10},
     )
-    assert result == 25  # 100 / 4, not 5
+    expected_result = 100 / 4  # 25
+    assert result == expected_result
 
 
 def test_computed_from_total_duration():
@@ -20,7 +21,8 @@ def test_computed_from_total_duration():
         {"total_duration": 3600, "duration": 4},
         {},
     )
-    assert result == 900  # 3600 / 4
+    expected_result = 3600 / 4  # 900
+    assert result == expected_result  # 3600 / 4
 
 
 def test_string_duration_parsing():
@@ -29,16 +31,18 @@ def test_string_duration_parsing():
         {"total_duration": "1 hour", "duration": 4},
         {},
     )
-    assert result == 900
+    expected_result = 3600 / 4  # 1 hour = 3600 seconds
+    assert result == expected_result
 
 
 def test_fallback_to_global_max_samples():
     """Use global max_samples if total_duration not set."""
+    max_samples = 7
     result = resolve_max_samples(
         {},
-        {"max_samples": 7},
+        {"max_samples": max_samples},
     )
-    assert result == 7
+    assert result == max_samples
 
 
 def test_default_to_one():

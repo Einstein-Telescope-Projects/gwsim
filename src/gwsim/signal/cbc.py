@@ -15,7 +15,7 @@ from gwsim.signal.base import SignalSimulator
 class CBCSignalSimulator(CBCPopulationReaderMixin, SignalSimulator):  # pylint: disable=too-many-ancestors
     """CBC Signal Simulator class."""
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def __init__(  # noqa: PLR0913
         self,
         population_file: str | Path,
         population_parameter_name_mapper: dict[str, str] | None = None,

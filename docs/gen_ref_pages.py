@@ -8,6 +8,28 @@ import mkdocs_gen_files
 
 src = Path(__file__).parent.parent / "src"
 
+root_dir = Path(__file__).parent.parent
+
+# Copy CONTRIBUTING.md to docs directory
+contributing_src = root_dir / "CONTRIBUTING.md"
+contributing_dest = Path("CONTRIBUTING.md")
+if contributing_src.exists():
+    with open(contributing_src, encoding="utf-8") as src_fd:
+        content = src_fd.read()
+    with mkdocs_gen_files.open("CONTRIBUTING.md", "w") as fd:
+        fd.write(content)
+    mkdocs_gen_files.set_edit_path(Path("CONTRIBUTING.md"), contributing_src)
+
+# Copy SECURITY.md to docs directory
+security_src = root_dir / "SECURITY.md"
+security_dest = Path("SECURITY.md")
+if security_src.exists():
+    with open(security_src, encoding="utf-8") as src_fd:
+        content = src_fd.read()
+    with mkdocs_gen_files.open("SECURITY.md", "w") as fd:
+        fd.write(content)
+    mkdocs_gen_files.set_edit_path(Path("SECURITY.md"), security_src)
+
 # Generate the index page
 with mkdocs_gen_files.open("reference/index.md", "w") as fd:
     fd.write("# API Reference\n\n")
@@ -19,10 +41,8 @@ with mkdocs_gen_files.open("reference/index.md", "w") as fd:
     gwsim_dir = src / "gwsim"
     if gwsim_dir.exists():
         for item in gwsim_dir.iterdir():
-            if item.is_dir() and (item / "__init__.py").exists():
-                # Skip private modules
-                if not item.name.startswith("_"):
-                    modules.add(item.name)
+            if item.is_dir() and (item / "__init__.py").exists() and not item.name.startswith("_"):
+                modules.add(item.name)
 
     # Generate module list
     for module in sorted(modules):

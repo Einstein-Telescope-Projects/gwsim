@@ -1,3 +1,5 @@
+# ruff: noqa PLC0415
+
 """CLI for uploading files to Zenodo depositions."""
 
 from __future__ import annotations
@@ -8,7 +10,7 @@ from typing import Annotated
 import typer
 
 
-def upload_command(  # pylint: disable=import-outside-toplevel,too-many-locals
+def upload_command(
     deposition_id: Annotated[str, typer.Argument(help="Deposition ID")],
     files: Annotated[list[str] | None, typer.Option("--file", help="Files to upload (repeat for multiple)")] = None,
     sandbox: Annotated[bool, typer.Option("--sandbox", help="Use sandbox environment")] = False,

@@ -1,3 +1,5 @@
+# ruff: noqa PLC0415
+
 """CLI for updating Zenodo repository depositions."""
 
 from __future__ import annotations
@@ -21,12 +23,12 @@ def update_command(
     Examples:
         gwsim repository update 123456 --metadata-file metadata.yaml
     """
-    import logging  # pylint: disable=import-outside-toplevel
+    import logging
 
-    import yaml  # pylint: disable=import-outside-toplevel
-    from rich.console import Console  # pylint: disable=import-outside-toplevel
+    import yaml
+    from rich.console import Console
 
-    from gwsim.cli.repository.utils import get_zenodo_client  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.repository.utils import get_zenodo_client
 
     logger = logging.getLogger("gwsim")
     console = Console()

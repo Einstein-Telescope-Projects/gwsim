@@ -1,0 +1,50 @@
+name: Draft Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: draft-release
+  cancel-in-progress: true
+
+jobs:
+  draft-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v4.7.0
+        with:
+          config: cliff.toml
+          args: --unreleased --verbose
+        env:
+          OUTPUT: CHANGELOG.md
+
+      - name: Delete existing draft release
+        continue-on-error: true
+        run: |
+          gh release delete next-release --yes
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create or Update Draft Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: next-release
+          name: 'Next Release (Draft)'
+          body: |
+            ${{ steps.changelog.outputs.content }}
+
+            ---
+            *This is an automatically generated draft release.*
+          draft: true
+          prerelease: false

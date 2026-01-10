@@ -32,6 +32,6 @@ class CustomBuildHook(BuildHookInterface):
             dest_path = f"gwsim/examples/{rel_path.as_posix()}"
             force_include[str(yaml_file)] = dest_path
 
-        num_files = len([k for k in force_include.keys() if str(k).endswith(".yaml")])
+        num_files = len([k for k in force_include if str(k).endswith(".yaml")])
         if num_files > 0:
             print(f"✓ Including {num_files} YAML file(s) in gwsim/examples/")

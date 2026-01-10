@@ -1,147 +1,148 @@
 site_name: gwsim Documentation
 site_description: A Python package for simulating gravitational-wave detector data for mock data challenges
-site_url: https://gwsim.readthedocs.io
-repo_url: https://gitlab.et-gw.eu/et-projects/software/gwsim
+site_url: https://leuven-gravity-institute.github.io/gwsim
+repo_url: https://github.com/Leuven-Gravity-Institute/gwsim
 repo_name: gwsim
 
 theme:
-    name: material
-    palette:
-        - scheme: default
-          primary: blue
-          accent: blue
-          toggle:
-              icon: material/brightness-7
-              name: Switch to dark mode
-        - scheme: slate
-          primary: blue
-          accent: blue
-          toggle:
-              icon: material/brightness-4
-              name: Switch to light mode
-    features:
-        - navigation.tabs
-        - navigation.sections
-        - navigation.expand
-        - navigation.top
-        - search.highlight
-        - content.code.copy
+  name: material
+  palette:
+    - scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - content.code.copy
 extra_css:
-    - style/api.css
+  - style/api.css
 
 plugins:
-    - search
-    - mkdocstrings:
-          default_handler: python
-          handlers:
-              python:
-                  paths: [src]
-                  options:
-                      show_docstring_attributes: true
-                      show_docstring_description: true
-                      show_attributes: true
-                      show_members: true
-                      members_order: source
-                      group_by_category: true
-                      separate_signature: true
-                      docstring_style: google
-                      show_source: true
-                      show_root_heading: true
-                      show_root_full_path: false
-                      show_submodules: false
-                      show_bases: true
-                      show_category_heading: true
-                      show_signature: true
-                      merge_init_into_class: true
-                      show_signature_annotations: true
-                      show_symbol_type_heading: true
-                      signature_crossrefs: false
-                      show_object_full_path: false
-                      heading_level: 2
-                      filters:
-                          - '!^_'
-    - gen-files:
-          scripts:
-              - docs/gen_ref_pages.py
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_docstring_attributes: true
+            show_docstring_description: true
+            show_attributes: true
+            show_members: true
+            members_order: source
+            group_by_category: true
+            separate_signature: true
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_submodules: false
+            show_bases: true
+            show_category_heading: true
+            show_signature: true
+            merge_init_into_class: true
+            show_signature_annotations: true
+            show_symbol_type_heading: true
+            signature_crossrefs: false
+            show_object_full_path: false
+            heading_level: 2
+            filters:
+              - '!^_'
+  - gen-files:
+      scripts:
+        - docs/gen_ref_pages.py
 
 nav:
-    - Home: index.md
-    - Installation: user-guide/installation.md
-    - User Guide:
-          - Quick Start: user-guide/quickstart.md
-          - Generating Data: user-guide/generating-data.md
-          - Reading Data: user-guide/reading-data.md
-          - Configuration Files: user-guide/configuration.md
-          - Metadata Files: user-guide/metadata.md
-          - Examples: user-guide/examples.md
-          - Publishing Data to Zenodo: user-guide/repository.md
-          - Running Simulations on a Cluster: user-guide/cluster.md
-    - API Reference:
-          - Overview: reference/index.md
-          - gwsim.cli:
-                - Overview: reference/gwsim/cli/index.md
-                - main: reference/gwsim/cli/main.md
-                - simulate: reference/gwsim/cli/simulate.md
-                - config: reference/gwsim/cli/config.md
-          - gwsim.config: reference/gwsim/config/index.md
-          - gwsim.data: reference/gwsim/data/index.md
-          - gwsim.detector: reference/gwsim/detector/index.md
-          - gwsim.glitch:
-                - Overview: reference/gwsim/glitch/index.md
-                - base: reference/gwsim/glitch/base.md
-                - gengli: reference/gwsim/glitch/gengli_glitch.md
-          - gwsim.mixin:
-                - Overview: reference/gwsim/mixin/index.md
-                - detector: reference/gwsim/mixin/detector.md
-                - randomness: reference/gwsim/mixin/randomness.md
-                - time_series: reference/gwsim/mixin/time_series.md
-                - waveform: reference/gwsim/mixin/waveform.md
-          - gwsim.noise:
-                - Overview: reference/gwsim/noise/index.md
-                - base: reference/gwsim/noise/base.md
-                - white: reference/gwsim/noise/white_noise.md
-                - colored: reference/gwsim/noise/colored_noise.md
-                - correlated: reference/gwsim/noise/correlated_noise.md
-          - gwsim.population: reference/gwsim/population/index.md
-          - gwsim.signal:
-                - Overview: reference/gwsim/signal/index.md
-                - base: reference/gwsim/signal/base.md
-                - cbc: reference/gwsim/signal/cbc.md
-          - gwsim.simulator:
-                - Overview: reference/gwsim/simulator/index.md
-                - base: reference/gwsim/simulator/base.md
-                - state: reference/gwsim/simulator/state.md
-          - gwsim.utils:
-                - Overview: reference/gwsim/utils/index.md
-                - io: reference/gwsim/utils/io.md
-                - log: reference/gwsim/utils/log.md
-                - random: reference/gwsim/utils/random.md
-          - gwsim.waveform: reference/gwsim/waveform/index.md
-    - Developer Guide:
-          - Contributing: dev/contributing.md
-          - Architecture: dev/architecture.md
-    - Troubleshooting: dev/troubleshooting.md
+  - Home: index.md
+  - Installation: user-guide/installation.md
+  - User Guide:
+      - Quick Start: user-guide/quickstart.md
+      - Generating Data: user-guide/generating-data.md
+      - Reading Data: user-guide/reading-data.md
+      - Configuration Files: user-guide/configuration.md
+      - Metadata Files: user-guide/metadata.md
+      - Examples: user-guide/examples.md
+      - Publishing Data to Zenodo: user-guide/repository.md
+      - Running Simulations on a Cluster: user-guide/cluster.md
+  - API Reference:
+      - Overview: reference/index.md
+      - gwsim.cli:
+          - Overview: reference/gwsim/cli/index.md
+          - main: reference/gwsim/cli/main.md
+          - simulate: reference/gwsim/cli/simulate.md
+          - config: reference/gwsim/cli/config.md
+      - gwsim.config: reference/gwsim/config/index.md
+      - gwsim.data: reference/gwsim/data/index.md
+      - gwsim.detector: reference/gwsim/detector/index.md
+      - gwsim.glitch:
+          - Overview: reference/gwsim/glitch/index.md
+          - base: reference/gwsim/glitch/base.md
+          - gengli: reference/gwsim/glitch/gengli_glitch.md
+      - gwsim.mixin:
+          - Overview: reference/gwsim/mixin/index.md
+          - detector: reference/gwsim/mixin/detector.md
+          - randomness: reference/gwsim/mixin/randomness.md
+          - time_series: reference/gwsim/mixin/time_series.md
+          - waveform: reference/gwsim/mixin/waveform.md
+      - gwsim.noise:
+          - Overview: reference/gwsim/noise/index.md
+          - base: reference/gwsim/noise/base.md
+          - white: reference/gwsim/noise/white_noise.md
+          - colored: reference/gwsim/noise/colored_noise.md
+          - correlated: reference/gwsim/noise/correlated_noise.md
+      - gwsim.population: reference/gwsim/population/index.md
+      - gwsim.signal:
+          - Overview: reference/gwsim/signal/index.md
+          - base: reference/gwsim/signal/base.md
+          - cbc: reference/gwsim/signal/cbc.md
+      - gwsim.simulator:
+          - Overview: reference/gwsim/simulator/index.md
+          - base: reference/gwsim/simulator/base.md
+          - state: reference/gwsim/simulator/state.md
+      - gwsim.utils:
+          - Overview: reference/gwsim/utils/index.md
+          - io: reference/gwsim/utils/io.md
+          - log: reference/gwsim/utils/log.md
+          - random: reference/gwsim/utils/random.md
+      - gwsim.waveform: reference/gwsim/waveform/index.md
+  - Developer Guide:
+      - Contributing: CONTRIBUTING.md
+      - Architecture: dev/architecture.md
+  - Security: SECURITY.md
+  - Troubleshooting: dev/troubleshooting.md
 
 markdown_extensions:
-    - pymdownx.highlight:
-          anchor_linenums: true
-    - pymdownx.inlinehilite
-    - pymdownx.snippets
-    - pymdownx.superfences
-    - admonition
-    - pymdownx.details
-    - pymdownx.tabbed:
-          alternate_style: true
-    - attr_list
-    - md_in_html
-    - pymdownx.arithmatex:
-          generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+  - pymdownx.arithmatex:
+      generic: true
 
 extra_javascript:
-    - javascripts/mathjax.js
-    - https://polyfill.io/v3/polyfill.min.js?features=es6
-    - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+  - javascripts/mathjax.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 
 extra:
-    version:
-        provider: mike
+  version:
+    provider: mike

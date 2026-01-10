@@ -4,6 +4,8 @@
 
 If you encounter version conflicts or dependency errors while installing `gwsim`, this is often due to conflicting package versions in your Python environment. To resolve this:
 
+<!-- prettier-ignore-start -->
+
 1. **Use a Virtual Environment**: Always install `gwsim` in a dedicated virtual environment to isolate it from your system Python and other projects. We recommend using `uv` for this:
 
     ```bash
@@ -26,6 +28,7 @@ If you encounter version conflicts or dependency errors while installing `gwsim`
     ```
 
 4. **Clean Install**: If issues continue, remove the virtual environment and recreate it:
+
     ```bash
     rm -rf gwsim-env  # Or delete the folder
     uv venv --python 3.10 gwsim-env
@@ -33,4 +36,6 @@ If you encounter version conflicts or dependency errors while installing `gwsim`
     uv pip install gwsim
     ```
 
-For more details on installation, see the [Installation Guide](../user-guide/installation.md). If problems persist, check the [GitLab issues](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/issues) or create a new issue with your Python version and full error output.
+<!-- prettier-ignore-end -->
+
+For more details on installation, see the [Installation Guide](../user-guide/installation.md). If problems persist, check the [GitHub issues](https://github.com/Leuven-Gravity-Institute/gwsim/issues) or create a new issue with your Python version and full error output.

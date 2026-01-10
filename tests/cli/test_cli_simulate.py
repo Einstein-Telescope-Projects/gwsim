@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -33,9 +34,24 @@ from gwsim.cli.utils.simulation_plan import (
     SimulationBatch,
     SimulationPlan,
     create_plan_from_config,
+    parse_batch_metadata,
 )
 from gwsim.mixin.randomness import RandomnessMixin
 from gwsim.simulator.base import Simulator
+
+# Constants for test assertions to avoid magic values
+SEED = 42
+SEED_77 = 77
+MAX_SAMPLES_3 = 3
+MAX_SAMPLES_2 = 2
+MAX_SAMPLES_100 = 100
+MAX_SAMPLES_50 = 50
+COUNTER_5 = 5
+NUM_FILES_2 = 2
+NUM_FILES_3 = 3
+RETRY_COUNT_3 = 3
+RETRY_COUNT_2 = 2
+TIME_THRESHOLD = 0.14
 
 
 class MockSimulator(RandomnessMixin, Simulator):
@@ -88,16 +104,16 @@ class TestMockSimulator:
     def test_mock_simulator_instantiation(self):
         """Test that MockSimulator can be instantiated."""
         sim = MockSimulator(seed=42)
-        assert sim.seed == 42
+        assert sim.seed == SEED
         assert sim.counter == 0
 
     def test_mock_simulator_generate_samples(self):
         """Test that MockSimulator can generate samples."""
         sim = MockSimulator(seed=42, max_samples=3)
         samples = list(sim)
-        assert len(samples) == 3
+        assert len(samples) == MAX_SAMPLES_3
         assert all(isinstance(s, int) for s in samples)
-        assert sim.counter == 3
+        assert sim.counter == MAX_SAMPLES_3
 
     def test_mock_simulator_state_persistence(self):
         """Test that MockSimulator state persists across generations."""
@@ -122,7 +138,7 @@ class TestMockSimulator:
             assert output_file.exists()
             with output_file.open() as f:
                 data = json.load(f)
-            assert data["data"] == 42
+            assert data["data"] == SEED
 
     def test_mock_simulator_reproducibility_with_seed(self):
         """Test that same seed produces same sequence."""
@@ -146,7 +162,7 @@ class TestInstantiateSimulator:
         )
         sim = instantiate_simulator(config)
         assert isinstance(sim, MockSimulator)
-        assert sim.seed == 42
+        assert sim.seed == SEED
 
     def test_instantiate_simulator_invalid_class(self):
         """Test instantiating with invalid class raises error."""
@@ -170,9 +186,9 @@ class TestInstantiateSimulator:
         sim = instantiate_simulator(config, global_simulator_arguments=global_args)
 
         # Simulator-specific seed should override global
-        assert sim.seed == 42
+        assert sim.seed == SEED
         # Max samples from global should be used since not in simulator args
-        assert sim.max_samples == 100
+        assert sim.max_samples == MAX_SAMPLES_100
 
     def test_instantiate_simulator_global_only(self):
         """Test simulator instantiation with only global arguments."""
@@ -185,8 +201,8 @@ class TestInstantiateSimulator:
         sim = instantiate_simulator(config, global_simulator_arguments=global_args)
 
         # All arguments should come from global
-        assert sim.seed == 77
-        assert sim.max_samples == 50
+        assert sim.seed == SEED_77
+        assert sim.max_samples == MAX_SAMPLES_50
 
 
 class TestRestoreBatchState:
@@ -207,7 +223,7 @@ class TestRestoreBatchState:
         )
 
         restore_batch_state(sim, batch)
-        assert sim.counter == 5
+        assert sim.counter == COUNTER_5
 
     def test_restore_state_without_snapshot(self):
         """Test that missing snapshot doesn't cause error."""
@@ -270,7 +286,7 @@ class TestUpdateMetadataIndex:
             with index_file.open() as f:
                 index = yaml.safe_load(f)
 
-            assert len(index) == 2
+            assert len(index) == NUM_FILES_2
             assert index["H1-batch0.gwf"] == "signal-0.metadata.yaml"
             assert index["L1-batch1.gwf"] == "signal-1.metadata.yaml"
 
@@ -363,7 +379,7 @@ class TestSaveBatchMetadata:
             assert metadata["simulator_name"] == "test"
             assert metadata["batch_index"] == 0
             assert "output_files" in metadata
-            assert len(metadata["output_files"]) == 3
+            assert len(metadata["output_files"]) == NUM_FILES_3
             assert "H1-1234567890-1024.gwf" in metadata["output_files"]
             assert "L1-1234567890-1024.gwf" in metadata["output_files"]
             assert "V1-1234567890-1024.gwf" in metadata["output_files"]
@@ -425,13 +441,13 @@ class TestRetryWithBackoff:
         def retry_func():
             nonlocal call_count
             call_count += 1
-            if call_count < 3:
+            if call_count < RETRY_COUNT_3:
                 raise OSError("Simulated I/O error")
             return "success"
 
         result = retry_with_backoff(retry_func, max_retries=3, initial_delay=0.01)
         assert result == "success"
-        assert call_count == 3
+        assert call_count == RETRY_COUNT_3
 
     def test_retry_all_attempts_fail(self):
         """Test that exception is raised after all retries fail."""
@@ -446,17 +462,15 @@ class TestRetryWithBackoff:
             retry_with_backoff(always_fails, max_retries=2, initial_delay=0.01)
 
         # Should attempt 3 times (initial + 2 retries)
-        assert call_count == 3
+        assert call_count == RETRY_COUNT_3
 
     def test_retry_exponential_backoff(self):
         """Test that backoff delays increase exponentially."""
-        import time
-
         call_times = []
 
         def track_calls():
             call_times.append(time.time())
-            if len(call_times) < 3:
+            if len(call_times) < RETRY_COUNT_3:
                 raise OSError("Retrying")
             return "success"
 
@@ -465,9 +479,9 @@ class TestRetryWithBackoff:
         total_time = time.time() - start
 
         assert result == "success"
-        assert len(call_times) == 3
+        assert len(call_times) == RETRY_COUNT_3
         # Total time should be at least: 0.05 + 0.1 = 0.15 seconds
-        assert total_time >= 0.14  # Allow some margin for execution time
+        assert total_time >= TIME_THRESHOLD  # Allow some margin for execution time
 
     def test_retry_with_state_restoration(self):
         """Test that state restoration function is called before retries."""
@@ -478,7 +492,7 @@ class TestRetryWithBackoff:
         def state_func():
             nonlocal call_count, state
             call_count += 1
-            if call_count < 2:
+            if call_count < RETRY_COUNT_2:
                 # First attempt: fail and modify state
                 state["value"] = 999
                 raise RuntimeError("First attempt fails")
@@ -493,7 +507,7 @@ class TestRetryWithBackoff:
         result = retry_with_backoff(state_func, max_retries=1, initial_delay=0.01, state_restore_func=restore_func)
 
         assert result == 0  # State was restored
-        assert call_count == 2
+        assert call_count == RETRY_COUNT_2
         assert restore_count == 1
 
     def test_retry_state_restoration_failure_raises_error(self):
@@ -785,7 +799,7 @@ class TestCreateSimulationPlanFromConfig:
 
         plan = create_plan_from_config(config, Path("checkpoints"))
 
-        assert plan.total_batches == 2
+        assert plan.total_batches == NUM_FILES_2
         simulator_names = {b.simulator_name for b in plan.batches}
         assert simulator_names == {"mock1", "mock2"}
 
@@ -914,7 +928,7 @@ class TestSimulateCommandIntegration:
 
             # Check for all 3 batch metadata files
             metadata_files = list(metadata_dir.glob("mock-*.metadata.yaml"))
-            assert len(metadata_files) == 3, (
+            assert len(metadata_files) == NUM_FILES_3, (
                 f"Expected 3 batch metadata files (max-samples: 3), "
                 f"but found {len(metadata_files)}: {metadata_files}"
             )
@@ -970,13 +984,11 @@ class TestSimulateCommandIntegration:
             # Verify initial metadata was created
             metadata_dir = tmpdir_path / "metadata"
             initial_metadata_files = sorted(metadata_dir.glob("mock-*.metadata.yaml"))
-            assert len(initial_metadata_files) == 3, (
+            assert len(initial_metadata_files) == NUM_FILES_3, (
                 f"Expected 3 metadata files from initial run, " f"but found {len(initial_metadata_files)}"
             )
 
             # Load metadata for batch 1 (the middle batch)
-            from gwsim.cli.utils.simulation_plan import parse_batch_metadata
-
             batch_1_metadata_file = metadata_dir / "mock-1.metadata.yaml"
             batch_1_metadata = parse_batch_metadata(batch_1_metadata_file)
 
@@ -1081,7 +1093,6 @@ class TestSimulateCommandIntegration:
             assert batch_1_metadata_file.exists(), "Batch 1 metadata file not created"
 
             # Load batch 1's metadata
-            from gwsim.cli.utils.simulation_plan import parse_batch_metadata
 
             metadata = parse_batch_metadata(batch_1_metadata_file)
 
@@ -1098,8 +1109,6 @@ class TestSimulateCommandIntegration:
 
             # ===== STEP 3: Reproduce batch 1 independently =====
             # Instantiate a fresh simulator with the same configuration
-            from gwsim.cli.utils.config import GlobalsConfig, SimulatorConfig
-
             simulator_config = SimulatorConfig(**metadata["simulator_config"])
             globals_config = GlobalsConfig(**metadata["globals_config"])
 
@@ -1285,7 +1294,7 @@ class TestSimulateCommandCheckpoint:
             # Verify output files exist
             output_dir = tmpdir_path / "output"
             initial_files = sorted(output_dir.glob("batch_*.json"))
-            assert len(initial_files) == 3, f"Expected 3 output files, got {len(initial_files)}"
+            assert len(initial_files) == NUM_FILES_3, f"Expected 3 output files, got {len(initial_files)}"
 
             # Delete one output file to simulate partial failure
             initial_files[1].unlink()
@@ -1296,7 +1305,7 @@ class TestSimulateCommandCheckpoint:
 
             # Verify files are regenerated
             final_files = sorted(output_dir.glob("batch_*.json"))
-            assert len(final_files) == 3, "All batches should be re-generated or skipped correctly"
+            assert len(final_files) == NUM_FILES_3, "All batches should be re-generated or skipped correctly"
 
     def test_checkpoint_contains_simulator_state(self):
         """Test that checkpoint saves and restores simulator state correctly."""
@@ -1382,7 +1391,7 @@ class TestSimulateCommandCheckpoint:
             # Verify output files were created
             output_dir = tmpdir_path / "output"
             output_files = sorted(output_dir.glob("batch_*.json"))
-            assert len(output_files) == 2, f"Expected 2 output files, got {len(output_files)}"
+            assert len(output_files) == MAX_SAMPLES_2, f"Expected 2 output files, got {len(output_files)}"
 
             # Checkpoint should be cleaned up after successful completion
             checkpoint_files = (
@@ -1439,8 +1448,8 @@ class TestSimulateCommandCheckpoint:
             output_dir = tmpdir_path / "output"
             mock1_files = sorted(output_dir.glob("mock1_*.json"))
             mock2_files = sorted(output_dir.glob("mock2_*.json"))
-            assert len(mock1_files) == 2, f"mock1 should produce 2 files, got {len(mock1_files)}"
-            assert len(mock2_files) == 2, f"mock2 should produce 2 files, got {len(mock2_files)}"
+            assert len(mock1_files) == MAX_SAMPLES_2, f"mock1 should produce 2 files, got {len(mock1_files)}"
+            assert len(mock2_files) == MAX_SAMPLES_2, f"mock2 should produce 2 files, got {len(mock2_files)}"
 
             # Checkpoint should be cleaned up
             checkpoint_files = (

@@ -1,3 +1,5 @@
+# ruff: noqa PLC0415
+
 """
 Command-line tool for creating and submitting batch jobs (Slurm) for gwsim simulations.
 """
@@ -14,7 +16,7 @@ SchedulerType = Literal["slurm"]
 # pylint: disable=no-member
 
 
-def _batch_command_impl(  # pylint: disable=too-many-locals, too-many-branches, too-many-statements, too-many-arguments, too-many-positional-arguments
+def _batch_command_impl(
     config: Path | None,
     get: Path | None,
     scheduler: SchedulerType,
@@ -29,9 +31,9 @@ def _batch_command_impl(  # pylint: disable=too-many-locals, too-many-branches, 
 ) -> None:
     """Internal implementation of the batch command."""
 
-    import logging  # pylint: disable=import-outside-toplevel
+    import logging
 
-    from gwsim.cli.utils.config import (  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.utils.config import (
         get_examples_dir,
         load_config,
         save_config,
@@ -240,7 +242,7 @@ def _batch_command_impl(  # pylint: disable=too-many-locals, too-many-branches, 
         logger.info("Job prepared. Use --submit to send it to the cluster.")
 
 
-def batch_command(  # pylint: disable=too-many-arguments, too-many-positional-arguments
+def batch_command(
     config: Annotated[
         Path | None,
         typer.Argument(

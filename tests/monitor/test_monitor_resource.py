@@ -70,10 +70,10 @@ class TestResourceMonitor:
             # Check specific values (approximate due to timing)
             assert metrics["peak_memory_gb"] == 1.0  # 1 GB
             assert metrics["average_memory_gb"] == 1.0  # Average of same value
-            assert metrics["cpu_percent"] == 25.0
+            assert metrics["cpu_percent"] == mock_process.cpu_percent.return_value
             assert isinstance(metrics["io_operations"], dict)
-            assert metrics["io_operations"]["read_count"] == 100
-            assert metrics["io_operations"]["write_count"] == 50
+            assert metrics["io_operations"]["read_count"] == mock_end_io_counters.read_count
+            assert metrics["io_operations"]["write_count"] == mock_end_io_counters.write_count
 
     def test_measure_with_exception(self):
         """Test measurement when an exception occurs inside the context."""
@@ -105,8 +105,9 @@ class TestResourceMonitor:
 
             # Metrics should still be populated
             metrics = monitor.metrics
+            expected_peak_memory = 0.5
             assert "peak_memory_gb" in metrics
-            assert metrics["peak_memory_gb"] == 0.5  # 512 MB in GB
+            assert metrics["peak_memory_gb"] == expected_peak_memory  # 512 MB in GB
 
     def test_measure_without_io_counters(self):
         """Test measurement on platforms without IO counters support."""
@@ -251,11 +252,11 @@ class TestResourceMonitor:
         monitor = ResourceMonitor()
         monitor.metrics = {"cpu_core_hours": 1.0}
 
-        with patch.object(Path, "exists", return_value=True):
-            with pytest.raises(
-                FileExistsError, match=r"File 'test.json' already exists and overwrite is set to False."
-            ):
-                monitor.save_metrics("test.json", overwrite=False)
+        with (
+            patch.object(Path, "exists", return_value=True),
+            pytest.raises(FileExistsError, match=r"File 'test.json' already exists and overwrite is set to False."),
+        ):
+            monitor.save_metrics("test.json", overwrite=False)
 
     def test_save_metrics_custom_encoding(self):
         """Test saving metrics with custom encoding."""

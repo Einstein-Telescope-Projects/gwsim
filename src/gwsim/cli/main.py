@@ -1,3 +1,5 @@
+# ruff: noqa PLC0415
+
 """
 Main command line tool to generate mock data.
 """
@@ -84,12 +86,12 @@ def register_commands() -> None:
     """Register all CLI commands."""
 
     # Fast imports
-    from gwsim.cli.batch import batch_command  # pylint: disable=import-outside-toplevel
-    from gwsim.cli.config import config_command  # pylint: disable=import-outside-toplevel
-    from gwsim.cli.merge import merge_command  # pylint: disable=import-outside-toplevel
-    from gwsim.cli.repository.main import repository_app  # pylint: disable=import-outside-toplevel
-    from gwsim.cli.simulate import simulate_command  # pylint: disable=import-outside-toplevel
-    from gwsim.cli.validate import validate_command  # pylint: disable=import-outside-toplevel
+    from gwsim.cli.batch import batch_command
+    from gwsim.cli.config import config_command
+    from gwsim.cli.merge import merge_command
+    from gwsim.cli.repository.main import repository_app
+    from gwsim.cli.simulate import simulate_command
+    from gwsim.cli.validate import validate_command
 
     app.command("simulate")(simulate_command)
     app.command("merge")(merge_command)

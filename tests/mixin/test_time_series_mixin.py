@@ -57,20 +57,21 @@ class TestTimeSeriesMixin:
 
     def test_init_custom(self):
         """Test initialization with custom parameters."""
+        num_of_channels = 2
         simulator = MockTimeSeriesSimulator(
-            start_time=100, duration=8, sampling_frequency=2048, num_of_channels=2, dtype=np.float32
+            start_time=100, duration=8, sampling_frequency=2048, num_of_channels=num_of_channels, dtype=np.float32
         )
         assert simulator.start_time == Quantity(100, unit="s")
         assert simulator.duration == Quantity(8, unit="s")
         assert simulator.sampling_frequency == Quantity(2048, unit="Hz")
-        assert simulator.num_of_channels == 2
+        assert simulator.num_of_channels == num_of_channels
         assert simulator.dtype == np.float32
 
     def test_init_with_detectors(self):
         """Test initialization with detectors list."""
         detectors = ["H1", "L1"]
         simulator = MockTimeSeriesSimulator(detectors=detectors)
-        assert simulator.num_of_channels == 2
+        assert simulator.num_of_channels == len(detectors)
 
     def test_init_detectors_mismatch(self):
         """Test initialization with mismatched detectors and num_of_channels."""
@@ -79,25 +80,34 @@ class TestTimeSeriesMixin:
 
     def test_simulate_single_channel(self):
         """Test simulate method with single channel."""
-        simulator = MockTimeSeriesSimulator(duration=1, sampling_frequency=100)
+        duration = 1
+        sampling_frequency = 100
+        num_of_data_points = duration * sampling_frequency
+        simulator = MockTimeSeriesSimulator(duration=duration, sampling_frequency=sampling_frequency)
         result = simulator.simulate()
 
         assert isinstance(result, TimeSeries)
         assert len(result._data) == 1  # 1 Channel
-        assert len(result._data[0]) == 100  # 100 samples
+        assert len(result._data[0]) == num_of_data_points  # 100 samples
         assert result.start_time == 0
-        assert result.sampling_frequency.value == 100
+        assert result.sampling_frequency.value == sampling_frequency
 
     def test_simulate_multi_channel(self):
         """Test simulate method with multiple channels."""
-        simulator = MockTimeSeriesSimulator(num_of_channels=3, duration=1, sampling_frequency=100)
+        num_of_channels = 3
+        duration = 1
+        sampling_frequency = 100
+        num_of_data_points = duration * sampling_frequency
+        simulator = MockTimeSeriesSimulator(
+            num_of_channels=num_of_channels, duration=duration, sampling_frequency=sampling_frequency
+        )
         result = simulator.simulate()
 
         assert isinstance(result, TimeSeries)
-        assert len(result._data) == 3  # 3 Channels
-        assert len(result._data[0]) == 100  # 100 samples
-        assert len(result._data[1]) == 100  # 100 samples
-        assert len(result._data[2]) == 100  # 100 samples
+        assert len(result._data) == num_of_channels  # 3 Channels
+        assert len(result._data[0]) == num_of_data_points  # 100 samples
+        assert len(result._data[1]) == num_of_data_points  # 100 samples
+        assert len(result._data[2]) == num_of_data_points  # 100 samples
 
     def test_simulate_continuity(self):
         """Test that multiple simulate calls maintain continuity via caching."""
@@ -118,7 +128,9 @@ class TestTimeSeriesMixin:
 
     def test_simulate_with_cached_data(self):
         """Test simulate with pre-existing cached data."""
-        simulator = MockTimeSeriesSimulator(duration=1, sampling_frequency=100)
+        duration = 1
+        sampling_frequency = 100
+        simulator = MockTimeSeriesSimulator(duration=duration, sampling_frequency=sampling_frequency)
 
         # Add some cached data
         cached_data = np.ones((1, 50))
@@ -130,7 +142,7 @@ class TestTimeSeriesMixin:
         # The cached data should be injected into the result
         # Since cached_ts starts at 0 and result at 0, it should be included
         assert len(result._data) == 1
-        assert len(result._data[0]) == 100
+        assert len(result._data[0]) == duration * sampling_frequency
 
     def test_metadata(self):
         """Test metadata property."""
@@ -146,9 +158,11 @@ class TestTimeSeriesMixin:
         simulator = MockTimeSeriesSimulator(max_samples=2, duration=1, sampling_frequency=100)
 
         batches = list(simulator)
-        assert len(batches) == 2
+        expected_batches = 2  # max_samples=2
+        assert len(batches) == expected_batches
         assert all(isinstance(batch, TimeSeries) for batch in batches)
-        assert simulator.counter == 2
+        expected_counter = 2
+        assert simulator.counter == expected_counter
 
     def test_save_batch_can_be_called_on_generated_batch(self):
         """Test that save_batch can be called on a generated batch from iteration."""
@@ -189,7 +203,8 @@ class TestTimeSeriesMixin:
         assert simulator.counter == 1
 
         next(simulator)
-        assert simulator.counter == 2
+        expected_counter = 2
+        assert simulator.counter == expected_counter
 
         # Check that TimeSeriesMixin state is separate from base state
         state = simulator.state

@@ -29,7 +29,7 @@ class CorrelatedNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-inst
     smooth, continuous time series across segment boundaries.
     """
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,duplicate-code
+    def __init__(
         self,
         psd_file: str | Path,
         csd_file: str | Path,
@@ -148,7 +148,8 @@ class CorrelatedNoiseSimulator(NoiseSimulator):  # pylint: disable=too-many-inst
         psd_data = self._load_spectral_data(self.psd_file)
         csd_data = self._load_spectral_data(self.csd_file)
 
-        if psd_data.shape[1] != 2 or csd_data.shape[1] != 2:
+        expected_shape = (None, 2)
+        if psd_data.shape[1] != expected_shape[1] or csd_data.shape[1] != expected_shape[1]:
             raise ValueError("PSD and CSD files must have shape (N, 2).")
 
         # Interpolate to the relevant frequencies

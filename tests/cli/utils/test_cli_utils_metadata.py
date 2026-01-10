@@ -39,11 +39,12 @@ class TestSaveMetadataWithExternalState:
         """Test saving metadata with numpy arrays."""
         array1 = np.array([1, 2, 3, 4, 5])
         array2 = np.random.rand(10, 10)
+        rng_seed = 42
         metadata = {
             "simulator_name": "test_sim",
             "batch_index": 0,
             "pre_batch_state": {
-                "rng_seed": 42,
+                "rng_seed": rng_seed,
                 "rng_state": array1,
                 "filter_state": array2,
             },
@@ -58,14 +59,15 @@ class TestSaveMetadataWithExternalState:
 
         # Check external files created
         npy_files = list(metadata_dir.glob("*.npy"))
-        assert len(npy_files) == 2
+        expected_num_files = 2
+        assert len(npy_files) == expected_num_files
 
         # Check YAML content has references
         with metadata_file.open() as f:
             loaded = yaml.safe_load(f)
         assert loaded["simulator_name"] == "test_sim"
         assert loaded["batch_index"] == 0
-        assert loaded["pre_batch_state"]["rng_seed"] == 42
+        assert loaded["pre_batch_state"]["rng_seed"] == rng_seed
         assert loaded["pre_batch_state"]["rng_state"]["_external_file"] is True
         assert loaded["pre_batch_state"]["filter_state"]["_external_file"] is True
 
@@ -128,11 +130,12 @@ class TestLoadMetadataWithExternalState:
         """Test loading metadata with numpy arrays."""
         array1 = np.array([1, 2, 3, 4, 5])
         array2 = np.random.rand(3, 3)
+        rng_seed = 42
         metadata = {
             "simulator_name": "test_sim",
             "batch_index": 0,
             "pre_batch_state": {
-                "rng_seed": 42,
+                "rng_seed": rng_seed,
                 "rng_state": array1,
                 "filter_state": array2,
             },
@@ -148,7 +151,7 @@ class TestLoadMetadataWithExternalState:
 
         assert loaded["simulator_name"] == "test_sim"
         assert loaded["batch_index"] == 0
-        assert loaded["pre_batch_state"]["rng_seed"] == 42
+        assert loaded["pre_batch_state"]["rng_seed"] == rng_seed
         np.testing.assert_array_equal(loaded["pre_batch_state"]["rng_state"], array1)
         np.testing.assert_array_equal(loaded["pre_batch_state"]["filter_state"], array2)
 
