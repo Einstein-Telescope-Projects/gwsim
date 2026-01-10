@@ -11,8 +11,8 @@ permissions:
 jobs:
   ci:
     uses: ./.github/workflows/CI.yml
-    with:
-      run_codeql: false
+    permissions:
+      security-events: write
 
   create_tag:
     needs: ci
