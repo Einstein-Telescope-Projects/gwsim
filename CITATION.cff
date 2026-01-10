@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+title: 'gwsim: A Python package for generating Mock Data Challenge datasets for the gravitational-wave community.'
+license: 'MIT'
+type: software
+authors:
+  - given-names: Isaac C. F.
+    family-names: Wong
+    affiliation: KU Leuven
+    orcid: 'https://orcid.org/0000-0003-2166-0027'
+  - given-names: Francesco
+    family-names: Cireddu
+    affiliation: KU Leuven
+    orcid: 'https://orcid.org/0009-0002-7074-4278'
+  - given-names: Sumit
+    family-names: Kumar
+    affiliation: Utrecht University
+    orcid: 'https://orcid.org/0000-0002-6404-0517'
+  - given-names: Luca
+    family-names: Negri
+    affiliation: Utrecht University
+    orcid: 'https://orcid.org/0009-0001-5468-0721'
+  - given-names: Harsh
+    family-names: Narola
+    affiliation: Utrecht University
+    orcid: 'https://orcid.org/0000-0001-9161-7919'
+keywords:
+  - gravitational waves
+  - mock data challenge
