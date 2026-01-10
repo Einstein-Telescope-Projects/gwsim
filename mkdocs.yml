@@ -120,6 +120,7 @@ nav:
   - Developer Guide:
       - Contributing: CONTRIBUTING.md
       - Architecture: dev/architecture.md
+  - Security: SECURITY.md
   - Troubleshooting: dev/troubleshooting.md
 
 markdown_extensions:
