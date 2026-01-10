@@ -8,7 +8,7 @@ Whether you’re fixing a typo, reporting a bug, suggesting a feature, or submit
 
 1. Open an Issue
 
-- Have a question, bug report, or feature suggestion? [Open an issue](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/issues/new) and describe your idea clearly, including its relevance to generating simulated GW data.
+- Have a question, bug report, or feature suggestion? [Open an issue](https://github.com/Leuven-Gravity-Institute/gwsim/issues/new) and describe your idea clearly, including its relevance to generating simulated GW data.
 - Check for existing issues before opening a new one.
 
 2. Fork and Clone the Repository

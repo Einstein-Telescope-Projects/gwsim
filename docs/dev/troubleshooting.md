@@ -33,4 +33,4 @@ If you encounter version conflicts or dependency errors while installing `gwsim`
    uv pip install gwsim
    ```
 
-For more details on installation, see the [Installation Guide](../user-guide/installation.md). If problems persist, check the [GitLab issues](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/issues) or create a new issue with your Python version and full error output.
+For more details on installation, see the [Installation Guide](../user-guide/installation.md). If problems persist, check the [GitHub issues](https://github.com/Leuven-Gravity-Institute/gwsim/issues) or create a new issue with your Python version and full error output.

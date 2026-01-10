@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/Leuven-Gravity-Institute/gwsim/graph/badge.svg?token=GLW2LEFKW7)](https://codecov.io/gh/Leuven-Gravity-Institute/gwsim)
 [![PyPI Version](https://img.shields.io/pypi/v/gwsim)](https://pypi.org/project/gwsim/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/gwsim)](https://pypi.org/project/gwsim/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Leuven-Gravity-Institute/gwsim/blob/main/LICENSE)
 [![Security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
 [![DOI](https://zenodo.org/badge/1115995501.svg)](https://doi.org/10.5281/zenodo.17925458)
 
@@ -46,7 +46,7 @@ uv pip install gwsim
 ### From Source
 
 ```bash
-git clone https://gitlab.et-gw.eu/et-projects/software/gwsim.git
+git clone git@github.com:Leuven-Gravity-Institute/gwsim.git
 ce gwsim
 # Create a virtual environment (recommended with uv)
 uv venv --python 3.10
@@ -108,4 +108,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-For questions or issues, please open an issue on [GitLab](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/issues/new) or contact the maintainers.
+For questions or issues, please open an issue on [GitHub](https://github.com/Leuven-Gravity-Institute/gwsim/issues/new) or contact the maintainers.

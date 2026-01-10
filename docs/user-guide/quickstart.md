@@ -14,7 +14,7 @@ gwsim config --get noise/uncorrelated_gaussian/quick_start --output quick_start_
 gwsim simulate quick_start_config.yaml
 ```
 
-The configuration file `quick_start_config.yaml` generates a single 1024-second GWF file containing simulated noise data, using the [ET_10_full_cryo_psd](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/src/gwsim/detector/noise_curves/ET_10_full_cryo_psd.txt) sensitivity curve from the [CoBA Science Study](https://iopscience.iop.org/article/10.1088/1475-7516/2023/07/068), sampled at 4096 Hz.
+The configuration file `quick_start_config.yaml` generates a single 1024-second GWF file containing simulated noise data, using the [ET_10_full_cryo_psd](https://github.com/Leuven-Gravity-Institute/gwsim/blob/main/src/gwsim/detector/noise_curves/ET_10_full_cryo_psd.txt) sensitivity curve from the [CoBA Science Study](https://iopscience.iop.org/article/10.1088/1475-7516/2023/07/068), sampled at 4096 Hz.
 
 You should see output like:
 
@@ -60,7 +60,7 @@ For a quick guide on how to inspect and reuse metadata files to reproduce a data
 ## 3. Explore Different Simulators
 
 To run any gwsim simulations, you only need to provide a `.yaml` configuration file.
-A collection of ready-to-use configuration files is available in the [`gwsim/examples`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples) directory.
+A collection of ready-to-use configuration files is available in the [`gwsim/examples`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples) directory.
 You can use them directly or adapt them to suit your needs.
 
 - For an overview of all available examples, see the [Examples](examples.md) page.

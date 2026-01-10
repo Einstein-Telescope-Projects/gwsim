@@ -48,7 +48,7 @@ uv pip install gwsim[dev,docs]
 For the latest development version:
 
 ```bash
-git clone https://gitlab.et-gw.eu/et-projects/software/gwsim.git
+git clone git@github.com:Leuven-Gravity-Institute/gwsim.git
 ce gwsim
 # Create a virtual environment (recommended with uv)
 uv venv --python 3.10
@@ -61,7 +61,7 @@ uv pip install .
 To set up for development:
 
 ```bash
-git clone https://gitlab.et-gw.eu/et-projects/software/gwsim.git
+git clone git@github.com:Leuven-Gravity-Institute/gwsim.git
 cd gwsim
 
 # Create a virtual environment (recommended with uv)
@@ -108,7 +108,7 @@ python -c "import gwsim; print(gwsim.__version__)"
 ## Getting Help
 
 1. Check the [troubleshooting guide](../dev/troubleshooting.md)
-2. Search existing [issues](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/issues)
+2. Search existing [issues](https://github.com/Leuven-Gravity-Institute/gwsim/issues)
 3. Create a new issue with:
    - Your operating system and Python version
    - Full error message

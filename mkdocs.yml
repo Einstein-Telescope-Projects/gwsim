@@ -1,7 +1,7 @@
 site_name: gwsim Documentation
 site_description: A Python package for simulating gravitational-wave detector data for mock data challenges
-site_url: https://gwsim.readthedocs.io
-repo_url: https://gitlab.et-gw.eu/et-projects/software/gwsim
+site_url: https://leuven-gravity-institute.github.io/gwsim
+repo_url: https://github.com/Leuven-Gravity-Institute/gwsim
 repo_name: gwsim
 
 theme:

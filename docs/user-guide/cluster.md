@@ -13,7 +13,7 @@ The `gwsim batch` command has two mutually exclusive modes:
 
 ## 1. Create a Batch-ready Configuration File
 
-Use this mode when starting from an example configuration file in the in the [`examples/`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples) directory and you want to prepare a configuration file that includes all necessary information for batch submission.
+Use this mode when starting from an example configuration file in the in the [`examples/`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples) directory and you want to prepare a configuration file that includes all necessary information for batch submission.
 
 ```bash
 gwsim batch --get <example_label> [options]

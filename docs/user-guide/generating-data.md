@@ -9,8 +9,8 @@ For a quick guide on reading and working with the output GWF files, see the [Rea
 
 ## Generating Detector Noise
 
-Detector noise can be generated using configuration files in the [`examples/noise`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples/noise) directory.
-An example configuration for producing two hours of ET noise data is provided in [`uncorrelated_gaussian/et_triangle_emr/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/noise/uncorrelated_gaussian/et_triangle_emr/config.yaml):
+Detector noise can be generated using configuration files in the [`examples/noise`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/noise) directory.
+An example configuration for producing two hours of ET noise data is provided in [`uncorrelated_gaussian/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/blob/main/examples/noise/uncorrelated_gaussian/et_triangle_emr/config.yaml):
 
 ```yaml
 --8<-- "examples/noise/uncorrelated_gaussian/et_triangle_emr/config.yaml"
@@ -19,7 +19,7 @@ An example configuration for producing two hours of ET noise data is provided in
 This configuration generates one day of noise data per detector (E1, E2, E3).
 Each frame file covers 4096 seconds, resulting in 22 frame files, starting on 1 January 2030.
 
-Noise is simulated using the [ET_10_full_cryo_psd](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/src/gwsim/detector/noise_curves/ET_10_full_cryo_psd.txt?ref_type=heads) sensitivity curve from the [CoBA Science Study](https://iopscience.iop.org/article/10.1088/1475-7516/2023/07/068) and publicly available.
+Noise is simulated using the [ET_10_full_cryo_psd](https://github.com/Leuven-Gravity-Institute/gwsim/blob/main/src/gwsim/detector/noise_curves/ET_10_full_cryo_psd.txt) sensitivity curve from the [CoBA Science Study](https://iopscience.iop.org/article/10.1088/1475-7516/2023/07/068) and publicly available.
 A low-frequency cutoff of 2 Hz is used.
 
 To generate the ET noise data, run:
@@ -46,11 +46,11 @@ Each GWF file is approximately 123 MB. For three detectors with 21 files each:
 
 ## Generating CBC Signals
 
-Compact Binary Coalescence (CBC) signals can be generated using configuration files in the [`examples/signal/bbh`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples/signal/bbh) and [`examples/signal/bns`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples/signal/bns) directories.
+Compact Binary Coalescence (CBC) signals can be generated using configuration files in the [`examples/signal/bbh`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/signal/bbh) and [`examples/signal/bns`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/signal/bns) directories.
 
 ### Binary Black Hole (BBH) Signals
 
-An example configuration for producing one day of ET data containing BBH signals from a realistic population is provided in [`signal/bbh/et_triangle_emr/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/signal/bbh/et_triangle_emr/config.yaml):
+An example configuration for producing one day of ET data containing BBH signals from a realistic population is provided in [`signal/bbh/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/signal/bbh/et_triangle_emr/config.yaml):
 
 ```yaml
 --8<-- "examples/signal/bbh/et_triangle_emr/config.yaml"
@@ -83,7 +83,7 @@ gwsim simulate config.yaml
 
 ### Binary Neutron Star (BNS) Signals
 
-An example configuration for producing one day of ET data containing BNS signals from a realistic population is provided in [`signal/bns/et_triangle_emr/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/signal/bns/et_triangle_emr/config.yaml).
+An example configuration for producing one day of ET data containing BNS signals from a realistic population is provided in [`signal/bns/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/signal/bns/et_triangle_emr/config.yaml).
 It is equivalent to the BBH example configuration, except for:
 
 ```yaml
@@ -116,10 +116,10 @@ gwsim simulate config.yaml
 
 ## Generating Transient Noise Artifacts (Glitches)
 
-Glitches can be generated using configuration files in the [`examples/glitch`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples/glitch/gengli) directory.
+Glitches can be generated using configuration files in the [`examples/glitch`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/glitch/gengli) directory.
 Glitch generation uses the [gengli](https://pypi.org/project/gengli/) package and currently supports only _blip_ glitches.
 
-An example configuration for producing one day of ET data for the E1 detector containing blip glitches from a realistic population is provided in [`glitch/gengli/et_triangle_emr/e1/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_emr/e1/config.yaml):
+An example configuration for producing one day of ET data for the E1 detector containing blip glitches from a realistic population is provided in [`glitch/gengli/et_triangle_emr/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/glitch/gengli/et_triangle_emr/e1/config.yaml):
 
 ```yaml
 --8<-- "examples/glitch/gengli/et_triangle_emr/e1/config.yaml"
@@ -127,7 +127,7 @@ An example configuration for producing one day of ET data for the E1 detector co
 
 This configuration file generates one day of data for the E1 detector, divided into 4096-second frame files (for a total of 21 frames), starting on 1 January 2030.
 
-Blip glitches are injected into zero noise from the [blip_glitch_population_E1.h5](https://sandbox.zenodo.org/records/413548) population file, which was generated with gengli using the [following script](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/src/gwsim/population/glitch.py?ref_type=heads).
+Blip glitches are injected into zero noise from the [blip_glitch_population_E1.h5](https://sandbox.zenodo.org/records/413548) population file, which was generated with gengli using the [following script](https://github.com/Leuven-Gravity-Institute/gwsim/blob/main/src/gwsim/population/glitch.py).
 These glitches are modeled on LIGO blip glitches observed during the O3 observing run and recolored to match the ET sensitivity.
 
 To generate the ET data for detector E1 with glitches, run:
@@ -153,12 +153,12 @@ gwsim simulate config.yaml
 <!-- prettier-ignore -->
 !!! note
     The [`GengliGlitchSimulator`](/reference/gwsim/glitch/gengli_glitch) currently supports only a single detector at a time.
-    To generate glitch-containing data for detectors E2 and E3, rerun the command above using the [`glitch/gengli/et_triangle_emr/e2/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_emr/e2/config.yaml) and [`glitch/gengli/et_triangle_emr/e3/config.yaml`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/blob/main/examples/glitch/gengli/et_triangle_emr/e3/config.yaml) configuration files respectively (updating the working directory name).
+    To generate glitch-containing data for detectors E2 and E3, rerun the command above using the [`glitch/gengli/et_triangle_emr/e2/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/glitch/gengli/et_triangle_emr/e2/config.yaml) and [`glitch/gengli/et_triangle_emr/e3/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples/glitch/gengli/et_triangle_emr/e3/config.yaml) configuration files respectively (updating the working directory name).
     Note that a different glitch population is used for each detector.
 
 ## Using Different Detector Configurations
 
-`gwsim` includes several pre-configured Einstein Telescope detector geometries, available in [`gwsim/detector/detectors`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/src/gwsim/detector/detectors):
+`gwsim` includes several pre-configured Einstein Telescope detector geometries, available in [`gwsim/detector/detectors`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/src/gwsim/detector/detectors):
 
 Triangular Configuration (Meuse-Rhine Euregion)
 
@@ -199,7 +199,7 @@ detectors:
 
 ## Using Different Sensitivity Curves
 
-Multiple Einstein Telescope sensitivity curves (PSD files) are available in [`gwsim/detector/noise_curves/`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/src/gwsim/detector/noise_curves?ref_type=heads).
+Multiple Einstein Telescope sensitivity curves (PSD files) are available in [`gwsim/detector/noise_curves/`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/src/gwsim/detector/noise_curves).
 These correspond to those used in the CoBA study.
 
 To use a specific sensitivity curve:

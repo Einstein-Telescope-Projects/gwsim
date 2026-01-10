@@ -66,7 +66,7 @@ Exactly one of the flags `--list`, `--get`, or `--init` must be provided.
 
 #### Flag `--list`
 
-List all the available example configuration files stored in the [`examples`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples) directory (see the [Examples](examples.md) page).
+List all the available example configuration files stored in the [`examples`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples) directory (see the [Examples](examples.md) page).
 
 ```bash
 gwsim config --list
@@ -74,7 +74,7 @@ gwsim config --list
 
 #### Flag `--get`
 
-Copy one of the available example configuration files from the [`examples`](https://gitlab.et-gw.eu/et-projects/software/gwsim/-/tree/main/examples) directory into the working directory. The `<example_label>` must be one of the example names listed by the `gwsim config --list` command.
+Copy one of the available example configuration files from the [`examples`](https://github.com/Leuven-Gravity-Institute/gwsim/tree/main/examples) directory into the working directory. The `<example_label>` must be one of the example names listed by the `gwsim config --list` command.
 
 ```bash
 gwsim config --get <example_label>
