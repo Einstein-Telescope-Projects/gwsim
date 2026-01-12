@@ -10,7 +10,6 @@ To avoid redundant FFT and IFFT operations, calibration errors are applied direc
 
 Calibration is treated as a detector property and is fully configured through the configuration file.
 
----
 
 ### Overview of Changes
 
@@ -23,7 +22,6 @@ The following functionality was added:
 
 Earth rotation, antenna pattern evaluation, and time delays are handled exactly as before.
 
----
 
 ### Calibration Model
 
@@ -80,7 +78,7 @@ Key points:
 
 The frequency-domain waveforms are passed downstream for calibration before any conversion to the time domain.
 
----
+
 
 ## Detector-Level Changes (`detector.py`)
 
@@ -94,6 +92,4 @@ This change is backward compatible with existing configuration files.
 
 When a calibration block is present, the detector loads a calibration model at initialization time and stores it as a detector attribute.
 
----
-=======
 ```

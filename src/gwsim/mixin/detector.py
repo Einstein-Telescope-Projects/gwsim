@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import cast
 
@@ -59,15 +60,23 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
                     detector = Detector(name=name)
 
                     if "calibration" in det:
-                        cal_file = Path(det["calibration"]["file"])
-                        freqs, amp, phase = np.loadtxt(cal_file, unpack=True)
-                        detector.calibration = CalibrationModel(freqs, amp, phase)
+                        cal_cfg = det["calibration"]
+                        cal_file = Path(cal_cfg["file"])
+                        with open(cal_file, encoding="utf-8") as f:
+                            recalib_params = json.load(f)
+
+                        detector.calibration = CalibrationModel(
+                            recalibration_parameters=recalib_params,
+                            detector_name=name,
+                            minimum_frequency=cal_cfg["minimum_frequency"],
+                            maximum_frequency=cal_cfg["maximum_frequency"],
+                            n_points=cal_cfg["n_points"],
+                        )
                     else:
                         detector.calibration = None
 
                     self._detectors.append(detector)
 
-                # BACKWARD COMPATIBILITY: detector specified as string
                 else:
                     detector = Detector(name=str(det))
                     detector.calibration = None
@@ -86,6 +95,7 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
 
     def apply_calibration_fd(
         self,
+        detector: Detector,
         polarizations_fd: dict[str, FrequencySeries],
     ) -> dict[str, FrequencySeries]:
         """Apply detector calibration in the frequency domain.
@@ -103,14 +113,14 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
         Returns:
             Dictionary with calibrated FrequencySeries.
         """
-        if not hasattr(self, "calibration") or self.calibration is None:
+        calibration = getattr(detector, "calibration", None)
+        if calibration is None:
             return polarizations_fd
-
         hp = polarizations_fd["plus"]
         hc = polarizations_fd["cross"]
 
         freqs = hp.frequencies.to_value()
-        cal = self.calibration.transfer_function(freqs)
+        cal = calibration.transfer_function(freqs)
 
         hp_cal = hp * cal
         hc_cal = hc * cal

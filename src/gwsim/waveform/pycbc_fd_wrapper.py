@@ -55,7 +55,3 @@ def pycbc_fd_waveform_wrapper(
     hc_fs.meta.update(hp_fs.meta)
 
     return {"plus": hp_fs, "cross": hc_fs}
-<<<<<<< HEAD
-
-=======
->>>>>>> 20c54d9 (fix: pre-commit issues resolved)
