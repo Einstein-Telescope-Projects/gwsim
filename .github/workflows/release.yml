@@ -51,12 +51,3 @@ jobs:
           body: ${{ steps.changelog.outputs.content }}
           draft: false
           prerelease: ${{ contains(inputs.tag_name || github.event.inputs.tag_name, 'alpha') || contains(inputs.tag_name || github.event.inputs.tag_name, 'beta') }}
-
-  publish:
-    needs: release
-    uses: ./.github/workflows/publish.yml
-    permissions:
-      contents: write
-      id-token: write
-    with:
-      tag_name: ${{ inputs.tag_name || github.event.inputs.tag_name }}
