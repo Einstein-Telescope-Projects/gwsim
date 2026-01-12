@@ -10,18 +10,16 @@ To avoid redundant FFT and IFFT operations, calibration errors are applied direc
 
 Calibration is treated as a detector property and is fully configured through the configuration file.
 
-
 ### Overview of Changes
 
 The following functionality was added:
 
--   A new frequency-domain calibration model
--   Support for detector-specific calibration through the configuration system
--   A detector-level hook to apply calibration in the frequency domain
--   No changes to existing time-domain detector projection logic
+- A new frequency-domain calibration model
+- Support for detector-specific calibration through the configuration system
+- A detector-level hook to apply calibration in the frequency domain
+- No changes to existing time-domain detector projection logic
 
 Earth rotation, antenna pattern evaluation, and time delays are handled exactly as before.
-
 
 ### Calibration Model
 
@@ -31,9 +29,9 @@ This file defines a `CalibrationModel` class that represents fixed, frequency-de
 
 The model stores:
 
--   A frequency grid
--   Fractional amplitude errors
--   Phase errors in radians
+- A frequency grid
+- Fractional amplitude errors
+- Phase errors in radians
 
 Amplitude and phase errors are interpolated linearly in frequency. Outside the provided frequency range, errors default to zero.
 
