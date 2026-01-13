@@ -4,7 +4,7 @@
 
 Whether you’re fixing a typo, reporting a bug, suggesting a feature, or submitting a merge request—this guide will help you get started.
 
-## 📌 How to Contribute
+## How to Contribute
 
 <!-- prettier-ignore-start -->
 
@@ -57,7 +57,9 @@ Whether you’re fixing a typo, reporting a bug, suggesting a feature, or submit
 
     The project includes a `commitlint.config.js` configuration file that defines the commit message rules. Once installed, commitlint will automatically validate your commit messages when pre-commit runs.
 
-    **Important:** Commit messages are validated in CI/CD pipelines, and the changelog is auto-generated from commits. See section "Commit Message Guidelines" below for details.
+    !!!important
+        Commit messages are validated in CI/CD pipelines, and the changelog is auto-generated from commits.
+        See section [Commit Message Guidelines](#commit-message-guidelines) below for details.
 
 5. Create a New Branch
 
@@ -84,7 +86,7 @@ Whether you’re fixing a typo, reporting a bug, suggesting a feature, or submit
 
 <!-- prettier-ignore-end -->
 
-## 📝 Commit Message Guidelines
+## Commit Message Guidelines
 
 **Why this matters:** Our changelog is automatically generated from commit messages using git-cliff. Commit messages must follow the Conventional Commits format and adhere to strict rules.
 
@@ -158,7 +160,7 @@ more fixes (no type/scope)
 - Tag your MR with relevant labels if you can (e.g., `type::bug`, `type::enhancement`, `type::documentation`).
 - If commitlint rejects your message, the error will tell you why; adjust and re-commit.
 
-## 📜 Licensing
+## Licensing
 
 By contributing, you agree that your contributions will be licensed under the project’s MIT License.
 
