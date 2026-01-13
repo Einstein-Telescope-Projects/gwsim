@@ -118,7 +118,7 @@ Whether you’re fixing a typo, reporting a bug, suggesting a feature, or submit
         - test: Adding missing tests or correcting existing tests
     - Example:
 
-        ```
+        ```text
         feat(signal): add BBH waveform generation for aligned-spin systems
 
         This commit introduces support for aligned-spin binary black hole
@@ -133,7 +133,7 @@ Whether you’re fixing a typo, reporting a bug, suggesting a feature, or submit
 
 ✅ **Good commits:**
 
-```
+```text
 feat(noise): Implement colored noise with PSD shaping
 fix(cli): Resolve frame file path resolution on Windows
 docs(metadata): Clarify metadata JSON schema in README
@@ -143,7 +143,7 @@ refactor(simulator): Simplify noise factory registration
 
 ❌ **Bad commits:**
 
-```
+```text
 fixed stuff
 wip: many changes
 update code
