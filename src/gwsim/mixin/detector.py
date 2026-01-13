@@ -1,3 +1,4 @@
+# pylint: disable=too-many-nested-blocks, too-many-branches
 """Detector mixin for simulators."""
 
 from __future__ import annotations
@@ -56,14 +57,29 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
 
                 # NEW: detector specified as a dict (with optional calibration)
                 if isinstance(det, dict):
+                    if "name" not in det:
+                        raise ValueError("Detector dict must contain 'name' key.")
                     name = det["name"]
                     detector = Detector(name=name)
 
                     if "calibration" in det:
                         cal_cfg = det["calibration"]
+                        for key in ("file", "minimum_frequency", "maximum_frequency", "n_points"):
+                            if key not in cal_cfg:
+                                raise ValueError(f"Calibration config for '{name}' missing required key: '{key}'")
                         cal_file = Path(cal_cfg["file"])
-                        with open(cal_file, encoding="utf-8") as f:
-                            recalib_params = json.load(f)
+
+                        try:
+                            with open(cal_file, encoding="utf-8") as f:
+                                recalib_params = json.load(f)
+                        except FileNotFoundError as e:
+                            raise FileNotFoundError(
+                                f"Calibration file not found for detector '{name}': {cal_file}"
+                            ) from e
+                        except json.JSONDecodeError as e:
+                            raise ValueError(
+                                f"Invalid JSON in calibration file for detector '{name}': {cal_file}"
+                            ) from e
 
                         detector.calibration = CalibrationModel(
                             recalibration_parameters=recalib_params,

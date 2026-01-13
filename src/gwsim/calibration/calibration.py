@@ -21,7 +21,10 @@ class CalibrationModel:
     ):
         if n_points < 4:
             raise ValueError("Cubic spline calibration requires at least 4 nodes.")
-
+        if minimum_frequency <= 0:
+            raise ValueError("minimum_frequency must be positive.")
+        if maximum_frequency <= minimum_frequency:
+            raise ValueError("maximum_frequency must be greater than minimum_frequency.")
         self.detector_name = detector_name
         self.n_points = n_points
 
