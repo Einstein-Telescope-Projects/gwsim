@@ -19,12 +19,29 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       new_tag: ${{ steps.tag_version.outputs.new_tag }}
+      has_new_commits: ${{ steps.check_commits.outputs.has_new_commits }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
+      - name: Check for new commits
+        id: check_commits
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            echo "has_new_commits=true" >> $GITHUB_OUTPUT
+          else
+            COMMITS_SINCE=$(git rev-list ${LAST_TAG}..HEAD --count)
+            if [ "$COMMITS_SINCE" -gt 0 ]; then
+              echo "has_new_commits=true" >> $GITHUB_OUTPUT
+            else
+              echo "has_new_commits=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
       - name: Bump version and push tag
+        if: steps.check_commits.outputs.has_new_commits == 'true'
         id: tag_version
         uses: mathieudutour/github-tag-action@v6.2
         with:
@@ -34,6 +51,7 @@ jobs:
           tag_prefix: v
 
       - name: Output tag information
+        if: steps.check_commits.outputs.has_new_commits == 'true'
         run: |
           echo "### Tag Created :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "- **New tag**: ${{ steps.tag_version.outputs.new_tag }}" >> $GITHUB_STEP_SUMMARY
@@ -42,7 +60,7 @@ jobs:
 
   release:
     needs: create_tag
-    if: needs.create_tag.outputs.new_tag != '' && needs.create_tag.outputs.new_tag != 'undefined'
+    if: needs.create_tag.outputs.has_new_commits == 'true'
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write
@@ -54,7 +72,7 @@ jobs:
     needs:
       - create_tag
       - release
-    if: needs.create_tag.outputs.new_tag != '' && needs.create_tag.outputs.new_tag != 'undefined'
+    if: needs.create_tag.outputs.has_new_commits == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -111,7 +129,7 @@ jobs:
           path: dist/
 
       - name: Generate attestation
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: dist/*
 
