@@ -1,4 +1,5 @@
 # pylint: disable=too-many-nested-blocks, too-many-branches
+# ruff: noqa: PLR0912
 """Detector mixin for simulators."""
 
 from __future__ import annotations

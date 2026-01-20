@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import numpy as np
 
+MIN_CUBIC_SPLINE_NODES = 4
+
 
 class CalibrationModel:
     """Bilby-equivalent cubic spline frequency-domain calibration."""
@@ -19,7 +21,7 @@ class CalibrationModel:
         maximum_frequency: float,
         n_points: int,
     ):
-        if n_points < 4:
+        if n_points < MIN_CUBIC_SPLINE_NODES:
             raise ValueError("Cubic spline calibration requires at least 4 nodes.")
         if minimum_frequency <= 0:
             raise ValueError("minimum_frequency must be positive.")
