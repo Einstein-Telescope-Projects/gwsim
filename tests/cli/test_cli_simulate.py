@@ -6,7 +6,7 @@ import json
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 import yaml
@@ -24,6 +24,7 @@ from gwsim.cli.simulate_utils import (
     update_metadata_index,
     validate_plan,
 )
+from gwsim.cli.utils.checkpoint import CheckpointManager
 from gwsim.cli.utils.config import (
     Config,
     GlobalsConfig,
@@ -208,7 +209,15 @@ class TestInstantiateSimulator:
 class TestRestoreBatchState:
     """Test restore_batch_state function."""
 
-    def test_restore_state_with_snapshot(self):
+    @pytest.fixture
+    def checkpoint_manager(self):
+        """Fixture providing a mock CheckpointManager that returns no last state."""
+        manager = Mock(spec=CheckpointManager)
+        manager.get_last_completed_batch_index.return_value = None
+        manager.get_last_simulator_state.return_value = None
+        return manager
+
+    def test_restore_state_with_snapshot(self, checkpoint_manager):
         """Test restoring state from batch metadata."""
         sim = MockSimulator(seed=42, max_samples=10)
         next(sim)  # Advance to counter=1
@@ -222,10 +231,10 @@ class TestRestoreBatchState:
             pre_batch_state=state_snapshot,
         )
 
-        restore_batch_state(sim, batch)
+        restore_batch_state(sim, batch, checkpoint_manager)
         assert sim.counter == COUNTER_5
 
-    def test_restore_state_without_snapshot(self):
+    def test_restore_state_without_snapshot(self, checkpoint_manager):
         """Test that missing snapshot doesn't cause error."""
         sim = MockSimulator(seed=42)
         next(sim)
@@ -239,7 +248,7 @@ class TestRestoreBatchState:
         )
 
         # Should not raise
-        restore_batch_state(sim, batch)
+        restore_batch_state(sim, batch, checkpoint_manager)
         assert sim.counter == 1  # Unchanged
 
 
