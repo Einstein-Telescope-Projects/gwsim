@@ -437,8 +437,7 @@ def validate_plan(plan: SimulationPlan) -> None:
     logger.info("Simulation plan validation completed successfully")
 
 
-# ruff: noqa: PLR0915
-def execute_plan(  # pylint: disable=too-many-locals
+def execute_plan(  # pylint: disable=too-many-locals, too-many-statements # noqa: PLR0915
     plan: SimulationPlan,
     output_directory: Path,
     metadata_directory: Path,

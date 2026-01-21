@@ -287,3 +287,40 @@ class TestCheckpointManager:
             loaded = manager.load_checkpoint()
             assert loaded["completed_batch_indices"] == [0, 1]
             assert loaded["last_simulator_name"] == "signal"
+
+    def test_get_last_simulator_state_returns_dict_when_valid(self):
+        """Test that get_last_simulator_state returns the state dict when valid."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manager = CheckpointManager(Path(tmpdir))
+
+            # Save a checkpoint with a valid state dict
+            manager.save_checkpoint(
+                completed_batch_indices=[0, 1],
+                last_simulator_name="signal",
+                last_completed_batch_index=1,
+                last_simulator_state={"counter": 3, "rng_state": [1, 2, 3]},
+            )
+
+            state = manager.get_last_simulator_state()
+            assert state is not None
+            assert isinstance(state, dict)
+            assert state["counter"] == COUNTER_3
+            assert state["rng_state"] == [1, 2, 3]
+
+    def test_get_last_simulator_state_returns_none_when_missing(self):
+        """Test that get_last_simulator_state returns None if no state is present."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manager = CheckpointManager(Path(tmpdir))
+
+            # Save checkpoint without last_simulator_state
+            checkpoint_data = {
+                "completed_batch_indices": [0],
+                "last_simulator_name": "signal",
+                "last_completed_batch_index": 0,
+                # Intentionally omit "last_simulator_state"
+            }
+            with manager.checkpoint_file.open("w") as f:
+                json.dump(checkpoint_data, f, indent=2)
+
+            state = manager.get_last_simulator_state()
+            assert state is None

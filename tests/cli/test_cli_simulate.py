@@ -47,6 +47,7 @@ MAX_SAMPLES_2 = 2
 MAX_SAMPLES_100 = 100
 MAX_SAMPLES_50 = 50
 COUNTER_5 = 5
+COUNTER_10 = 10
 NUM_FILES_2 = 2
 NUM_FILES_3 = 3
 RETRY_COUNT_3 = 3
@@ -208,27 +209,66 @@ class TestInstantiateSimulator:
 class TestRestoreBatchState:
     """Test restore_batch_state function."""
 
-    def test_restore_state_with_snapshot(self):
-        """Test restoring state from batch metadata."""
+    def test_restore_state_with_snapshot_priority(self):
+        """Test that snapshot is used even if checkpoint state is available."""
         sim = MockSimulator(seed=42, max_samples=10)
-        next(sim)  # Advance to counter=1
+        next(sim)  # counter = 1
 
-        state_snapshot = {"counter": 5}
+        snapshot_state = {"counter": 5}
+        checkpoint_state = {"counter": 10}
+
         batch = SimulationBatch(
             simulator_name="mock",
             simulator_config=SimulatorConfig(class_="MockSimulator"),
             globals_config=GlobalsConfig(),
             batch_index=0,
-            pre_batch_state=state_snapshot,
+            pre_batch_state=snapshot_state,
         )
 
-        restore_batch_state(sim, batch)
-        assert sim.counter == COUNTER_5
+        restore_batch_state(sim, batch, last_simulator_state=checkpoint_state)
+        assert sim.counter == COUNTER_5, "Snapshot state should take priority over checkpoint state"
+        assert sim.counter != COUNTER_10
 
-    def test_restore_state_without_snapshot(self):
-        """Test that missing snapshot doesn't cause error."""
+    def test_restore_state_from_checkpoint_when_no_snapshot(self):
+        """Test restoration from checkpoint state when no snapshot is present."""
         sim = MockSimulator(seed=42)
-        next(sim)
+        next(sim)  # counter = 1
+
+        checkpoint_state = {"counter": 10}
+
+        batch = SimulationBatch(
+            simulator_name="mock",
+            simulator_config=SimulatorConfig(class_="MockSimulator"),
+            globals_config=GlobalsConfig(),
+            batch_index=10,  # matches the counter in checkpoint state
+            pre_batch_state=None,
+        )
+
+        restore_batch_state(sim, batch, last_simulator_state=checkpoint_state)
+        assert sim.counter == COUNTER_10, "Should restore from checkpoint state when snapshot is missing"
+
+    def test_restore_state_from_checkpoint_wrong_batch_index(self):
+        """Test that checkpoint state is NOT used if batch_index doesn't match counter."""
+        sim = MockSimulator(seed=42)
+        next(sim)  # counter = 1
+
+        checkpoint_state = {"counter": 10}
+
+        batch = SimulationBatch(
+            simulator_name="mock",
+            simulator_config=SimulatorConfig(class_="MockSimulator"),
+            globals_config=GlobalsConfig(),
+            batch_index=5,  # does NOT match checkpoint counter
+            pre_batch_state=None,
+        )
+
+        restore_batch_state(sim, batch, last_simulator_state=checkpoint_state)
+        assert sim.counter == 1, "Checkpoint state should NOT be used when batch_index != checkpoint counter"
+
+    def test_restore_state_no_snapshot_no_checkpoint(self):
+        """Test that state remains unchanged when neither snapshot nor checkpoint is available."""
+        sim = MockSimulator(seed=42)
+        next(sim)  # counter = 1
 
         batch = SimulationBatch(
             simulator_name="mock",
@@ -238,9 +278,23 @@ class TestRestoreBatchState:
             pre_batch_state=None,
         )
 
-        # Should not raise
-        restore_batch_state(sim, batch)
-        assert sim.counter == 1  # Unchanged
+        restore_batch_state(sim, batch, last_simulator_state=None)
+        assert sim.counter == 1, "State should remain unchanged when no restoration data is available"
+
+    def test_restore_state_invalid_state_raises_value_error(self):
+        """Test that invalid state dict raises ValueError."""
+        sim = MockSimulator(seed=42)
+
+        batch = SimulationBatch(
+            simulator_name="mock",
+            simulator_config=SimulatorConfig(class_="MockSimulator"),
+            globals_config=GlobalsConfig(),
+            batch_index=0,
+            pre_batch_state={"invalid": "structure"},  # missing required keys or wrong format
+        )
+
+        with pytest.raises(ValueError, match="Failed to restore state for batch 0"):
+            restore_batch_state(sim, batch)
 
 
 class TestUpdateMetadataIndex:
