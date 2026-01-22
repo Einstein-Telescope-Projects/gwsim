@@ -37,6 +37,15 @@ class TestResourceMonitor:
 
             # Mock processes list returned by _get_all_processes
             def get_all_processes(parent):
+                """
+                Return a list containing the parent process and its mocked child.
+                
+                Parameters:
+                    parent: The parent process mock.
+                
+                Returns:
+                    list: A two-element list [parent, mock_child] with the parent mock first and its child mock second.
+                """
                 return [parent, mock_child]
 
             with patch.object(monitor, "_get_all_processes", side_effect=get_all_processes):
@@ -110,6 +119,15 @@ class TestResourceMonitor:
 
             # Mock processes list
             def get_all_processes(parent):
+                """
+                Return a list containing the parent process and its mocked child.
+                
+                Parameters:
+                    parent: The parent process mock.
+                
+                Returns:
+                    list: A two-element list [parent, mock_child] with the parent mock first and its child mock second.
+                """
                 return [parent, mock_child]
 
             with patch.object(monitor, "_get_all_processes", side_effect=get_all_processes):
@@ -128,6 +146,14 @@ class TestResourceMonitor:
                 ]
 
                 def code_that_raises():
+                    """
+                    Enter the monitor.measure() context, pause briefly, and then raise a ValueError.
+                    
+                    This helper function is used in tests to exercise the measurement context while forcing an exception to propagate. It sleeps for approximately 0.25 seconds inside the context before raising the error.
+                    
+                    Raises:
+                        ValueError: Always raised with the message "Test exception".
+                    """
                     with monitor.measure():
                         time.sleep(0.25)
                         raise ValueError("Test exception")
