@@ -26,6 +26,9 @@ class ResourceMonitor:
             sample_interval: How often (in seconds) to sample memory usage.
                 Defaults to 1.0 second.
         """
+        if sample_interval <= 0:
+            raise ValueError("sample_interval must be > 0")
+
         self.metrics: dict[str, float | str | dict] = {}
         self.sample_interval = sample_interval
         self._samples: dict[str, list[float]] = defaultdict(list)
@@ -71,6 +74,11 @@ class ResourceMonitor:
         Args:
             parent: The parent process to monitor.
         """
+        # Take immediate sample before waiting
+        processes = self._get_all_processes(parent)
+        mem_rss = self._aggregate_metric(processes, "memory_info", "rss")
+        self._samples["memory_gb"].append(mem_rss / (1024**3))
+
         while not self._stop_event.wait(self.sample_interval):
             processes = self._get_all_processes(parent)
             mem_rss = self._aggregate_metric(processes, "memory_info", "rss")
@@ -149,9 +157,12 @@ class ResourceMonitor:
                 # your code here
         """
         parent = psutil.Process()
+        self._stop_event.clear()
+        self._samples.clear()
         start_time = time.time()
 
-        start_cpu_total = self._calculate_total_cpu_seconds([parent])
+        start_cpu_total = self._calculate_total_cpu_seconds(self._get_all_processes(parent))
+
         start_io = None
         if hasattr(parent, "io_counters"):
             try:
