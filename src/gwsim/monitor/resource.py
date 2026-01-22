@@ -71,7 +71,7 @@ class ResourceMonitor:
         }
 
         if parent_start_io is None or not hasattr(parent, "io_counters"):
-            return io_totals
+            return {}
 
         try:
             parent_end = parent.io_counters()
