@@ -22,10 +22,10 @@ class ResourceMonitor:
     def __init__(self, sample_interval: float = 1.0):
         """
         Constructs a ResourceMonitor configured to sample resource usage at a fixed interval.
-        
+
         Parameters:
             sample_interval (float): Sampling interval in seconds; must be greater than 0. Defaults to 1.0.
-        
+
         Notes:
             Initializes internal storage for collected samples, a metrics mapping, and a thread stop event.
         """
@@ -40,7 +40,7 @@ class ResourceMonitor:
     def _get_all_processes(self, parent: psutil.Process) -> list[psutil.Process]:
         """
         Return the parent process and all of its running descendant processes.
-        
+
         Returns:
             list[psutil.Process]: A list containing the parent process and any descendant processes that are currently running.
         """
@@ -52,16 +52,16 @@ class ResourceMonitor:
     def _aggregate_metric(self, processes: list[psutil.Process], attr: str, sub_attr: str | None = None) -> float:
         """
         Sum a numeric metric across a list of processes.
-        
+
         Calls the no-argument psutil method named by `attr` on each process and, if `sub_attr` is provided,
         extracts that attribute from the method's result before summing. Individual processes that
         raise `psutil.NoSuchProcess`, `psutil.AccessDenied`, or `AttributeError` are ignored.
-        
+
         Parameters:
             processes (list[psutil.Process]): Processes to query.
             attr (str): Name of the no-argument psutil method to call on each process (e.g., "memory_info").
             sub_attr (str | None): Optional attribute name to extract from the method's result (e.g., "rss").
-        
+
         Returns:
             float: Sum of the requested metric across all provided processes (0.0 if none contributed).
         """
@@ -77,9 +77,9 @@ class ResourceMonitor:
     def _monitor_loop(self, parent: psutil.Process):
         """
         Periodically sample resident memory (RSS) for a process and its descendants and store each sample (in GB) in self._samples["memory_gb"].
-        
+
         The loop takes an immediate sample, then continues sampling at self.sample_interval intervals until self._stop_event is set.
-        
+
         Parameters:
             parent (psutil.Process): Root process whose process tree will be sampled.
         """
@@ -96,10 +96,10 @@ class ResourceMonitor:
     def _calculate_total_cpu_seconds(self, processes: list[psutil.Process]) -> float:
         """
         Calculate the combined user and system CPU time for the given processes.
-        
+
         Parameters:
             processes (list[psutil.Process]): Processes whose user and system CPU times will be summed.
-        
+
         Returns:
             float: Total CPU seconds (user + system) summed across the provided processes.
         """
@@ -119,11 +119,11 @@ class ResourceMonitor:
     ) -> dict[str, int]:
         """
         Compute the delta of disk I/O (counts and bytes) for the parent process since the provided start snapshot.
-        
+
         Parameters:
             parent (psutil.Process): The parent process to inspect.
             parent_start_io (psutil._common.pio | None): IO counters snapshot taken at the start of monitoring; if None, no delta is computed.
-        
+
         Returns:
             dict[str, int]: Mapping with keys `read_count`, `write_count`, `read_bytes`, and `write_bytes` containing the deltas as integers, or an empty dict if IO counters are unavailable or an error occurs.
         """

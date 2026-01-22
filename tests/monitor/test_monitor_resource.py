@@ -39,10 +39,10 @@ class TestResourceMonitor:
             def get_all_processes(parent):
                 """
                 Return a list containing the parent process and its mocked child.
-                
+
                 Parameters:
                     parent: The parent process mock.
-                
+
                 Returns:
                     list: A two-element list [parent, mock_child] with the parent mock first and its child mock second.
                 """
@@ -121,10 +121,10 @@ class TestResourceMonitor:
             def get_all_processes(parent):
                 """
                 Return a list containing the parent process and its mocked child.
-                
+
                 Parameters:
                     parent: The parent process mock.
-                
+
                 Returns:
                     list: A two-element list [parent, mock_child] with the parent mock first and its child mock second.
                 """
@@ -148,9 +148,9 @@ class TestResourceMonitor:
                 def code_that_raises():
                     """
                     Enter the monitor.measure() context, pause briefly, and then raise a ValueError.
-                    
+
                     This helper function is used in tests to exercise the measurement context while forcing an exception to propagate. It sleeps for approximately 0.25 seconds inside the context before raising the error.
-                    
+
                     Raises:
                         ValueError: Always raised with the message "Test exception".
                     """
