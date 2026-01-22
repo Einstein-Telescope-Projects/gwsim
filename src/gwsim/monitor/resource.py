@@ -20,18 +20,42 @@ class ResourceMonitor:
     """Class to monitor resource usage during code execution."""
 
     def __init__(self, sample_interval: float = 1.0):
+        """Initialize the resource monitor.
+
+        Args:
+            sample_interval: How often (in seconds) to sample memory usage.
+                Defaults to 1.0 second.
+        """
         self.metrics: dict[str, float | str | dict] = {}
         self.sample_interval = sample_interval
         self._samples: dict[str, list[float]] = defaultdict(list)
         self._stop_event = Event()
 
     def _get_all_processes(self, parent: psutil.Process) -> list[psutil.Process]:
+        """Get the parent process and all its descendant processes that are still running.
+
+        Args:
+            parent: The parent psutil.Process to start from.
+
+        Returns:
+            List of running psutil.Process objects (parent + children recursively).
+        """
         processes = [parent]
         with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
             processes.extend(parent.children(recursive=True))
         return [p for p in processes if p.is_running()]
 
     def _aggregate_metric(self, processes: list[psutil.Process], attr: str, sub_attr: str | None = None) -> float:
+        """Aggregate a metric across multiple processes.
+
+        Args:
+            processes: List of psutil.Process objects.
+            attr: Name of the psutil method to call (e.g., 'memory_info', 'cpu_times').
+            sub_attr: Optional sub-attribute to extract (e.g., 'rss' for memory_info).
+
+        Returns:
+            Sum of the requested metric across all processes (0.0 on errors).
+        """
         total = 0.0
         for p in processes:
             try:
@@ -42,12 +66,25 @@ class ResourceMonitor:
         return total
 
     def _monitor_loop(self, parent: psutil.Process):
+        """Background thread that periodically samples memory usage.
+
+        Args:
+            parent: The parent process to monitor.
+        """
         while not self._stop_event.wait(self.sample_interval):
             processes = self._get_all_processes(parent)
             mem_rss = self._aggregate_metric(processes, "memory_info", "rss")
             self._samples["memory_gb"].append(mem_rss / (1024**3))
 
     def _calculate_total_cpu_seconds(self, processes: list[psutil.Process]) -> float:
+        """Calculate total CPU time (user + system) used by the given processes.
+
+        Args:
+            processes: List of psutil.Process objects.
+
+        Returns:
+            Total CPU seconds consumed (user + system time).
+        """
         total = 0.0
         for p in processes:
             try:
@@ -62,16 +99,27 @@ class ResourceMonitor:
         parent: psutil.Process,
         parent_start_io: psutil._common.pio | None,
     ) -> dict[str, int]:
-        """Calculate physical disk IO for the parent process only (delta-based)."""
+        """Calculate physical disk IO delta for the parent process only.
+
+        Returns an empty dict if IO counters are not supported or an error occurs.
+
+        Args:
+            parent: The parent psutil.Process.
+            parent_start_io: IO counters snapshot taken at the start (or None).
+
+        Returns:
+            Dictionary with IO deltas (read_count, write_count, read_bytes, write_bytes),
+            or {} if not available.
+        """
+        if parent_start_io is None or not hasattr(parent, "io_counters"):
+            return {}
+
         io_totals = {
             "read_count": 0,
             "write_count": 0,
             "read_bytes": 0,
             "write_bytes": 0,
         }
-
-        if parent_start_io is None or not hasattr(parent, "io_counters"):
-            return {}
 
         try:
             parent_end = parent.io_counters()
@@ -80,12 +128,26 @@ class ResourceMonitor:
             io_totals["read_bytes"] = parent_end.read_bytes - parent_start_io.read_bytes
             io_totals["write_bytes"] = parent_end.write_bytes - parent_start_io.write_bytes
         except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
-            pass
+            return {}
 
         return io_totals
 
     @contextmanager
     def measure(self):
+        """Context manager to measure resource usage during the wrapped code block.
+
+        Collects:
+        - CPU time (total and core-hours)
+        - Peak and average memory usage
+        - Disk IO operations (parent process only, delta-based)
+        - Wall-clock time
+
+        The metrics are stored in `self.metrics` after the context exits.
+
+        Usage:
+            with monitor.measure():
+                # your code here
+        """
         parent = psutil.Process()
         start_time = time.time()
 
@@ -129,7 +191,11 @@ class ResourceMonitor:
             }
 
     def log_summary(self, logger: logging.Logger) -> None:
-        """Log the resource usage summary."""
+        """Log a human-readable summary of the collected resource usage metrics.
+
+        Args:
+            logger: The logger instance to write the summary to.
+        """
         formatted_names = {
             "cpu_core_hours": "CPU Core Hours",
             "peak_memory_gb": "Peak Memory (GB)",
@@ -157,7 +223,16 @@ class ResourceMonitor:
                 logger.info("  %s: %s", formatted_names.get(key, key), value)
 
     def save_metrics(self, file_name: Path | str, encoding: str = "utf-8", overwrite: bool = False) -> None:
-        """Save the resource usage metrics to a JSON file."""
+        """Save the collected resource usage metrics to a JSON file.
+
+        Args:
+            file_name: Path or string name of the file to write.
+            encoding: File encoding (default: "utf-8").
+            overwrite: If False, raises FileExistsError if the file already exists.
+
+        Raises:
+            FileExistsError: If the file exists and overwrite is False.
+        """
         file_name = Path(file_name)
         if not overwrite and file_name.exists():
             raise FileExistsError(f"File '{file_name}' already exists and overwrite is set to False.")
