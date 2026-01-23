@@ -15,6 +15,7 @@ Checkpointing
 cireddu
 coalescences
 coba
+coeffs
 colorbar
 commitlint
 condapath
@@ -70,6 +71,7 @@ pymap
 pytestmark
 pyupgrade
 realisation
+recalib
 reimplementation
 relpaths
 representer

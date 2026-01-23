@@ -1,17 +1,21 @@
+# pylint: disable=too-many-nested-blocks, too-many-branches
+# ruff: noqa: PLR0912
 """Detector mixin for simulators."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import cast
 
 import numpy as np
+from gwpy.frequencyseries import FrequencySeries
 from gwpy.timeseries import TimeSeries as GWpyTimeSeries
 from scipy.interpolate import interp1d
 
+from gwsim.calibration.calibration import CalibrationModel
 from gwsim.data.time_series.time_series import TimeSeries
 from gwsim.detector.base import Detector
-from gwsim.detector.utils import DEFAULT_DETECTOR_BASE_PATH
 
 
 class DetectorMixin:  # pylint: disable=too-few-public-methods
@@ -51,10 +55,50 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
         elif isinstance(value, list):
             self._detectors = []
             for det in value:
-                if Path(det).is_file() or (DEFAULT_DETECTOR_BASE_PATH / det).is_file():
-                    self._detectors.append(Detector(configuration_file=det))
+
+                # NEW: detector specified as a dict (with optional calibration)
+                if isinstance(det, dict):
+                    if "name" not in det:
+                        raise ValueError("Detector dict must contain 'name' key.")
+                    name = det["name"]
+                    detector = Detector(name=name)
+
+                    if "calibration" in det:
+                        cal_cfg = det["calibration"]
+                        for key in ("file", "minimum_frequency", "maximum_frequency", "n_points"):
+                            if key not in cal_cfg:
+                                raise ValueError(f"Calibration config for '{name}' missing required key: '{key}'")
+                        cal_file = Path(cal_cfg["file"])
+
+                        try:
+                            with open(cal_file, encoding="utf-8") as f:
+                                recalib_params = json.load(f)
+                        except FileNotFoundError as e:
+                            raise FileNotFoundError(
+                                f"Calibration file not found for detector '{name}': {cal_file}"
+                            ) from e
+                        except json.JSONDecodeError as e:
+                            raise ValueError(
+                                f"Invalid JSON in calibration file for detector '{name}': {cal_file}"
+                            ) from e
+
+                        detector.calibration = CalibrationModel(
+                            recalibration_parameters=recalib_params,
+                            detector_name=name,
+                            minimum_frequency=cal_cfg["minimum_frequency"],
+                            maximum_frequency=cal_cfg["maximum_frequency"],
+                            n_points=cal_cfg["n_points"],
+                        )
+                    else:
+                        detector.calibration = None
+
+                    self._detectors.append(detector)
+
                 else:
-                    self._detectors.append(Detector(name=str(det)))
+                    detector = Detector(name=str(det))
+                    detector.calibration = None
+                    self._detectors.append(detector)
+
         else:
             raise ValueError("detectors must be a list.")
 
@@ -65,6 +109,47 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
             True if all detectors are configured, False otherwise.
         """
         return all(det.is_configured() for det in self.detectors)
+
+    def apply_calibration_fd(
+        self,
+        detector: Detector,
+        polarizations_fd: dict[str, FrequencySeries],
+    ) -> dict[str, FrequencySeries]:
+        """Apply detector calibration in the frequency domain.
+
+        This method applies the detector calibration transfer function
+        to frequency-domain plus and cross polarizations.
+
+        Calibration is applied before any inverse Fourier transform
+        to avoid redundant FFTs.
+
+        Args:
+            detector:
+                Detector instance whose calibration will be applied.
+            polarizations_fd:
+                Dictionary with 'plus' and 'cross' FrequencySeries.
+
+        Returns:
+            Dictionary with calibrated FrequencySeries.
+        """
+        calibration = getattr(detector, "calibration", None)
+        if calibration is None:
+            return polarizations_fd
+        hp = polarizations_fd["plus"]
+        hc = polarizations_fd["cross"]
+
+        freqs = hp.frequencies.to_value()
+        # Filter out DC component (0 Hz) to avoid log10(0) = -inf
+        valid_mask = freqs > 0
+        freqs_valid = freqs[valid_mask]
+        cal_valid = calibration.transfer_function(freqs_valid)
+        # Reconstruct full calibration array with 1.0 for DC (no calibration applied)
+        cal = np.ones_like(freqs)
+        cal[valid_mask] = cal_valid
+        hp_cal = hp * cal
+        hc_cal = hc * cal
+
+        return {"plus": hp_cal, "cross": hc_cal}
 
     def project_polarizations(  # pylint: disable=too-many-locals,unused-argument
         self,
