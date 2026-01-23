@@ -32,6 +32,7 @@ class ResourceMonitor:
         self.metrics: dict[str, float | str | dict] = {}
         self.sample_interval = sample_interval
         self._samples: dict[str, list[float]] = defaultdict(list)
+        self._cgroup_samples: list[float] = []
         self._stop_event = Event()
 
     def _get_all_processes(self, parent: psutil.Process) -> list[psutil.Process]:
@@ -140,25 +141,40 @@ class ResourceMonitor:
 
         return io_totals
 
+    def _get_cgroup_memory_info(self) -> dict[str, float] | None:
+        """Get current cgroup memory usage (SLURM-like) using psutil.
+
+        Returns None if not available (old psutil or not in cgroup).
+        """
+        try:
+            p = psutil.Process()
+            cgroup_mem = p.cgroup_memory_info()  # Requires psutil >= 5.9.5
+            return {
+                "current_bytes": cgroup_mem.current or cgroup_mem.usage_in_bytes,
+                "peak_bytes": cgroup_mem.peak or cgroup_mem.max_usage_in_bytes,
+            }
+        except (AttributeError, NotImplementedError):
+            # cgroup support not available
+            return None
+
     @contextmanager
     def measure(self):
         """Context manager to measure resource usage during the wrapped code block.
 
         Collects:
         - CPU time (total and core-hours)
-        - Peak and average memory usage
+        - Peak and average **per-process** memory usage (RSS)
+        - Peak and average **cgroup** memory usage (SLURM-like MaxRSS)
         - Disk IO operations (parent process only, delta-based)
         - Wall-clock time
 
         The metrics are stored in `self.metrics` after the context exits.
-
-        Usage:
-            with monitor.measure():
-                # your code here
         """
         parent = psutil.Process()
         self._stop_event.clear()
         self._samples.clear()
+        self._cgroup_samples.clear()
+
         start_time = time.time()
 
         start_cpu_total = self._calculate_total_cpu_seconds(self._get_all_processes(parent))
@@ -185,16 +201,31 @@ class ResourceMonitor:
 
             io_operations = self._calculate_io_operations(parent, start_io)
 
+            # Per-process RSS
             mem_samples = self._samples["memory_gb"]
             peak_memory_gb = max(mem_samples) if mem_samples else 0.0
             average_memory_gb = sum(mem_samples) / len(mem_samples) if mem_samples else 0.0
+
+            # Cgroup memory (SLURM-like) - measured only at the end
+            cgroup_info = self._get_cgroup_memory_info()
+            cgroup_peak_gb = 0.0
+            cgroup_average_gb = 0.0
+
+            if cgroup_info:
+                # Take one final sample for current cgroup memory
+                current_cgroup_gb = cgroup_info["current_bytes"] / (1024**3)
+                cgroup_peak_gb = cgroup_info["peak_bytes"] / (1024**3)
+                # For average, we use the last known value (since we don't sample continuously)
+                cgroup_average_gb = current_cgroup_gb
 
             wall_seconds = end_time - start_time
 
             self.metrics = {
                 "cpu_core_hours": round(total_cpu_seconds / 3600.0, 6),
-                "peak_memory_gb": round(peak_memory_gb, 3),
-                "average_memory_gb": round(average_memory_gb, 3),
+                "peak_memory_gb": round(peak_memory_gb, 3),  # per-process RSS peak
+                "average_memory_gb": round(average_memory_gb, 3),  # per-process RSS avg
+                "cgroup_peak_memory_gb": round(cgroup_peak_gb, 3),  # SLURM-like MaxRSS
+                "cgroup_average_memory_gb": round(cgroup_average_gb, 3),  # approx
                 "io_operations": io_operations,
                 "wall_time_seconds": round(wall_seconds, 3),
                 "wall_time": str(timedelta(seconds=wall_seconds)),
@@ -209,8 +240,10 @@ class ResourceMonitor:
         """
         formatted_names = {
             "cpu_core_hours": "CPU Core Hours",
-            "peak_memory_gb": "Peak Memory (GB)",
-            "average_memory_gb": "Average Memory (GB)",
+            "peak_memory_gb": "Peak Memory (GB) [per-process RSS]",
+            "average_memory_gb": "Average Memory (GB) [per-process RSS]",
+            "cgroup_peak_memory_gb": "Peak Memory (GB) [cgroup / SLURM MaxRSS]",
+            "cgroup_average_memory_gb": "Average Memory (GB) [cgroup approx]",
             "io_operations": "IO Operations",
             "wall_time_seconds": "Wall Time (seconds)",
             "wall_time": "Wall Time",
