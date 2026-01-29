@@ -28,11 +28,11 @@ dependencies = [
     "numpy",
     "h5py",
     "pycbc",
-    "gengli",
     "bilby",
     "pydantic",
     "pymap3d",
     "psutil",
+    "gwpy",
     "scipy<=1.16.3",
 ]
 
