@@ -15,6 +15,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 logger = logging.getLogger("gwmock")
 
+_LEGACY_SIMULATORS_MIGRATION_URL = "https://leuven-gravity-institute.github.io/gwmock/user-guide/orchestration/"
+_LEGACY_SIMULATORS_REMOVAL_VERSION = "v0.5.0"
+
 _REMOVED_SIGNAL_SIMULATOR_CLASS_SPECS = frozenset(
     {
         "SignalSimulator",
@@ -341,10 +344,10 @@ def load_config(file_name: Path, encoding: str = "utf-8") -> Config:
         configured_units = len(config.simulators) if config.simulators is not None else 1
         if config.simulators is not None:
             warnings.warn(
-                "Legacy 'simulators' configurations are deprecated for fresh runs and remain supported "
-                "only for backwards compatibility and metadata reproduction. Prefer the adapter-backed "
-                "'orchestration' surface for new configs.",
-                FutureWarning,
+                "Legacy 'simulators' configurations are deprecated and will be removed in "
+                f"{_LEGACY_SIMULATORS_REMOVAL_VERSION}. Use the adapter-backed 'orchestration' schema for new configs "
+                f"and migration guidance: {_LEGACY_SIMULATORS_MIGRATION_URL}",
+                DeprecationWarning,
                 stacklevel=2,
             )
         logger.info("Configuration loaded and validated: %s execution unit(s)", configured_units)
