@@ -25,7 +25,7 @@ orchestration:
             path: population.h5 # Local path or URL accepted by the public loader
     signal:
         detectors:
-            - ET1
+            - ET-Triangle-Sardinia
         waveform-model: IMRPhenomXPHM
         minimum-frequency: 20
         output:

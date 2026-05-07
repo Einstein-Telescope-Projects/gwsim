@@ -34,8 +34,7 @@ orchestration:
         minimum-frequency: 2
         # List of detector names to generate signal for (network support)
         detectors:
-            - E1_2L_misaligned_sardinia
-            - E2_2L_misaligned_emr
+            - ET-2L-Misaligned
         output:
             output_directory: signal
             # Template used to construct the output file name at runtime. Uses template variables

@@ -350,6 +350,30 @@ def test_orchestrator_records_preset_network_resolution(tmp_path: Path):
     }
 
 
+def test_orchestrator_records_single_detector_preset_resolution(tmp_path: Path):
+    """Single public ET-detector aliases should resolve via the preset-backed detector catalog."""
+    config = _fake_orchestration_config(tmp_path)
+    config.orchestration.signal.detectors = ["ET1_SARD"]
+    config.orchestration.noise.arguments = {"seed": 7, "duration": 4.0, "sampling_frequency": 4.0}
+
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    signal_metadata = orchestrator.metadata["orchestration"]["signal"]
+
+    assert orchestrator.detectors == ["ET1_SARD"]
+    assert orchestrator.noise_arguments["detectors"] == ["ET1_SARD"]
+    assert signal_metadata["network_resolution"] == {
+        "inputs": ["ET1_SARD"],
+        "detector_names": ["ET1_SARD"],
+        "steps": [
+            {
+                "input": "ET1_SARD",
+                "resolver": "preset-detector",
+                "detector_names": ["ET1_SARD"],
+            }
+        ],
+    }
+
+
 def test_simulate_command_runs_real_public_subpackages(tmp_path: Path):
     """The orchestration path should work against the real public subpackage contracts."""
     population_path = tmp_path / "population.h5"

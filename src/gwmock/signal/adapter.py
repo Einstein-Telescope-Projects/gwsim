@@ -3,15 +3,28 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from gwmock_signal import DetectorStrainStack, Network, resolve_simulator_backend
+from gwmock_signal import CustomDetector, DetectorStrainStack, Network, resolve_simulator_backend
 
 from gwmock.data.time_series.time_series import TimeSeries
-from gwmock.detector.utils import DEFAULT_DETECTOR_BASE_PATH
 
 _DEFAULT_WAVEFORM_MODEL = "IMRPhenomXPHM"
+_LEGACY_SINGLE_DETECTOR_ALIASES = {
+    "E1_triangle_sardinia": ("ET-Triangle-Sardinia", "ET1_SARD"),
+    "E2_triangle_sardinia": ("ET-Triangle-Sardinia", "ET2_SARD"),
+    "E3_triangle_sardinia": ("ET-Triangle-Sardinia", "ET3_SARD"),
+    "E1_triangle_emr": ("ET-Triangle-EMR", "ET1_EMR"),
+    "E2_triangle_emr": ("ET-Triangle-EMR", "ET2_EMR"),
+    "E3_triangle_emr": ("ET-Triangle-EMR", "ET3_EMR"),
+    "E1_2L_aligned_sardinia": ("ET-2L-Aligned", "ET1_2L_ALIGNED_SARD"),
+    "E2_2L_aligned_emr": ("ET-2L-Aligned", "ET2_2L_ALIGNED_EMR"),
+    "E1_2L_misaligned_sardinia": ("ET-2L-Misaligned", "ET1_2L_MISALIGNED_SARD"),
+    "E2_2L_misaligned_emr": ("ET-2L-Misaligned", "ET2_2L_MISALIGNED_EMR"),
+}
+DetectorSpec = str | CustomDetector
 
 
 def _callable_waveform_registry_key(func: Callable[..., Any]) -> str:
@@ -32,11 +45,94 @@ def _resolve_detector_path(detector_spec: str) -> Path | None:
     if detector_path.is_file():
         return detector_path
 
-    bundled_path = DEFAULT_DETECTOR_BASE_PATH / detector_path
-    if bundled_path.is_file():
-        return bundled_path
-
     return None
+
+
+def _network_detector_names(detector_specs: Sequence[DetectorSpec]) -> list[str]:
+    """Normalize detector specs to their output detector-name strings."""
+    return [detector if isinstance(detector, str) else detector.name for detector in detector_specs]
+
+
+@lru_cache(maxsize=1)
+def _single_detector_catalog() -> dict[str, CustomDetector]:
+    """Build a catalog of public single-detector aliases backed by public presets."""
+    catalog: dict[str, CustomDetector] = {}
+    for preset_name in Network.list_names():
+        try:
+            detector_specs = Network.from_preset(preset_name).detector_names
+        except ValueError:
+            continue
+        for detector in detector_specs:
+            if isinstance(detector, str):
+                continue
+            catalog.setdefault(detector.name, detector)
+            catalog.setdefault(detector.name.lower(), detector)
+
+    for alias, (preset_name, detector_name) in _LEGACY_SINGLE_DETECTOR_ALIASES.items():
+        detector = next(
+            spec
+            for spec in Network.from_preset(preset_name).detector_names
+            if not isinstance(spec, str) and spec.name == detector_name
+        )
+        catalog[alias] = detector
+
+    return catalog
+
+
+def _resolve_single_detector_alias(detector_spec: str) -> tuple[CustomDetector, ...] | None:
+    """Resolve one public or legacy single-detector alias via public preset geometry."""
+    detector = _single_detector_catalog().get(detector_spec) or _single_detector_catalog().get(detector_spec.lower())
+    if detector is None:
+        return None
+    return (detector,)
+
+
+def _resolve_detector_spec(detector_spec: str) -> tuple[tuple[DetectorSpec, ...], dict[str, Any]]:
+    """Resolve one detector spec and return both the detector specs and metadata."""
+    detector_alias = str(detector_spec)
+    detector_path = _resolve_detector_path(detector_alias)
+    if detector_path is not None:
+        resolved = tuple(Network.from_file(detector_path).detector_names)
+        return resolved, {
+            "input": detector_alias,
+            "resolver": "file",
+            "source": str(detector_path),
+            "detector_names": _network_detector_names(resolved),
+        }
+
+    try:
+        resolved = tuple(Network.from_preset(detector_alias).detector_names)
+        return resolved, {
+            "input": detector_alias,
+            "resolver": "preset",
+            "detector_names": _network_detector_names(resolved),
+        }
+    except ValueError:
+        pass
+
+    try:
+        resolved = tuple(Network.from_name(detector_alias).detector_names)
+        return resolved, {
+            "input": detector_alias,
+            "resolver": "name",
+            "detector_names": _network_detector_names(resolved),
+        }
+    except ValueError:
+        pass
+
+    resolved_single = _resolve_single_detector_alias(detector_alias)
+    if resolved_single is not None:
+        return resolved_single, {
+            "input": detector_alias,
+            "resolver": "preset-detector",
+            "detector_names": _network_detector_names(resolved_single),
+        }
+
+    return (detector_alias,), {
+        "input": detector_alias,
+        "resolver": "detector",
+        "detector_names": [detector_alias],
+    }
 
 
 class SignalAdapter:
@@ -126,19 +222,17 @@ class SignalAdapter:
         return _resolve_detector_path(detector_spec)
 
     @staticmethod
+    def resolve_detector_spec(detector_spec: str) -> tuple[tuple[DetectorSpec, ...], dict[str, Any]]:
+        """Resolve one detector spec into public detector objects or built-in detector names."""
+        return _resolve_detector_spec(detector_spec)
+
+    @staticmethod
     def resolve_detector_network(detector_specs: Sequence[str]) -> Network:
         """Resolve detector specs into one public ``Network`` instance."""
-        resolved_detectors: list[str | Any] = []
+        resolved_detectors: list[DetectorSpec] = []
         for detector_spec in detector_specs:
-            detector_path = _resolve_detector_path(str(detector_spec))
-            if detector_path is not None:
-                resolved_detectors.extend(Network.from_file(detector_path).detector_names)
-                continue
-
-            try:
-                resolved_detectors.extend(Network.from_name(str(detector_spec)).detector_names)
-            except ValueError:
-                resolved_detectors.append(str(detector_spec))
+            resolved, _ = _resolve_detector_spec(str(detector_spec))
+            resolved_detectors.extend(resolved)
 
         return Network.from_detectors(tuple(resolved_detectors))
 
