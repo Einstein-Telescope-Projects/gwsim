@@ -11,6 +11,7 @@ import logging
 import platform
 import signal
 import time
+from importlib import import_module
 from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any, cast
@@ -31,7 +32,7 @@ from gwmock.cli.utils.simulation_plan import (
     create_batch_metadata,
 )
 from gwmock.cli.utils.template import expand_template_variables
-from gwmock.cli.utils.utils import handle_signal, import_attribute
+from gwmock.cli.utils.utils import handle_signal
 from gwmock.simulator.base import Simulator
 
 logger = logging.getLogger("gwmock")
@@ -465,7 +466,9 @@ def instantiate_simulator(
     # Resolve short class names to full paths
     class_spec = resolve_class_path(class_spec, simulator_name)
 
-    simulator_cls = import_attribute(class_spec)
+    module_name, class_name = class_spec.rsplit(".", 1)
+    simulator_module = import_module(module_name)
+    simulator_cls = getattr(simulator_module, class_name)
 
     # Merge global and simulator-specific arguments
     # Simulator-specific arguments override global defaults
