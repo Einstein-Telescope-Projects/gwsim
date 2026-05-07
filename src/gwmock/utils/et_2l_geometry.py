@@ -13,13 +13,11 @@ def get_unit_vector_angles(unit_vector: np.ndarray, ellipsoid_position: np.ndarr
     relative to the local tangent plane at the specified ellipsoid position.
 
     Args:
-        unit vector (np.ndarray): A 3-element array representing the unit vector in
-            geocentric (ECEF) coordinates.
-        ellipsoid_position (np.ndarray): A 3-element array specifying the reference position
-            [latitude (rad), longitude (rad), height (meters)] on the Earth's ellipsoid
+        unit_vector: A 3-element array representing the unit vector in geocentric (ECEF) coordinates.
+        ellipsoid_position: A 3-element array specifying the reference position [latitude (rad), longitude (rad), height (meters)] on the Earth's ellipsoid
 
     Returns:
-        (np.ndarray): A 2-element array [azimuth (rad), altitude (rad)], where:
+        A 2-element array [azimuth (rad), altitude (rad)], where:
             - azimuth is the angle from local north (0 to 2π, increasing eastward),
             - altitude is the elevation angle from the local horizontal plane (-π/2 to π/2).
     """
@@ -54,22 +52,19 @@ def add_et_2l_detectors_at_location(
     All the angles are measured clockwise in the local horizontal coordinate system (North to East).
 
     Args:
-        E1_latitude (float): E1 vertex latitude (rad)
-        E1_longitude (float): E1 vertex longitude (rad)
-        E1_height (float): E1 vertex height above the standard reference ellipsoidal earth (meters)
-        E2_latitude (float): E2 vertex latitude (rad)
-        E2_longitude (float): E2 vertex longitude (rad)
-        E2_height (float): E2 vertex height above the standard reference ellipsoidal earth (meters)
-        alpha (float): Relative orientation angle alpha in radians. Alpha is defined
-            as the relative angle between the two detectors, oriented w.r.t their local North.
-        E1_location_name (str): Name of the E1 location (e.g., Sardinia, EMR, Cascina, ...)
-            for detector naming convention
-        E2_location_name (str): Name of the E1 location (e.g., Sardinia, EMR, Cascina, ...)
-            for detector naming convention
-        ETArmL (float, optional): ET arm length (meters). Default to 10000 meters.
+        e1_latitude: E1 vertex latitude (rad)
+        e1_longitude: E1 vertex longitude (rad)
+        e1_height: E1 vertex height above the standard reference ellipsoidal earth (meters)
+        e2_latitude: E2 vertex latitude (rad)
+        e2_longitude: E2 vertex longitude (rad)
+        e2_height: E2 vertex height above the standard reference ellipsoidal earth (meters)
+        alpha: Relative orientation angle alpha in radians. Alpha is defined as the relative angle between the two detectors, oriented w.r.t their local North.
+        e1_location_name: Name of the E1 location (e.g., Sardinia, EMR, Cascina, ...) for detector naming convention
+        e2_location_name: Name of the E1 location (e.g., Sardinia, EMR, Cascina, ...) for detector naming convention
+        et_arm_l: ET arm length (meters). Default to 10000 meters.
 
     Returns:
-        (Detector, Detector): pycbc.detector.Detector objects for E1, E2.
+        A tuple of two Detector objects for E1 and E2.
     """
 
     if alpha == 0:

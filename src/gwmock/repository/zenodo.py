@@ -69,7 +69,7 @@ class ZenodoClient:
         response.raise_for_status()
         return response
 
-    def create_deposition(self, metadata: dict[str, Any] | None = None, timeout=60) -> dict[str, Any]:
+    def create_deposition(self, metadata: dict[str, Any] | None = None, timeout: float = 60) -> dict[str, Any]:
         """Create a new deposition.
 
         Args:
@@ -91,7 +91,7 @@ class ZenodoClient:
         return response.json()
 
     def upload_file(
-        self, deposition_id: str, file_path: Path, timeout=300, auto_timeout: bool = True
+        self, deposition_id: str, file_path: Path, timeout: float = 300, auto_timeout: bool = True
     ) -> dict[str, Any]:
         """Upload a file to a deposition.
 

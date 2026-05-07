@@ -5,7 +5,7 @@ datasets tailored to your needs.
 
 ## Command-Line Options
 
-### Command [`simulate`](/reference/gwmock/cli/simulate/?h=)
+### Command [`simulate`](/reference/gwmock/cli/simulate/)
 
 ```bash
 gwmock simulate config.yaml
@@ -58,7 +58,7 @@ Include author information in the metadata files:
 gwmock simulate config.yaml --author <your-name> --email <your-email>
 ```
 
-### Command [`config`](/reference/gwmock/cli/default_config/?h=)
+### Command [`config`](/reference/gwmock/cli/config/)
 
 ```bash
 gwmock config <flag>

@@ -27,24 +27,9 @@ The recommended way to install gwmock is from PyPI:
 
 ```bash
 # Create a virtual environment (recommended with uv)
-uv venv gwmock-env --python 3.12
-source gwmock-env/bin/activate  # On Windows: gwmock-env\Scripts\activate
+uv venv --python 3.13
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install gwmock
-```
-
-### Optional Dependencies
-
-For development or specific features:
-
-```bash
-# Development dependencies (testing, linting, etc.)
-uv pip install gwmock[dev]
-
-# Documentation dependencies
-uv pip install gwmock[docs]
-
-# All dependencies
-uv pip install gwmock[dev,docs]
 ```
 
 ## Install from Source
@@ -55,9 +40,9 @@ For the latest development version:
 git clone git@github.com:Leuven-Gravity-Institute/gwmock.git
 ce gwmock
 # Create a virtual environment (recommended with uv)
-uv venv --python 3.12
+uv venv --python 3.13
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install .
+uv sync
 ```
 
 ### Development Installation
@@ -69,16 +54,12 @@ git clone git@github.com:Leuven-Gravity-Institute/gwmock.git
 cd gwmock
 
 # Create a virtual environment (recommended with uv)
-uv venv --python 3.12
+uv venv --python 3.13
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install ".[dev]"
-
-# Install the commitlint dependencies
-npm install
+uv sync --group dev
 
 # Install pre-commit hooks
-pre-commit install
-pre-commit install --hook-type commit-msg
+uv run pre-commit install
 ```
 
 ## Verify Installation
@@ -92,39 +73,6 @@ gwmock --help
 ```bash
 python -c "import gwmock; print(gwmock.__version__)"
 ```
-
-## Dependencies
-
-### Subpackage adoption baseline
-
-Later refactor issues may assume this dependency baseline without reopening the
-packaging question:
-
-- Python `>=3.12,<3.14`
-- `gwmock-signal>=0.5.0`
-- `gwmock-noise>=0.1.2`
-- `gwmock-pop>=0.6.0`
-
-The baseline also depends on two upstream assumptions that are now explicit:
-
-- `gwmock-pop` ISS-026 exports `CBC_PARAMETER_NAMES` for downstream validation
-  and cross-package contract tests.
-- `gwmock-signal` ISS-014 made the public license surface internally consistent;
-  if that license declaration changes upstream, revisit downstream adoption
-  before broadening the dependency plan.
-
-### Core Dependencies
-
-- **typer**: CLI framework
-- **numpy**: Numerical computing
-- **pycbc**: Gravitational-wave data analysis
-- **h5py**: HDF5 file format support
-- **pydantic**: Data validation
-- **tqdm**: Progress bars
-
-### Optional Dependencies
-
-- **gengli**: Glitch generation (for transient artifacts)
 
 ## Getting Help
 

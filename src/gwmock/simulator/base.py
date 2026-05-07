@@ -29,15 +29,12 @@ class Simulator(ABC):
     Specialized functionality (randomness, timing, etc.) should be added
     via mixins to avoid bloating the base interface.
 
-    Args:
-        max_samples: Maximum number of samples to generate. None means infinite.
-        **kwargs: Additional arguments absorbed by subclasses and mixins.
     """
 
     # State attributes using StateAttribute descriptor
     counter = StateAttribute(default=0)
 
-    def __init__(self, max_samples: int | float | None = None, **kwargs):
+    def __init__(self, max_samples: int | float | None = None, **kwargs: Any):
         """Initialize the base simulator.
 
         Args:
@@ -277,20 +274,17 @@ class Simulator(ABC):
         file_name: str | Path,
         output_directory: str | Path | None = None,
         overwrite: bool = False,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Save data to a file.
 
         This method must be implemented by all simulator subclasses.
 
         Args:
-            batch: Batch of generated samples.
+            data: Data to save.
             file_name: Output file path.
-                If the file_name contains placeholders (e.g., {{detector}}, {{duration}}),
-                they are filled by the attributes of the simulator.
             output_directory: Optional output directory to prepend to the file name.
             overwrite: Whether to overwrite existing files.
-            save_metadata: Whether to save metadata alongside the data.
             **kwargs: Additional arguments for specific file formats.
         """
         file_name_resolved = get_file_name_from_template(

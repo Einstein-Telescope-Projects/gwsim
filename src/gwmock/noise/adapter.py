@@ -30,14 +30,29 @@ _DETECTOR_PAIR_SIZE = 2
 
 
 def _format_frame_time_token(value: float) -> str:
-    """Match gwmock-noise frame filename token formatting."""
+    """Match gwmock-noise frame filename token formatting.
+
+    Args:
+        value: The value to format.
+
+    Returns:
+        The formatted value.
+    """
     if float(value).is_integer():
         return str(int(value))
     return f"{value:.6f}".rstrip("0").rstrip(".").replace(".", "p")
 
 
 def _frame_channel_name(detector: str, channel_prefix: str) -> str:
-    """Return detector channel name used by gwmock-noise frame outputs."""
+    """Return detector channel name used by gwmock-noise frame outputs.
+
+    Args:
+        detector: The detector name.
+        channel_prefix: The channel prefix.
+
+    Returns:
+        The detector channel name.
+    """
     return f"{detector}:{channel_prefix}_NOISE"
 
 
@@ -49,7 +64,18 @@ def _frame_artifact_name(
     gps_start: float,
     duration: float,
 ) -> str:
-    """Return the GWF filename used by gwmock-noise ``FrameWriter``."""
+    """Return the GWF filename used by gwmock-noise ``FrameWriter``.
+
+    Args:
+        detector: The detector name.
+        channel_prefix: The channel prefix.
+        prefix: The prefix.
+        gps_start: The GPS start time.
+        duration: The duration.
+
+    Returns:
+        The GWF filename.
+    """
     channel = _frame_channel_name(detector, channel_prefix)
     start_token = _format_frame_time_token(gps_start)
     duration_token = _format_frame_time_token(duration)
@@ -58,28 +84,56 @@ def _frame_artifact_name(
 
 
 def _coerce_path(value: str | Path | None) -> Path | None:
-    """Normalize a path-like input."""
+    """Normalize a path-like input.
+
+    Args:
+        value: The value to coerce.
+
+    Returns:
+        The coerced path.
+    """
     if value is None:
         return None
     return Path(value)
 
 
 def _coerce_path_mapping(values: dict[str, str | Path] | None) -> dict[str, Path] | None:
-    """Normalize mapping values to ``Path`` objects."""
+    """Normalize mapping values to ``Path`` objects.
+
+    Args:
+        values: The values to coerce.
+
+    Returns:
+        The coerced path mapping.
+    """
     if values is None:
         return None
     return {key: Path(value) for key, value in values.items()}
 
 
 def _coerce_path_schedule(values: list[tuple[float, str | Path]] | None) -> list[tuple[float, Path]] | None:
-    """Normalize scheduled path values to ``Path`` objects."""
+    """Normalize scheduled path values to ``Path`` objects.
+
+    Args:
+        values: The values to coerce.
+
+    Returns:
+        The coerced path schedule.
+    """
     if values is None:
         return None
     return [(offset, Path(path)) for offset, path in values]
 
 
 def _parse_csd_file_map(csd_files: dict[str, Path] | None) -> dict[tuple[str, str], Path]:
-    """Convert ``DET1-DET2`` mapping keys into detector-pair tuples."""
+    """Convert ``DET1-DET2`` mapping keys into detector-pair tuples.
+
+    Args:
+        csd_files: The CSD files to parse.
+
+    Returns:
+        The parsed CSD file map.
+    """
     if not csd_files:
         return {}
 
@@ -104,12 +158,23 @@ class NoiseAdapter:
     """Bridge gwmock orchestration state to public ``gwmock_noise`` APIs."""
 
     def __init__(self, *, backend: Any) -> None:
-        """Store the resolved public gwmock-noise backend."""
+        """Store the resolved public gwmock-noise backend.
+
+        Args:
+            backend: The backend to use.
+        """
         self._backend = backend
 
     @classmethod
     def from_backend(cls, backend: BaseNoiseSimulator | NoiseSimulator | Any | None = None) -> NoiseAdapter:
-        """Build an adapter from a public gwmock-noise backend."""
+        """Build an adapter from a public gwmock-noise backend.
+
+        Args:
+            backend: The backend to use.
+
+        Returns:
+            A NoiseAdapter instance.
+        """
         if backend is None:
             resolved_backend = DefaultNoiseSimulator()
         elif isinstance(backend, (BaseNoiseSimulator, NoiseSimulator)) or callable(getattr(backend, "run", None)):
@@ -120,7 +185,11 @@ class NoiseAdapter:
 
     @property
     def backend(self) -> Any:
-        """Return the public backend used by the adapter."""
+        """Return the public backend used by the adapter.
+
+        Returns:
+            The public backend used by the adapter.
+        """
         return self._backend
 
     def run(  # noqa: PLR0913
@@ -144,7 +213,30 @@ class NoiseAdapter:
         spectral_lines: list[Any] | None = None,
         glitches: list[Any] | None = None,
     ) -> SimulationResult:
-        """Run one noise batch through the public gwmock-noise boundary."""
+        """Run one noise batch through the public gwmock-noise boundary.
+
+        Args:
+            detectors: The detectors to use.
+            duration: The duration.
+            sampling_frequency: The sampling frequency.
+            output_directory: The output directory.
+            output_prefix: The output prefix.
+            output_format: The output format.
+            gps_start: The GPS start time.
+            channel_prefix: The channel prefix.
+            seed: The seed.
+            psd_file: The PSD file.
+            psd_schedule: The PSD schedule.
+            psd_files: The PSD files.
+            csd_files: The CSD files.
+            low_frequency_cutoff: The low frequency cutoff.
+            high_frequency_cutoff: The high frequency cutoff.
+            spectral_lines: The spectral lines.
+            glitches: The glitches.
+
+        Returns:
+            The simulation result.
+        """
         config = self.build_config(
             detectors=detectors,
             duration=duration,
@@ -194,7 +286,25 @@ class NoiseAdapter:
         spectral_lines: list[Any] | None = None,
         glitches: list[Any] | None = None,
     ) -> Iterator[dict[str, np.ndarray]]:
-        """Open one stateful upstream stream and consume it chunk-by-chunk."""
+        """Open one stateful upstream stream and consume it chunk-by-chunk.
+
+        Args:
+            chunk_duration: The chunk duration.
+            sampling_frequency: The sampling frequency.
+            detectors: The detectors to use.
+            seed: The seed.
+            psd_file: The PSD file.
+            psd_schedule: The PSD schedule.
+            psd_files: The PSD files.
+            csd_files: The CSD files.
+            low_frequency_cutoff: The low frequency cutoff.
+            high_frequency_cutoff: The high frequency cutoff.
+            spectral_lines: The spectral lines.
+            glitches: The glitches.
+
+        Returns:
+            An iterator over the chunks.
+        """
         simulator = self._resolve_stream_backend(
             chunk_duration=chunk_duration,
             sampling_frequency=sampling_frequency,
@@ -238,7 +348,30 @@ class NoiseAdapter:
         spectral_lines: list[Any] | None = None,
         glitches: list[Any] | None = None,
     ) -> NoiseConfig:
-        """Construct the public gwmock-noise config model for one output chunk."""
+        """Construct the public gwmock-noise config model for one output chunk.
+
+        Args:
+            detectors: The detectors to use.
+            duration: The duration.
+            sampling_frequency: The sampling frequency.
+            output_directory: The output directory.
+            output_prefix: The output prefix.
+            output_format: The output format.
+            gps_start: The GPS start time.
+            channel_prefix: The channel prefix.
+            seed: The seed.
+            psd_file: The PSD file.
+            psd_schedule: The PSD schedule.
+            psd_files: The PSD files.
+            csd_files: The CSD files.
+            low_frequency_cutoff: The low frequency cutoff.
+            high_frequency_cutoff: The high frequency cutoff.
+            spectral_lines: The spectral lines.
+            glitches: The glitches.
+
+        Returns:
+            The noise config.
+        """
         return NoiseConfig(
             detectors=list(detectors),
             duration=duration,
@@ -262,7 +395,14 @@ class NoiseAdapter:
         )
 
     def expected_output_paths(self, *, config: NoiseConfig) -> list[Path]:
-        """Return the artifact paths gwmock will write for one chunk."""
+        """Return the artifact paths gwmock will write for one chunk.
+
+        Args:
+            config: The noise config.
+
+        Returns:
+            The expected output paths.
+        """
         if config.output.format == "npy":
             return [
                 config.output.directory
@@ -282,7 +422,15 @@ class NoiseAdapter:
         ]
 
     def write_chunk(self, *, config: NoiseConfig, chunk: Mapping[str, np.ndarray]) -> SimulationResult:
-        """Write one chunk returned by ``open_stream`` to gwmock-owned outputs."""
+        """Write one chunk returned by ``open_stream`` to gwmock-owned outputs.
+
+        Args:
+            config: The noise config.
+            chunk: The chunk to write.
+
+        Returns:
+            The simulation result.
+        """
         chunk_by_detector = self._normalize_chunk(chunk=chunk, detectors=config.detectors)
         config.output.directory.mkdir(parents=True, exist_ok=True)
         if config.output.format == "gwf":
@@ -308,7 +456,15 @@ class NoiseAdapter:
         return SimulationResult(output_paths=output_paths, config=config)
 
     def _normalize_chunk(self, *, chunk: Mapping[str, np.ndarray], detectors: Sequence[str]) -> dict[str, np.ndarray]:
-        """Validate and normalize one upstream chunk."""
+        """Validate and normalize one upstream chunk.
+
+        Args:
+            chunk: The chunk to normalize.
+            detectors: The detectors to use.
+
+        Returns:
+            The normalized chunk.
+        """
         normalized: dict[str, np.ndarray] = {}
         for detector in detectors:
             if detector not in chunk:
@@ -332,7 +488,25 @@ class NoiseAdapter:
         spectral_lines: list[Any] | None,
         glitches: list[Any] | None,
     ) -> NoiseSimulator:
-        """Return the protocol-compatible backend for ``open_stream``."""
+        """Return the protocol-compatible backend for ``open_stream``.
+
+        Args:
+            chunk_duration: The chunk duration.
+            sampling_frequency: The sampling frequency.
+            detectors: The detectors to use.
+            seed: The seed.
+            psd_file: The PSD file.
+            psd_schedule: The PSD schedule.
+            psd_files: The PSD files.
+            csd_files: The CSD files.
+            low_frequency_cutoff: The low frequency cutoff.
+            high_frequency_cutoff: The high frequency cutoff.
+            spectral_lines: The spectral lines.
+            glitches: The glitches.
+
+        Returns:
+            The protocol-compatible backend.
+        """
         if isinstance(self._backend, DefaultNoiseSimulator):
             protocol_backend = self._configure_default_stream_backend(
                 chunk_duration=chunk_duration,
@@ -372,7 +546,25 @@ class NoiseAdapter:
         spectral_lines: list[Any] | None,
         glitches: list[Any] | None,
     ) -> NoiseSimulator | None:
-        """Mirror the default gwmock-noise backend selection with protocol simulators."""
+        """Mirror the default gwmock-noise backend selection with protocol simulators.
+
+        Args:
+            chunk_duration: The chunk duration.
+            sampling_frequency: The sampling frequency.
+            detectors: The detectors to use.
+            seed: The seed.
+            psd_file: The PSD file.
+            psd_schedule: The PSD schedule.
+            psd_files: The PSD files.
+            csd_files: The CSD files.
+            low_frequency_cutoff: The low frequency cutoff.
+            high_frequency_cutoff: The high frequency cutoff.
+            spectral_lines: The spectral lines.
+            glitches: The glitches.
+
+        Returns:
+            The protocol-compatible backend.
+        """
         normalized_psd_files = _coerce_path_mapping(psd_files)
         normalized_csd_files = _coerce_path_mapping(csd_files)
         normalized_psd_schedule = _coerce_path_schedule(psd_schedule)
@@ -436,6 +628,11 @@ class _ChunkNoiseSimulator:
     """Protocol adapter that replays one already-generated chunk."""
 
     def __init__(self, chunk: Mapping[str, np.ndarray]) -> None:
+        """Initialize the chunk noise simulator.
+
+        Args:
+            chunk: The chunk to replay.
+        """
         self._chunk = {detector: np.asarray(strain) for detector, strain in chunk.items()}
         self.detectors = list(self._chunk)
         self.duration = 0.0
@@ -449,7 +646,21 @@ class _ChunkNoiseSimulator:
         detectors: list[str],
         seed: int | None = None,
     ) -> dict[str, np.ndarray]:
-        """Return the stored chunk after validating the requested shape."""
+        """Return the stored chunk after validating the requested shape.
+
+        Args:
+            duration: The duration.
+            sampling_frequency: The sampling frequency.
+            detectors: The detectors to use.
+            seed: The seed.
+
+        Returns:
+            The generated chunk.
+
+        Raises:
+            ValueError: If the noise stream did not produce the requested detector.
+            ValueError: If the noise chunk for the requested detector has the wrong number of samples.
+        """
         _ = seed
         expected_samples = round(duration * sampling_frequency)
         generated: dict[str, np.ndarray] = {}
@@ -474,12 +685,26 @@ class _ChunkNoiseSimulator:
         detectors: list[str],
         seed: int | None = None,
     ) -> Iterator[dict[str, np.ndarray]]:
-        """Yield the stored chunk once."""
+        """Yield the stored chunk once.
+
+        Args:
+            chunk_duration: The chunk duration.
+            sampling_frequency: The sampling frequency.
+            detectors: The detectors to use.
+            seed: The seed.
+
+        Returns:
+            An iterator over the generated chunk.
+        """
         yield self.generate(chunk_duration, sampling_frequency, detectors, seed)
 
     @property
     def metadata(self) -> dict[str, Any]:
-        """Return adapter metadata layered on the chunk replay backend."""
+        """Return adapter metadata layered on the chunk replay backend.
+
+        Returns:
+            The adapter metadata.
+        """
         return {"adapter": "chunk-replay"}
 
 
@@ -494,6 +719,14 @@ class _ZeroNoiseSimulator:
         sampling_frequency: float,
         seed: int | None,
     ) -> None:
+        """Initialize the zero noise simulator.
+
+        Args:
+            detectors: The detectors to use.
+            duration: The duration.
+            sampling_frequency: The sampling frequency.
+            seed: The seed.
+        """
         self.detectors = list(detectors)
         self.duration = duration
         self.sampling_frequency = sampling_frequency
@@ -506,7 +739,14 @@ class _ZeroNoiseSimulator:
         detectors: list[str],
         seed: int | None = None,
     ) -> dict[str, np.ndarray]:
-        """Return zeros with the requested runtime shape."""
+        """Return zeros with the requested runtime shape.
+
+        Args:
+            duration: The duration.
+            sampling_frequency: The sampling frequency.
+            detectors: The detectors to use.
+            seed: The seed.
+        """
         _ = seed
         n_samples = round(duration * sampling_frequency)
         self.detectors = list(detectors)
@@ -521,12 +761,26 @@ class _ZeroNoiseSimulator:
         detectors: list[str],
         seed: int | None = None,
     ) -> Iterator[dict[str, np.ndarray]]:
-        """Yield zero-noise chunks lazily."""
+        """Yield zero-noise chunks lazily.
+
+        Args:
+            chunk_duration: The chunk duration.
+            sampling_frequency: The sampling frequency.
+            detectors: The detectors to use.
+            seed: The seed.
+
+        Returns:
+            An iterator over the generated chunk.
+        """
         while True:
             yield self.generate(chunk_duration, sampling_frequency, detectors, seed)
             seed = None
 
     @property
     def metadata(self) -> dict[str, Any]:
-        """Return metadata for the zero-noise helper backend."""
+        """Return metadata for the zero-noise helper backend.
+
+        Returns:
+            The metadata.
+        """
         return {"kind": "zero-noise"}

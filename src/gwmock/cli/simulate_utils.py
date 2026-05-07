@@ -11,6 +11,7 @@ import logging
 import platform
 import signal
 import time
+from collections.abc import Callable
 from importlib import import_module
 from importlib import metadata as importlib_metadata
 from pathlib import Path
@@ -325,7 +326,7 @@ def _build_output_records(
 
 
 def retry_with_backoff(
-    func,
+    func: Callable[..., Any],
     max_retries: int = 3,
     initial_delay: float = 0.1,
     backoff_factor: float = 2.0,

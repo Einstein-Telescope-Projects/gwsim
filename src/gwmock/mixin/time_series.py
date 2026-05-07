@@ -183,7 +183,7 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
         """
         raise NotImplementedError("Subclasses must implement the _simulate method.")
 
-    def simulate(self, *args, **kwargs) -> TimeSeries:
+    def simulate(self, *args: Any, **kwargs: Any) -> TimeSeries:
         """
         Simulate a segment of time series data.
 
