@@ -14,8 +14,8 @@ import numpy as np
 import pytest
 from gwmock_pop import CBC_PARAMETER_NAMES, ExternalPopulationLoader, GWPopSimulator
 
-from gwmock.cli.utils.backend_resolver import resolve_backend_class
-from gwmock.population import PopulationAdapter, instantiate_population_backend
+from gwmock.cli.utils.backend_resolver import instantiate_backend, resolve_backend_class
+from gwmock.population import PopulationAdapter
 
 EXPECTED_SAMPLE_COUNT = 2
 
@@ -138,7 +138,7 @@ class TestPopulationAdapter:
 
     def test_from_backend_accepts_gwpop_simulator(self):
         """Simulator-backed batches are sliced into per-event dictionaries."""
-        backend = instantiate_population_backend("tests.population.test_adapter:MockGWPopBackend")
+        backend = instantiate_backend("population", "tests.population.test_adapter:MockGWPopBackend")
 
         assert isinstance(backend, GWPopSimulator)
 
@@ -168,7 +168,10 @@ class TestPopulationAdapter:
 
     def test_from_backend_accepts_external_population_loader(self):
         """Loader-backed batches use the same adapter boundary."""
-        loader = instantiate_population_backend("tests.population.test_adapter:MockExternalPopulationLoader")
+        loader = instantiate_backend(
+            "population",
+            "tests.population.test_adapter:MockExternalPopulationLoader",
+        )
 
         assert isinstance(loader, GWPopSimulator)
         assert isinstance(loader, ExternalPopulationLoader)
