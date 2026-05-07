@@ -1,11 +1,15 @@
-"""
-A descriptor class to handle a state attribute.
-"""
+"""State helpers for simulator and orchestration checkpoint persistence."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import logging
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any, overload
+
+import yaml
+
+logger = logging.getLogger("gwmock")
 
 
 class StateAttribute[T]:  # pylint: disable=duplicate-code
@@ -81,3 +85,71 @@ class StateAttribute[T]:  # pylint: disable=duplicate-code
         instance.__dict__[self.name] = value
         if self.post_set_hook is not None:
             self.post_set_hook(instance, value)
+
+
+class PopulationIterationState:  # pylint: disable=too-few-public-methods
+    """Manage resumable population iteration state loaded from legacy checkpoints."""
+
+    def __init__(self, checkpoint_file: str | Path | None = None, encoding: str = "utf-8") -> None:
+        self.checkpoint_file = checkpoint_file
+        self.encoding = encoding
+        self.current_index = 0
+        self.injected_indices: list[int] = []
+        self.segment_map: dict[int, list[int]] = {}
+        self._load_checkpoint()
+
+    @property
+    def checkpoint_file(self) -> Path | None:
+        """Return the checkpoint file path, if configured."""
+        return self._checkpoint_file
+
+    @checkpoint_file.setter
+    def checkpoint_file(self, value: str | Path | None) -> None:
+        """Normalize the checkpoint file path to a ``Path`` instance."""
+        self._checkpoint_file = None if value is None else Path(value)
+
+    def to_checkpoint_data(self) -> dict[str, Any]:
+        """Serialize the iteration state using the legacy checkpoint shape."""
+        return {
+            "population": {
+                "current_index": int(self.current_index),
+                "injected_indices": [int(index) for index in self.injected_indices],
+                "segment_map": {
+                    int(segment_index): [int(event_index) for event_index in event_indices]
+                    for segment_index, event_indices in self.segment_map.items()
+                },
+            }
+        }
+
+    def load_checkpoint_data(self, data: Mapping[str, Any]) -> None:
+        """Load the legacy population checkpoint payload into the in-memory state."""
+        self.current_index = int(data.get("current_index", 0))
+        self.injected_indices = [int(index) for index in data.get("injected_indices", [])]
+        raw_segment_map = data.get("segment_map", {})
+        if not isinstance(raw_segment_map, Mapping):
+            raise TypeError("segment_map must be a mapping.")
+        self.segment_map = {
+            int(segment_index): [int(event_index) for event_index in event_indices]
+            for segment_index, event_indices in raw_segment_map.items()
+        }
+
+    def _load_checkpoint(self) -> None:
+        if self.checkpoint_file is None or not self.checkpoint_file.is_file():
+            return
+
+        try:
+            with self.checkpoint_file.open(encoding=self.encoding) as file:
+                payload = yaml.safe_load(file) or {}
+            if not isinstance(payload, Mapping):
+                raise TypeError("Checkpoint payload must be a mapping.")
+            population_state = payload["population"]
+            if not isinstance(population_state, Mapping):
+                raise TypeError("population checkpoint payload must be a mapping.")
+            self.load_checkpoint_data(population_state)
+            logger.info(
+                "Loaded checkpoint: current_index=%s, injected=%s",
+                self.current_index,
+                self.injected_indices,
+            )
+        except (OSError, TypeError, ValueError, yaml.YAMLError, KeyError) as error:
+            logger.warning("Failed to load checkpoint %s: %s. Starting fresh.", self.checkpoint_file, error)
