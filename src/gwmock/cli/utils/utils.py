@@ -4,7 +4,6 @@ Utility functions used in the command line tools.
 
 from __future__ import annotations
 
-import importlib
 import logging
 import re
 import sys
@@ -13,21 +12,6 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("gwmock")
-
-
-def import_attribute(full_path: str) -> Any:
-    """
-    Import an attribute from a full dotted path.
-
-    Args:
-        full_path (str): Dotted path to the class, e.g., 'my_package.my_module.my_attribute'.
-
-    Returns:
-        Any: The attribute.
-    """
-    module_path, class_name = full_path.rsplit(".", 1)
-    module = importlib.import_module(module_path)
-    return getattr(module, class_name)
 
 
 def get_file_name_from_template_with_dict(
