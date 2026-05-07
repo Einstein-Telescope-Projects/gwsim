@@ -118,7 +118,6 @@ The baseline also depends on two upstream assumptions that are now explicit:
 - **typer**: CLI framework
 - **numpy**: Numerical computing
 - **pycbc**: Gravitational-wave data analysis
-- **bilby**: Gravitational-wave data utilities
 - **h5py**: HDF5 file format support
 - **pydantic**: Data validation
 - **tqdm**: Progress bars
