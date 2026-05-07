@@ -51,8 +51,7 @@ Base Simulator (interface, state management, iteration)
     ↓
     ├── + RandomnessMixin → handles random number generation
     ├── + DetectorMixin → handles detector-specific operations
-    ├── + TimeSeriesMixin → handles time series data
-    └── + WaveformMixin → handles waveform generation
+    └── + TimeSeriesMixin → handles time series data
 
     ↓
 Specialized Simulators (NoiseSimulator, SignalSimulator)
@@ -96,7 +95,6 @@ gwmock/
 │   ├── detector.py          # DetectorMixin
 │   ├── randomness.py        # RandomnessMixin
 │   ├── time_series.py       # TimeSeriesMixin
-│   ├── waveform.py          # WaveformMixin
 │   └── gwf.py               # GWF frame handling
 ├── noise/
 │   ├── __init__.py
@@ -169,7 +167,6 @@ gwmock/
 - `RandomnessMixin`: Seeded RNG management
 - `DetectorMixin`: Multi-detector support
 - `TimeSeriesMixin`: Time series handling
-- `WaveformMixin`: Waveform generation
 
 Population catalogue loading and validation now live in `gwmock-pop`, with
 gwmock retaining only orchestration-side checkpoint state.
