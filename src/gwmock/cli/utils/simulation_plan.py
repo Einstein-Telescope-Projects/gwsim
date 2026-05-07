@@ -377,52 +377,23 @@ def create_plan_from_config(
     config_sha256 = compute_file_hash(config_file) if config_file is not None else None
 
     global_batch_index = 0
-    orchestration_config = getattr(config, "orchestration", None)
-    simulators_config = getattr(config, "simulators", None)
+    orchestration_config = config.orchestration
 
-    if orchestration_config is not None:
-        global_sim_args = {k.replace("-", "_"): v for k, v in config.globals.simulator_arguments.items()}
-        max_samples = resolve_max_samples(simulator_args={}, global_args=global_sim_args)
-        for _ in range(max_samples):
-            batch = SimulationBatch(
-                simulator_name="orchestration",
-                simulator_config=orchestration_config,
-                globals_config=config.globals,
-                batch_index=global_batch_index,
-                source="config",
-                author=author,
-                email=email,
-                config_payload=config_payload,
-                config_sha256=config_sha256,
-            )
-            plan.add_batch(batch)
-            global_batch_index += 1
-    elif simulators_config is not None:
-        # For each simulator, create batches (each simulator can generate multiple batches)
-        for simulator_name, simulator_config in simulators_config.items():
-            # Determine number of batches for this simulator
-            # This comes from simulator_arguments in globals_config (max_samples parameter)
-            # First check simulator-specific arguments, then fall back to global simulator_arguments
-            # Note: Keys in simulator_arguments may have hyphens (YAML style), so normalize them
-            global_sim_args = {k.replace("-", "_"): v for k, v in config.globals.simulator_arguments.items()}
-            local_sim_args = {k.replace("-", "_"): v for k, v in simulator_config.arguments.items()}
-
-            max_samples = resolve_max_samples(simulator_args=local_sim_args, global_args=global_sim_args)
-
-            for _ in range(max_samples):
-                batch = SimulationBatch(
-                    simulator_name=simulator_name,
-                    simulator_config=simulator_config,
-                    globals_config=config.globals,
-                    batch_index=global_batch_index,
-                    source="config",
-                    author=author,
-                    email=email,
-                    config_payload=config_payload,
-                    config_sha256=config_sha256,
-                )
-                plan.add_batch(batch)
-                global_batch_index += 1
+    global_sim_args = {k.replace("-", "_"): v for k, v in config.globals.simulator_arguments.items()}
+    max_samples = resolve_max_samples(simulator_args={}, global_args=global_sim_args)
+    for global_batch_index in range(max_samples):
+        batch = SimulationBatch(
+            simulator_name="orchestration",
+            simulator_config=orchestration_config,
+            globals_config=config.globals,
+            batch_index=global_batch_index,
+            source="config",
+            author=author,
+            email=email,
+            config_payload=config_payload,
+            config_sha256=config_sha256,
+        )
+        plan.add_batch(batch)
 
     logger.info("Created simulation plan from config: %d batches", plan.total_batches)
     return plan

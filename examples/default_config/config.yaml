@@ -1,45 +1,33 @@
 # Example adapter-backed orchestration file for gwmock.
-# Template variables (e.g., {{ detectors }}) are expanded at runtime using the
-# gwmock-owned orchestration state for reproducible outputs.
 
-# Global configuration shared across all simulators
 globals:
-    # Simulator arguments that apply to all simulators unless overridden
+    working-directory: .
+    output-directory: output
+    metadata-directory: metadata
     simulator-arguments:
-        sampling-frequency: 4096 # Sampling rate in Hz (affects data quality and file size)
-        duration: 1024 # Duration of each generated segment in seconds
-        start-time: 1577491218 # GPS start time for the simulation
-        total-duration: '5 hours' # Total simulation duration (parsed from string or numeric)
-    # Directory paths (relative to working directory unless absolute)
-    working-directory: . # Base directory for all operations
-    output-directory: output # Where generated data files are saved
-    metadata-directory: metadata # Where simulation metadata and checkpoints are stored
+        sampling-frequency: 4096
+        duration: 1024
+        start-time: 1577491218
+        total-duration: 5 hours
 
-# Adapter-backed orchestration: population -> signal + noise
 orchestration:
     population:
-        backend: FilePopulationLoader # Public gwmock-pop loader/backend name
+        backend: FilePopulationLoader
         source-type: bbh
-        n-samples: 128
+        n-samples: 1
         arguments:
-            path: population.h5 # Local path or URL accepted by the public loader
+            path: population.h5
     signal:
         detectors:
-            - ET-Triangle-Sardinia
+            - H1
         waveform-model: IMRPhenomXPHM
         minimum-frequency: 20
         output:
             output_directory: signal
-            file_name:
-                '{{ detectors }}-SIGNAL-{{ start_time }}-{{ duration }}.gwf'
+            file_name: signal-{{ counter }}.gwf
             arguments:
-                channel: '{{ detectors }}:STRAIN'
+                channel: H1:STRAIN
     noise:
-        arguments:
-            psd_file: ET_10_full_cryo_psd.txt
-            seed: 42
         output:
             output_directory: noise
-            file_name: 'noise-{{ counter }}.gwf'
-            arguments:
-                channel_prefix: MOCK
+            file_name: noise-{{ counter }}.gwf
