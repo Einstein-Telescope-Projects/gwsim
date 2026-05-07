@@ -1,7 +1,7 @@
 ---
 name: 🐛 Bug Report
 about: Create a report to help us improve
-title: '[BUG] '
+title: '[BUG]: '
 labels: bug
 assignees: ''
 ---
@@ -46,7 +46,7 @@ Traceback (most recent call last):
 
 ## 🛠 Environment Information
 
-- **Python Version:** (e.g., 3.11)
+- **Python Version:** (e.g., 3.13)
 - **Package Version:** (e.g., 1.2.3)
 - **Operating System:** (e.g., Windows 11, Ubuntu 22.04, macOS)
 - **Relevant Dependencies:** (e.g., numpy, pandas version if applicable)
