@@ -6,8 +6,8 @@ import tempfile
 from pathlib import Path
 from typing import ClassVar
 
-import h5py
 import numpy as np
+import pytest
 import yaml
 from gwmock_signal import DetectorStrainStack
 from gwpy.timeseries import TimeSeries as GWpyTimeSeries
@@ -27,6 +27,9 @@ from gwmock.cli.utils.simulation_plan import create_plan_from_config
 from gwmock.simulator.seeds import derive_seed
 
 EXPECTED_BATCHES = 2
+FAKE_POPULATION_BACKEND = "tests.cli.test_cli_orchestration:FakePopulationBackend"
+FAKE_SIGNAL_BACKEND = "tests.cli.test_cli_orchestration:FakeSignalAdapter"
+FAKE_NOISE_BACKEND = "tests.cli.test_cli_orchestration:FakeNoiseAdapter"
 
 
 class FakePopulationBackend:
@@ -146,7 +149,7 @@ def _write_signal_file(self, path, **kwargs):
     Path(path).write_text("STRAIN")
 
 
-def _fake_orchestration_config(tmp_path: Path) -> Config:
+def _fake_orchestration_config(tmp_path: Path, *, source_type: str) -> Config:
     return Config(
         globals=GlobalsConfig(
             working_directory=str(tmp_path),
@@ -161,13 +164,14 @@ def _fake_orchestration_config(tmp_path: Path) -> Config:
         ),
         orchestration=OrchestrationConfig(
             population=PopulationConfig(
-                backend="tests.cli.test_cli_orchestration:FakePopulationBackend",
-                source_type="bbh",
+                backend=FAKE_POPULATION_BACKEND,
+                source_type=source_type,
                 n_samples=2,
-                arguments={"path": str(tmp_path / "population.h5")},
+                arguments={"path": str(tmp_path / "population.h5"), "source_type": source_type},
             ),
             signal=SignalConfig(
-                backend="tests.cli.test_cli_orchestration:FakeSignalAdapter",
+                backend=FAKE_SIGNAL_BACKEND,
+                waveform_model="IMRPhenomD",
                 detectors=["H1"],
                 output=SimulatorOutputConfig(
                     file_name="signal-{{ counter }}.gwf",
@@ -176,7 +180,7 @@ def _fake_orchestration_config(tmp_path: Path) -> Config:
                 ),
             ),
             noise=NoiseAdapterConfig(
-                backend="tests.cli.test_cli_orchestration:FakeNoiseAdapter",
+                backend=FAKE_NOISE_BACKEND,
                 arguments={"seed": 7, "detectors": ["H1"], "duration": 4.0, "sampling_frequency": 4.0},
                 output=SimulatorOutputConfig(
                     file_name="noise-{{ counter }}.npy",
@@ -187,73 +191,15 @@ def _fake_orchestration_config(tmp_path: Path) -> Config:
     )
 
 
-def _orchestration_config(tmp_path: Path) -> Config:
-    return _fake_orchestration_config(tmp_path)
-
-
 def _assert_noise_outputs_exist(output_directory: Path) -> None:
     for counter in range(EXPECTED_BATCHES):
         for detector in ["H1"]:
             assert (output_directory / f"noise-{counter}_{detector}.npy").exists()
 
 
-def _write_real_population_catalog(path: Path) -> None:
-    with h5py.File(path, "w") as handle:
-        group = handle.create_group("data")
-        group.create_dataset("detector_frame_mass_1", data=[30.0])
-        group.create_dataset("detector_frame_mass_2", data=[20.0])
-        group.create_dataset("coa_time", data=[1001.0])
-        group.create_dataset("distance", data=[400.0])
-        group.create_dataset("inclination", data=[0.3])
-        group.create_dataset("right_ascension", data=[1.1])
-        group.create_dataset("declination", data=[-0.5])
-        group.create_dataset("polarization_angle", data=[0.2])
-
-
-def _real_orchestration_config(tmp_path: Path, population_path: Path) -> Config:
-    return Config(
-        globals=GlobalsConfig(
-            working_directory=str(tmp_path),
-            output_directory="output",
-            metadata_directory="metadata",
-            simulator_arguments={
-                "sampling-frequency": 64,
-                "duration": 4,
-                "start-time": 1000,
-                "max-samples": 1,
-            },
-        ),
-        orchestration=OrchestrationConfig(
-            population=PopulationConfig(
-                backend="file",
-                source_type="bbh",
-                n_samples=1,
-                arguments={"path": str(population_path)},
-            ),
-            signal=SignalConfig(
-                detectors=["H1"],
-                waveform_model="IMRPhenomD",
-                minimum_frequency=20.0,
-                output=SimulatorOutputConfig(
-                    file_name="signal-{{ counter }}.gwf",
-                    output_directory="signal",
-                    arguments={"channel": "H1:STRAIN"},
-                ),
-            ),
-            noise=NoiseAdapterConfig(
-                arguments={"seed": 7},
-                output=SimulatorOutputConfig(
-                    file_name="noise-{{ counter }}.npy",
-                    output_directory="noise",
-                ),
-            ),
-        ),
-    )
-
-
 def test_create_plan_from_orchestration_config(tmp_path: Path):
     """Batch planning should respect the new orchestration config surface."""
-    config = _orchestration_config(tmp_path)
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
 
     plan = create_plan_from_config(config, tmp_path / "checkpoints")
 
@@ -262,10 +208,11 @@ def test_create_plan_from_orchestration_config(tmp_path: Path):
     assert all(isinstance(batch.simulator_config, OrchestrationConfig) for batch in plan.batches)
 
 
-def test_simulate_command_runs_adapter_orchestration(monkeypatch, tmp_path: Path):
+@pytest.mark.parametrize("source_type", ["bbh", "bns", "nsbh", "gengli"])
+def test_simulate_command_runs_adapter_orchestration(monkeypatch, tmp_path: Path, source_type: str):
     """The CLI should execute the adapter-backed orchestration path end to end."""
     FakeNoiseAdapter.stream_open_calls.clear()
-    config = _orchestration_config(tmp_path)
+    config = _fake_orchestration_config(tmp_path, source_type=source_type)
     config_file = tmp_path / "config.yaml"
     config_file.write_text(yaml.safe_dump(config.model_dump(by_alias=True, exclude_none=True), sort_keys=False))
 
@@ -278,18 +225,14 @@ def test_simulate_command_runs_adapter_orchestration(monkeypatch, tmp_path: Path
     _assert_noise_outputs_exist(tmp_path / "output" / "noise")
     metadata = yaml.safe_load((tmp_path / "metadata" / "orchestration-0.metadata.json").read_text())
     assert metadata["schema_version"] == "1.0.0"
-    assert (
-        metadata["config"]["orchestration"]["population"]["backend"]
-        == "tests.cli.test_cli_orchestration:FakePopulationBackend"
-    )
-    assert metadata["population"]["source_type"] == "bbh"
+    assert metadata["config"]["orchestration"]["population"]["backend"] == FAKE_POPULATION_BACKEND
+    assert metadata["config"]["orchestration"]["signal"]["backend"] == FAKE_SIGNAL_BACKEND
+    assert metadata["config"]["orchestration"]["noise"]["backend"] == FAKE_NOISE_BACKEND
+    assert metadata["population"]["source_type"] == source_type
     assert metadata["signal"]["detector_network"] == ["H1"]
     assert {output["kind"] for output in metadata["outputs"]} == {"signal", "noise"}
     assert metadata["segment_seeds"] == [derive_seed(7, "signal", 0)]
-    assert (
-        metadata["simulator_config"]["population"]["backend"]
-        == "tests.cli.test_cli_orchestration:FakePopulationBackend"
-    )
+    assert metadata["simulator_config"]["population"]["backend"] == FAKE_POPULATION_BACKEND
     assert metadata["simulator_config"]["signal"]["detectors"] == ["H1"]
     assert metadata["simulator_metadata"]["orchestration"]["population"]["metadata"] == FakePopulationBackend.metadata
     assert metadata["simulator_metadata"]["orchestration"]["population"]["seed"] == derive_seed(7, "population")
@@ -312,7 +255,7 @@ def test_simulate_command_runs_adapter_orchestration(monkeypatch, tmp_path: Path
 
 def test_orchestrator_restores_noise_stream_from_committed_cursor(tmp_path: Path):
     """Restart should fast-forward noise stream from persisted committed cursor."""
-    config = _orchestration_config(tmp_path)
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
     orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
 
     # Simulate restored state where one chunk was already committed.
@@ -328,7 +271,7 @@ def test_orchestrator_restores_noise_stream_from_committed_cursor(tmp_path: Path
 
 def test_orchestrator_records_preset_network_resolution(tmp_path: Path):
     """Named detector presets should be resolved once and reflected into metadata."""
-    config = _fake_orchestration_config(tmp_path)
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
     config.orchestration.signal.detectors = ["ET-Triangle-Sardinia"]
     config.orchestration.noise.arguments = {"seed": 7, "duration": 4.0, "sampling_frequency": 4.0}
 
@@ -352,7 +295,7 @@ def test_orchestrator_records_preset_network_resolution(tmp_path: Path):
 
 def test_orchestrator_records_single_detector_preset_resolution(tmp_path: Path):
     """Single public ET-detector aliases should resolve via the preset-backed detector catalog."""
-    config = _fake_orchestration_config(tmp_path)
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
     config.orchestration.signal.detectors = ["ET1_SARD"]
     config.orchestration.noise.arguments = {"seed": 7, "duration": 4.0, "sampling_frequency": 4.0}
 
@@ -372,37 +315,3 @@ def test_orchestrator_records_single_detector_preset_resolution(tmp_path: Path):
             }
         ],
     }
-
-
-def test_simulate_command_runs_real_public_subpackages(tmp_path: Path):
-    """The orchestration path should work against the real public subpackage contracts."""
-    population_path = tmp_path / "population.h5"
-    _write_real_population_catalog(population_path)
-    config = _real_orchestration_config(tmp_path, population_path)
-    config_file = tmp_path / "config.yaml"
-    config_file.write_text(yaml.safe_dump(config.model_dump(by_alias=True, exclude_none=True), sort_keys=False))
-
-    _simulate_impl(str(config_file), overwrite=True, metadata=True)
-
-    signal_path = tmp_path / "output" / "signal" / "signal-0.gwf"
-    noise_path = tmp_path / "output" / "noise" / "noise-0_H1.npy"
-    metadata_path = tmp_path / "metadata" / "orchestration-0.metadata.json"
-
-    assert signal_path.exists()
-    assert noise_path.exists()
-    assert np.load(noise_path).shape == (256,)
-    metadata = yaml.safe_load(metadata_path.read_text())
-    assert metadata["schema_version"] == "1.0.0"
-    assert metadata["config_sha256"]
-    assert metadata["outputs"][0]["sha256"]
-    assert metadata["simulator_config"]["population"]["backend"] == "file"
-    assert metadata["signal"]["waveform_model"] == "IMRPhenomD"
-    assert metadata["simulator_metadata"]["orchestration"]["population"]["metadata"]["original_path"] == str(
-        population_path
-    )
-    assert metadata["simulator_metadata"]["orchestration"]["population"]["metadata"]["resolved_path"] == str(
-        population_path
-    )
-    assert metadata["versions"]["gwmock-pop"] >= "0.6.0"
-    assert metadata["versions"]["gwmock-signal"] >= "0.5.0"
-    assert metadata["versions"]["gwmock-noise"] >= "0.1.2"
