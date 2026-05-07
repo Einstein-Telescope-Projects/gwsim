@@ -1,7 +1,7 @@
 ---
 name: ✨ Feature Request
 about: Suggest an idea or improvement for this package
-title: '[FEATURE] '
+title: '[FEATURE]: '
 labels: enhancement
 assignees: ''
 ---
