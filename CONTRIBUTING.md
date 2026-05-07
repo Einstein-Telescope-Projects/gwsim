@@ -38,7 +38,7 @@ submitting a merge request—this guide will help you get started.
     ```shell
     uv venv
     source .venv/bin/activate # on Windows: .venv\Scripts\activate
-    uv pip install -e ".[dev]"
+    uv sync --group dev
     ```
 
 4. Set Up Pre-commit Hooks and Commitlint
@@ -47,25 +47,10 @@ submitting a merge request—this guide will help you get started.
     After installing Python dependencies, install the Git hooks:
 
     ```shell
-    pre-commit install
-    pre-commit install --hook-type commit-msg
+    uv run pre-commit install
     ```
 
     This ensures automatic checks for code formatting, linting, and hygiene on every commit.
-
-    Commitlint enforces that commit messages follow the Conventional Commits standard. Install it globally or locally:
-
-    ```shell
-    # Install locally (in the project)
-    npm install
-    ```
-
-    The project includes a `commitlint.config.js` configuration file that defines the commit message rules.
-    Once installed, commitlint will automatically validate your commit messages when pre-commit runs.
-
-    !!!important
-        Commit messages are validated in CI/CD pipelines, and the changelog is auto-generated from commits.
-        See section [Commit Message Guidelines](#commit-message-guidelines) below for details.
 
 5. Create a New Branch
 
@@ -84,13 +69,13 @@ submitting a merge request—this guide will help you get started.
     Ensure that all tests pass before opening a merge request:
 
     ```shell
-    pytest
+    uv run pytest
     ```
 
-8. Open a Merge Request
+8. Open a Pull Request
 
     Clearly describe the motivation and scope of your change, especially how it impacts GW data simulation.
-    Link it to the relevant issue if applicable. Ensure all commit messages follow the guidelines in
+    Link it to the relevant issue if applicable. Ensure the title of the pull request follow the guidelines in
     "Commit Message Guidelines" below.
 
 <!-- prettier-ignore-end -->
@@ -99,16 +84,17 @@ submitting a merge request—this guide will help you get started.
 
 **Why this matters:** Our changelog is automatically generated from commit
 messages using git-cliff. Commit messages must follow the Conventional Commits
-format and adhere to strict rules.
+format and adhere to strict rules. Since we use squash commits, the pull request
+title will automatically become the commit message on the main branch.
 
 ### Rules
 
 <!-- prettier-ignore-start -->
 
-1. **One type of change per commit**
+1. **One type of change per pull request**
 
-    - Do not mix different types of changes (e.g., bug fixes, features, refactoring) in a single commit.
-    - Example: if you refactor code AND add a feature, make two separate commits.
+    - Do not mix different types of changes (e.g., bug fixes, features, refactoring) in a single pull request.
+    - Example: if you refactor code AND add a feature, make two separate pull requests.
 
 2. **Descriptive and meaningful messages**
 
@@ -118,7 +104,7 @@ format and adhere to strict rules.
 
 3. **Follow Conventional Commits format**
 
-    - All commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) standard.
+    - All pull request titles must follow the [Conventional Commits](https://www.conventionalcommits.org/) standard.
     - Format: `<type>(<scope>): <subject>`
     - Allowed types:
         - build: Changes that affect the build system or external dependencies
@@ -139,13 +125,13 @@ format and adhere to strict rules.
         waveforms using PyCBC, enabling more realistic simulations.
         ```
 
-    - Commitlint will validate your message format automatically.
+    - Semantic pull request will validate your message format automatically.
 
 <!-- prettier-ignore-end -->
 
 ### Examples
 
-✅ **Good commits:**
+✅ **Good pull request titles:**
 
 ```text
 feat(noise): Implement colored noise with PSD shaping
@@ -155,7 +141,7 @@ test(validate): Add edge case tests for boundary conditions
 refactor(simulator): Simplify noise factory registration
 ```
 
-❌ **Bad commits:**
+❌ **Bad pull request titles:**
 
 ```text
 fixed stuff
@@ -167,13 +153,11 @@ more fixes (no type/scope)
 ## 💡 Tips
 
 - Be kind and constructive in your communication.
-- Keep MRs focused and atomic—smaller changes are easier to review.
+- Keep PRs focused and atomic—smaller changes are easier to review.
 - Document new features and update existing docs, especially for new GW
   simulation parameters or methods.
-- Tag your MR with relevant labels if you can (e.g., `type::bug`,
-  `type::enhancement`, `type::documentation`).
-- If commitlint rejects your message, the error will tell you why; adjust and
-  re-commit.
+- Tag your PR with relevant labels if you can (e.g., `bug`, `enhancement`,
+  `documentation`).
 
 ## Licensing
 
