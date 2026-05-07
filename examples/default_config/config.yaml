@@ -19,15 +19,22 @@ orchestration:
             path: population.h5
     signal:
         detectors:
-            - H1
+            - ET-Triangle-Sardinia
         waveform-model: IMRPhenomXPHM
         minimum-frequency: 20
         output:
             output_directory: signal
             file_name: signal-{{ counter }}.gwf
             arguments:
-                channel: H1:STRAIN
+                channel: '{{ detectors }}:STRAIN'
     noise:
         output:
             output_directory: noise
             file_name: noise-{{ counter }}.gwf
+        arguments:
+            psd_file: ET_10_full_cryo_psd
+            seed: 42
+            detectors:
+                - E1_triangle_sardinia
+                - E2_triangle_sardinia
+                - E3_triangle_sardinia

@@ -146,7 +146,7 @@ gwmock simulate config.yaml
 ## Generating Transient Noise Artifacts (Glitches)
 
 Glitches can be generated using configuration files in the
-[`examples/glitch`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli)
+[`examples/noise/glitches`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli)
 directory. These examples attach
 [`gwmock-noise`](https://github.com/Leuven-Gravity-Institute/gwmock-noise)
 glitch models through `orchestration.noise.arguments.glitches`, so glitches are
@@ -155,10 +155,10 @@ integration currently supports only _blip_ glitches.
 
 An example configuration for producing one day of ET data for the E1 detector
 containing blip glitches from a realistic population is provided in
-[`glitch/gengli/et_triangle_emr/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli/et_triangle_emr/e1/config.yaml):
+[`noise/glitches/gengli/et_triangle_emr/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli/et_triangle_emr/e1/config.yaml):
 
 ```yaml
---8<-- "examples/glitch/gengli/et_triangle_emr/e1/config.yaml"
+--8<-- "examples/noise/glitches/gengli/et_triangle_emr/e1/config.yaml"
 ```
 
 This configuration file generates one day of data for the E1 detector, divided
@@ -180,7 +180,7 @@ mkdir -p glitch_et_triangle_emr/e1
 cd glitch_et_triangle_emr/e1
 
 # Copy configuration file to your working directory for glitch simulation
-gwmock config --get glitch/gengli/et_triangle_emr/e1 --output config.yaml
+gwmock config --get noise/glitches/gengli/et_triangle_emr/e1 --output config.yaml
 
 # Run simulation
 gwmock simulate config.yaml
