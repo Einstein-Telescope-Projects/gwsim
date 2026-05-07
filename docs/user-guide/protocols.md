@@ -5,6 +5,8 @@ split-out `gwmock-pop`, `gwmock-signal`, and `gwmock-noise` packages. If a
 third-party package implements the same public protocol, `gwmock` can consume it
 without depending on that package's internal classes.
 
+For packaging and registration guidance, see [Extensibility](extensibility.md).
+
 ## Population protocol: `GWPopSimulator`
 
 Upstream definition:

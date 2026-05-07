@@ -66,6 +66,9 @@ recorded once and noise continuation no longer appears as one derived seed per
 batch. The subpackage `metadata` objects are preserved as JSON objects without
 gwmock rewriting their internal structure.
 
+For the config shape that feeds this record, see
+[Orchestration](orchestration.md) and [Protocol Contracts](protocols.md).
+
 ## Reproducing a run
 
 For deterministic reproduction, pin `gwmock`, `gwmock-signal`, `gwmock-noise`,

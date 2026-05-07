@@ -36,4 +36,4 @@ orchestration:
 ```
 
 For protocol details and third-party backend integration, see
-[Protocol Contracts](protocols.md).
+[Protocol Contracts](protocols.md) and [Extensibility](extensibility.md).
