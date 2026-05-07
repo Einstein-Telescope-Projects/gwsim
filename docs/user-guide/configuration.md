@@ -120,7 +120,7 @@ gwmock config --get <label of the configuration file> --output <directory or fil
 
 The configuration file uses YAML format. They consist of a shared `globals`
 section plus exactly one execution surface: legacy `simulators` or the
-adapter-backed `orchestration` schema.
+adapter-backed [orchestration](orchestration.md) schema.
 
 ### Globals
 

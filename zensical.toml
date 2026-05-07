@@ -51,6 +51,7 @@ nav = [
     { "Quick Start" = "user-guide/quickstart.md" },
     { "Generating Data" = "user-guide/generating-data.md" },
     { "Reading Data" = "user-guide/reading-data.md" },
+    { "Orchestration" = "user-guide/orchestration.md" },
     { "Configuration Files" = "user-guide/configuration.md" },
     { "Protocol Contracts" = "user-guide/protocols.md" },
     { "Metadata Files" = "user-guide/metadata.md" },

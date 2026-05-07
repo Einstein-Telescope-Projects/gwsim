@@ -266,7 +266,10 @@ simulators:
             config_path = Path(f.name)
 
         try:
-            with pytest.warns(FutureWarning, match="Legacy 'simulators' configurations are deprecated"):
+            with pytest.warns(
+                DeprecationWarning,
+                match=r"Legacy 'simulators' configurations are deprecated and will be removed in v0\.5\.0",
+            ):
                 config = load_config(config_path)
             assert isinstance(config, Config)
             assert config.globals.simulator_arguments["sampling-frequency"] == SAMPLING_FREQUENCY_2048
