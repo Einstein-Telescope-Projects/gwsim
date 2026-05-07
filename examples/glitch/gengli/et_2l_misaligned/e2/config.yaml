@@ -19,7 +19,7 @@ orchestration:
         waveform-model: IMRPhenomXPHM
         minimum-frequency: 2
         detectors:
-            - src/gwmock/detector/detectors/E2_2L_Misaligned_EMR.interferometer
+            - ET2_2L_MISALIGNED_EMR
         output:
             output_directory: signal
             file_name:
@@ -39,7 +39,7 @@ orchestration:
                       mean: 1.0
                       std: 0.0
                   population_file: https://sandbox.zenodo.org/records/413548/files/blip_glitch_population_E2.hdf5
-                  psd_file: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/main/src/gwmock/detector/noise_curves/ET_15_full_cryo_psd.txt
+                  psd_file: ET_15_full_cryo_psd.txt
                   low_frequency_cutoff: 5.0
         output:
             output_directory: noise

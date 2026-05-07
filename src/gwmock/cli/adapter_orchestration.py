@@ -517,55 +517,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         resolved_detectors: list[str | Any] = []
         resolution_steps: list[dict[str, Any]] = []
         for detector_spec in detector_specs:
-            detector_alias = str(detector_spec)
-            try:
-                resolved_network = Network.from_preset(detector_alias)
-                resolution_steps.append(
-                    {
-                        "input": detector_alias,
-                        "resolver": "preset",
-                        "detector_names": cls._network_detector_names(resolved_network),
-                    }
-                )
-                resolved_detectors.extend(resolved_network.detector_names)
-                continue
-            except ValueError:
-                pass
-
-            detector_path = SignalAdapter.resolve_detector_path(detector_alias)
-            if detector_path is not None:
-                resolved_network = Network.from_file(detector_path)
-                resolution_steps.append(
-                    {
-                        "input": detector_alias,
-                        "resolver": "file",
-                        "source": str(detector_path),
-                        "detector_names": cls._network_detector_names(resolved_network),
-                    }
-                )
-                resolved_detectors.extend(resolved_network.detector_names)
-                continue
-
-            try:
-                resolved_network = Network.from_name(detector_alias)
-                resolution_steps.append(
-                    {
-                        "input": detector_alias,
-                        "resolver": "name",
-                        "detector_names": cls._network_detector_names(resolved_network),
-                    }
-                )
-                resolved_detectors.extend(resolved_network.detector_names)
-                continue
-            except ValueError:
-                resolved_detectors.append(detector_alias)
-                resolution_steps.append(
-                    {
-                        "input": detector_alias,
-                        "resolver": "detector",
-                        "detector_names": [detector_alias],
-                    }
-                )
+            resolved, resolution_step = SignalAdapter.resolve_detector_spec(str(detector_spec))
+            resolved_detectors.extend(resolved)
+            resolution_steps.append(resolution_step)
 
         network = Network.from_detectors(tuple(resolved_detectors))
         return network, {

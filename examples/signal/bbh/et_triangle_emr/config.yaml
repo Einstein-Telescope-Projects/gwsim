@@ -34,9 +34,7 @@ orchestration:
         minimum-frequency: 2
         # List of detector names to generate signal for (network support)
         detectors:
-            - E1_triangle_emr
-            - E2_triangle_emr
-            - E3_triangle_emr
+            - ET-Triangle-EMR
         output:
             output_directory: signal
             # Template used to construct the output file name at runtime. Uses template variables

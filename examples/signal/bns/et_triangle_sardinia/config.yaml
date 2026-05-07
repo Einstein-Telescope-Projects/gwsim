@@ -34,9 +34,7 @@ orchestration:
         minimum-frequency: 2
         # List of detector names to generate signal for (network support)
         detectors:
-            - E1_triangle_sardinia
-            - E2_triangle_sardinia
-            - E3_triangle_sardinia
+            - ET-Triangle-Sardinia
         output:
             output_directory: signal
             # Template used to construct the output file name at runtime. Uses template variables

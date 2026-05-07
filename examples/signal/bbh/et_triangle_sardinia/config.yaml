@@ -29,9 +29,7 @@ orchestration:
             reference_frequency: 50
         minimum-frequency: 20
         detectors:
-            - E1_triangle_sardinia
-            - E2_triangle_sardinia
-            - E3_triangle_sardinia
+            - ET-Triangle-Sardinia
         output:
             output_directory: signal
             file_name:

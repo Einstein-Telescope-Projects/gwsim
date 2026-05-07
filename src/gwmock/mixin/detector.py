@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import cast
-
+import lal
 import numpy as np
+from gwmock_signal import CustomDetector
+from gwmock_signal.projection import project_polarizations_to_network
 from gwpy.timeseries import TimeSeries as GWpyTimeSeries
-from scipy.interpolate import interp1d
 
 from gwmock.data.time_series.time_series import TimeSeries
-from gwmock.detector.base import Detector
-from gwmock.detector.utils import DEFAULT_DETECTOR_BASE_PATH
+from gwmock.signal.adapter import SignalAdapter
 
 
 class DetectorMixin:  # pylint: disable=too-few-public-methods
@@ -29,11 +27,11 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
         self.detectors = detectors
 
     @property
-    def detectors(self) -> list[Detector]:
+    def detectors(self) -> list[str | CustomDetector]:
         """Get the list of detectors.
 
         Returns:
-            List of detector names or Detector instances, or None if not set.
+            List of resolved public detector specs, or an empty list if not set.
         """
         return self._detectors
 
@@ -42,19 +40,14 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
         """Set the list of detectors.
 
         Args:
-            value (list[str | Path | Detector] | None):
-                List of detector names, config file paths, or Detector instances.
+            value (list[str] | None):
+                List of detector names, preset aliases, or config file paths.
                 If None, no detectors are set.
         """
         if value is None:
             self._detectors = []
         elif isinstance(value, list):
-            self._detectors = []
-            for det in value:
-                if Path(det).is_file() or (DEFAULT_DETECTOR_BASE_PATH / det).is_file():
-                    self._detectors.append(Detector(configuration_file=det))
-                else:
-                    self._detectors.append(Detector(name=str(det)))
+            self._detectors = list(SignalAdapter.resolve_detector_network(value).detector_names)
         else:
             raise ValueError("detectors must be a list.")
 
@@ -64,7 +57,10 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
         Returns:
             True if all detectors are configured, False otherwise.
         """
-        return all(det.is_configured() for det in self.detectors)
+        return all(
+            isinstance(detector, CustomDetector) or detector in lal.cached_detector_by_prefix
+            for detector in self.detectors
+        )
 
     def project_polarizations(  # pylint: disable=too-many-locals,unused-argument
         self,
@@ -115,81 +111,22 @@ class DetectorMixin:  # pylint: disable=too-few-public-methods
         if not isinstance(polarizations["cross"], GWpyTimeSeries):
             raise TypeError("polarizations['cross'] must be a GWpyTimeSeries")
 
-        hp = polarizations["plus"]
-        hc = polarizations["cross"]
-
-        # Convert TimeSeries data to numpy arrays for computation
-        # Interpolate the hp and hc data to ensure smooth evaluation
-        time_array = cast(np.ndarray, hp.times.to_value())
-        reference_time = 0.5 * (time_array[0] + time_array[-1])
-
-        # Compute the time_array minus the reference_time to avoid the systematic large time values
-        time_array_wrt_reference = time_array - reference_time
-
-        hp_func = interp1d(time_array_wrt_reference, hp.to_value(), kind="cubic", bounds_error=False, fill_value=0.0)
-        hc_func = interp1d(time_array_wrt_reference, hc.to_value(), kind="cubic", bounds_error=False, fill_value=0.0)
-
-        if earth_rotation:
-            # Calculate the time delays first
-            time_delays = [
-                det.time_delay_from_earth_center(
-                    right_ascension=right_ascension, declination=declination, t_gps=time_array
-                )
-                for det in self.detectors
-            ]
-
-        else:
-            # Calculate the antenna patterns at the reference time
-            reference_time = 0.5 * (time_array[0] + time_array[-1])
-            antenna_patterns = [
-                det.antenna_pattern(
-                    right_ascension=right_ascension,
-                    declination=declination,
-                    polarization=polarization_angle,
-                    t_gps=reference_time,
-                    polarization_type="tensor",
-                )
-                for det in self.detectors
-            ]
-
-            # Calculate the time delays at the reference time
-            time_delays = [
-                det.time_delay_from_earth_center(
-                    right_ascension=right_ascension, declination=declination, t_gps=reference_time
-                )
-                for det in self.detectors
-            ]
-
-        # Evaluate the detector responses
-        detector_responses = np.zeros((len(self.detectors), len(time_array)))
-        for i, det in enumerate(self.detectors):
-            time_delay = time_delays[i]
-
-            # Shift the waveform data according to time delays
-            shifted_times = time_array_wrt_reference - time_delay
-
-            if earth_rotation:
-                # Evaluate antenna patterns exactly at the delayed times
-                fp_vals, fc_vals = det.antenna_pattern(
-                    right_ascension=right_ascension,
-                    declination=declination,
-                    polarization=polarization_angle,
-                    t_gps=time_array + time_delay,
-                    polarization_type="tensor",
-                )
-            else:
-                # Use constant antenna patterns (from earlier calculation)
-                fp_vals, fc_vals = antenna_patterns[i]
-
-            hp_shifted = hp_func(shifted_times)
-            hc_shifted = hc_func(shifted_times)
-
-            detector_responses[i, :] = fp_vals * hp_shifted + fc_vals * hc_shifted
-
-        # Create TimeSeries for projected strain
-        start_time = cast(float, time_array[0])
-        projected_ts = TimeSeries(data=detector_responses, start_time=start_time, sampling_frequency=hp.sample_rate)
-        return projected_ts
+        projected_by_detector = project_polarizations_to_network(
+            polarizations,
+            self.detectors,
+            right_ascension=right_ascension,
+            declination=declination,
+            polarization_angle=polarization_angle,
+            earth_rotation=earth_rotation,
+        )
+        detector_names = [detector if isinstance(detector, str) else detector.name for detector in self.detectors]
+        detector_responses = np.vstack([projected_by_detector[detector_name].value for detector_name in detector_names])
+        reference_series = projected_by_detector[detector_names[0]]
+        return TimeSeries(
+            data=detector_responses,
+            start_time=reference_series.t0,
+            sampling_frequency=reference_series.sample_rate,
+        )
 
     @property
     def metadata(self) -> dict:

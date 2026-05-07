@@ -144,15 +144,15 @@ class TestSignalAdapter:
         mock_from_detectors.assert_called_once_with((sentinel_detector,))
 
     def test_from_source_type_resolves_named_networks_via_public_network_api(self):
-        """Named detector presets should be resolved through ``Network.from_name``."""
+        """Named detector presets should be resolved through ``Network.from_preset``."""
         sentinel_detector = SimpleNamespace(name="ET1_SARD")
 
         with (
             patch("gwmock.signal.adapter.resolve_simulator_backend", return_value=FakeBackend),
             patch(
-                "gwmock.signal.adapter.Network.from_name",
+                "gwmock.signal.adapter.Network.from_preset",
                 return_value=SimpleNamespace(detector_names=(sentinel_detector,)),
-            ) as mock_from_name,
+            ) as mock_from_preset,
             patch(
                 "gwmock.signal.adapter.Network.from_detectors",
                 return_value=SimpleNamespace(detector_names=(sentinel_detector,)),
@@ -165,8 +165,19 @@ class TestSignalAdapter:
             )
 
         assert adapter.detector_names == ("ET1_SARD",)
-        mock_from_name.assert_called_once_with("ET-Triangle-Sardinia")
+        mock_from_preset.assert_called_once_with("ET-Triangle-Sardinia")
         mock_from_detectors.assert_called_once_with((sentinel_detector,))
+
+    def test_from_source_type_resolves_single_public_detector_aliases_via_public_presets(self):
+        """Single ET-detector aliases should resolve through the public preset catalog."""
+        with patch("gwmock.signal.adapter.resolve_simulator_backend", return_value=FakeBackend):
+            adapter = SignalAdapter.from_source_type(
+                source_type="bbh",
+                waveform_model="IMRPhenomD",
+                detectors=["ET1_SARD"],
+            )
+
+        assert adapter.detector_names == ("ET1_SARD",)
 
     def test_from_source_type_callable_requires_public_waveform_registration(self):
         """Backends without ``register_waveform_model`` cannot host a callable ``waveform_model``."""
