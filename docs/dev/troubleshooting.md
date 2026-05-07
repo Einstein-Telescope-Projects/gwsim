@@ -13,8 +13,8 @@ environment. To resolve this:
     We recommend using `uv` for this:
 
     ```bash
-    uv venv --python 3.12 gwmock-env  # Replace 3.12 with your preferred version (3.12-3.13)
-    source gwmock-env/bin/activate  # On Windows: gwmock-env\Scripts\activate
+    uv venv --python 3.13  # Replace 3.13 with your preferred version (3.12-3.13)
+    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
     uv pip install gwmock
     ```
 
@@ -36,9 +36,9 @@ environment. To resolve this:
 4. **Clean Install**: If issues continue, remove the virtual environment and recreate it:
 
     ```bash
-    rm -rf gwmock-env  # Or delete the folder
-    uv venv --python 3.12 gwmock-env
-    source gwmock-env/bin/activate
+    rm -rf .venv  # Or delete the folder
+    uv venv --python 3.13
+    source .venv/bin/activate
     uv pip install gwmock
     ```
 
