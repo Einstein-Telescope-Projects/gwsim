@@ -13,13 +13,11 @@ def get_unit_vector_angles(unit_vector: np.ndarray, ellipsoid_position: np.ndarr
     relative to the local tangent plane at the specified ellipsoid position.
 
     Args:
-        unit vector (np.ndarray): A 3-element array representing the unit vector
-            in geocentric (ECEF) coordinates.
-        ellipsoid_position (np.ndarray): A 3-element array specifying the reference position
-            [latitude (rad), longitude (rad), height (meters)] on the Earth's ellipsoid
+        unit_vector: A 3-element array representing the unit vector in geocentric (ECEF) coordinates.
+        ellipsoid_position: A 3-element array specifying the reference position [latitude (rad), longitude (rad), height (meters)] on the Earth's ellipsoid.
 
     Returns:
-        (np.ndarray): A 2-element array [azimuth (rad), altitude (rad)], where:
+        A 2-element array [azimuth (rad), altitude (rad)], where:
             - azimuth is the angle from local north (0 to 2π, increasing eastward),
             - altitude is the elevation angle from the local horizontal plane (-π/2 to π/2).
     """
@@ -44,15 +42,14 @@ def add_et_triangular_detector_at_location(  # pylint: disable=too-many-locals,d
     in the local horizontal coordinate system center at the E1 vertex.
 
     Args:
-        E1_latitude (float): E1 vertex latitude (rad)
-        E1_longitude (float): E1 vertex longitude (rad)
-        E1_height (float): E1 vertex height above the standard reference ellipsoidal earth (meters)
-        location_name (str): Name of the ET location (e.g., Sardinia, EMR, Cascina, ...)
-            for detector naming convention
-        ETArmL (float, optional): ET arm length (meters). Default to 10000 meters.
+        e1_latitude: E1 vertex latitude (rad)
+        e1_longitude: E1 vertex longitude (rad)
+        e1_height: E1 vertex height above the standard reference ellipsoidal earth (meters)
+        location_name: Name of the ET location (e.g., Sardinia, EMR, Cascina, ...) for detector naming convention
+        et_arm_l: ET arm length (meters). Default to 10000 meters.
 
     Returns:
-        (Detector, Detector, Detector): pycbc.detector.Detector objects for E1, E2 and E3.
+        A tuple of three Detector objects for E1, E2 and E3.
     """
 
     e1_ellipsoid = [e1_latitude, e1_longitude, e1_height]

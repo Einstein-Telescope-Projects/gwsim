@@ -145,7 +145,13 @@ class SignalAdapter:
         backend: Any,
         network: Network,
     ) -> None:
-        """Store the resolved backend and detector network."""
+        """Store the resolved backend and detector network.
+
+        Args:
+            source_type: The source type to use for the backend.
+            backend: The backend to use.
+            network: The network to use.
+        """
         self._source_type = source_type
         self._backend = backend
         self._network = network
@@ -162,7 +168,20 @@ class SignalAdapter:
         detectors: Sequence[str] | None = None,
         network: Network | None = None,
     ) -> SignalAdapter:
-        """Resolve the public gwmock-signal backend for one source type."""
+        """Resolve the public gwmock-signal backend for one source type.
+
+        Args:
+            source_type: The source type to use for the backend.
+            waveform_model: The waveform model to use.
+            detectors: The detectors to use.
+            network: The network to use.
+
+        Returns:
+            A SignalAdapter instance.
+
+        Raises:
+            ValueError: If detectors is not a non-empty sequence.
+        """
         backend_class = resolve_simulator_backend(source_type)
         backend = cls.instantiate_backend(backend_class, waveform_model=waveform_model)
         return cls(
@@ -180,7 +199,17 @@ class SignalAdapter:
         detectors: Sequence[str] | None = None,
         network: Network | None = None,
     ) -> SignalAdapter:
-        """Build an adapter from an already-instantiated backend."""
+        """Build an adapter from an already-instantiated backend.
+
+        Args:
+            source_type: The source type to use for the backend.
+            backend: The backend to use.
+            detectors: The detectors to use.
+            network: The network to use.
+
+        Returns:
+            A SignalAdapter instance.
+        """
         return cls(
             source_type=source_type,
             backend=backend,
@@ -193,7 +222,15 @@ class SignalAdapter:
         *,
         waveform_model: str | Callable[..., Any] | None,
     ) -> Any:
-        """Instantiate a signal backend class while preserving callable waveform support."""
+        """Instantiate a signal backend class while preserving callable waveform support.
+
+        Args:
+            backend_class: The backend class to instantiate.
+            waveform_model: The waveform model to use.
+
+        Returns:
+            An instantiated backend.
+        """
         if waveform_model is None:
             try:
                 return backend_class(waveform_model=_DEFAULT_WAVEFORM_MODEL)
@@ -218,17 +255,38 @@ class SignalAdapter:
 
     @staticmethod
     def resolve_detector_path(detector_spec: str) -> Path | None:
-        """Resolve a detector spec to an on-disk network file when one exists."""
+        """Resolve a detector spec to an on-disk network file when one exists.
+
+        Args:
+            detector_spec: The detector spec to resolve.
+
+        Returns:
+            The resolved detector path or None if not found.
+        """
         return _resolve_detector_path(detector_spec)
 
     @staticmethod
     def resolve_detector_spec(detector_spec: str) -> tuple[tuple[DetectorSpec, ...], dict[str, Any]]:
-        """Resolve one detector spec into public detector objects or built-in detector names."""
+        """Resolve one detector spec into public detector objects or built-in detector names.
+
+        Args:
+            detector_spec: The detector spec to resolve.
+
+        Returns:
+            A tuple of the resolved detector specs and metadata.
+        """
         return _resolve_detector_spec(detector_spec)
 
     @staticmethod
     def resolve_detector_network(detector_specs: Sequence[str]) -> Network:
-        """Resolve detector specs into one public ``Network`` instance."""
+        """Resolve detector specs into one public ``Network`` instance.
+
+        Args:
+            detector_specs: The detector specs to resolve.
+
+        Returns:
+            A resolved detector network.
+        """
         resolved_detectors: list[DetectorSpec] = []
         for detector_spec in detector_specs:
             resolved, _ = _resolve_detector_spec(str(detector_spec))
@@ -238,17 +296,29 @@ class SignalAdapter:
 
     @property
     def source_type(self) -> str:
-        """Return the source-type routing key used for backend resolution."""
+        """Return the source-type routing key used for backend resolution.
+
+        Returns:
+            The source-type routing key used for backend resolution.
+        """
         return self._source_type
 
     @property
     def detector_names(self) -> tuple[str, ...]:
-        """Return the ordered detector names used for output stacking."""
+        """Return the ordered detector names used for output stacking.
+
+        Returns:
+            The ordered detector names used for output stacking.
+        """
         return self._detector_names
 
     @property
     def network(self) -> Network:
-        """Return the resolved public detector network."""
+        """Return the resolved public detector network.
+
+        Returns:
+            The resolved public detector network.
+        """
         return self._network
 
     def simulate_stack(
@@ -260,7 +330,18 @@ class SignalAdapter:
         waveform_arguments: Mapping[str, Any] | None = None,
         earth_rotation: bool = True,
     ) -> DetectorStrainStack:
-        """Generate one detector strain stack via the public ``gwmock_signal`` API."""
+        """Generate one detector strain stack via the public ``gwmock_signal`` API.
+
+        Args:
+            parameters: The parameters to use for the simulation.
+            sampling_frequency: The sampling frequency to use for the simulation.
+            minimum_frequency: The minimum frequency to use for the simulation.
+            waveform_arguments: The waveform arguments to use for the simulation.
+            earth_rotation: Whether to include earth rotation in the simulation.
+
+        Returns:
+            A DetectorStrainStack instance.
+        """
         backend_parameters = {**(waveform_arguments or {}), **dict(parameters)}
         return self._backend.simulate(
             backend_parameters,
@@ -280,7 +361,18 @@ class SignalAdapter:
         waveform_arguments: Mapping[str, Any] | None = None,
         earth_rotation: bool = True,
     ) -> TimeSeries:
-        """Generate one signal chunk via the public gwmock-signal ``simulate`` API."""
+        """Generate one signal chunk via the public gwmock-signal ``simulate`` API.
+
+        Args:
+            parameters: The parameters to use for the simulation.
+            sampling_frequency: The sampling frequency to use for the simulation.
+            minimum_frequency: The minimum frequency to use for the simulation.
+            waveform_arguments: The waveform arguments to use for the simulation.
+            earth_rotation: Whether to include earth rotation in the simulation.
+
+        Returns:
+            A TimeSeries instance.
+        """
         strain_stack = self.simulate_stack(
             parameters,
             sampling_frequency=sampling_frequency,

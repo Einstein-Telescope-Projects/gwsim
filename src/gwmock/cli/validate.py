@@ -65,11 +65,10 @@ def validate_command(
         gwmock validate metadata/ --output-dir /custom/output/
 
     Args:
-        paths: Output files, metadata files, or directories containing either
-        metadata: Additional metadata files or directories
-        output_dir: Override output directory (defaults to paths in metadata)
-        pattern: Glob pattern to filter files (e.g., '*noise*')
-        strict: Exit with error code if any validation fails
+        paths: Files/directories to validate. Can be output files, metadata files, or directories containing either.
+        metadata_paths: Additional metadata files or directories.
+        pattern: File pattern to match (e.g., '*noise*' for subset validation).
+        metadata_pattern: Metadata file pattern to match.
     """
     import fnmatch
     import logging

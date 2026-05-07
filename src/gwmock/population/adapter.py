@@ -44,7 +44,21 @@ class PopulationAdapter:
         n_samples: int,
         **kwargs: Any,
     ) -> PopulationAdapter:
-        """Build an adapter from a ``gwmock-pop`` protocol backend."""
+        """Build an adapter from a ``gwmock-pop`` protocol backend.
+
+        Args:
+            backend: The backend to use.
+            n_samples: The number of samples to generate.
+            **kwargs: Additional arguments to pass to the backend.
+
+        Returns:
+            A PopulationAdapter instance.
+
+        Raises:
+            TypeError: If the backend does not satisfy the GWPopSimulator protocol.
+            ValueError: If n_samples is not a positive integer.
+            ValueError: If backend.parameter_names is empty.
+        """
         if not isinstance(backend, GWPopSimulator):
             raise TypeError("backend must satisfy the GWPopSimulator protocol.")
         if n_samples <= 0:
@@ -70,7 +84,16 @@ class PopulationAdapter:
         source_type: str,
         parameter_names: Sequence[str] | None = None,
     ) -> PopulationAdapter:
-        """Build an adapter from an already-materialized population mapping."""
+        """Build an adapter from an already-materialized population mapping.
+
+        Args:
+            population_mapping: The population mapping to use.
+            source_type: The source type to use for the backend.
+            parameter_names: The parameter names to use.
+
+        Returns:
+            A PopulationAdapter instance.
+        """
         return cls(
             population_mapping,
             source_type=source_type,
@@ -79,39 +102,74 @@ class PopulationAdapter:
 
     @property
     def parameter_names(self) -> tuple[str, ...]:
-        """Return the deterministic parameter ordering."""
+        """Return the deterministic parameter ordering.
+
+        Returns:
+            The deterministic parameter ordering.
+        """
         return self._parameter_names
 
     @property
     def source_type(self) -> str:
-        """Return the backend routing key."""
+        """Return the backend routing key.
+
+        Returns:
+            The backend routing key.
+        """
         return self._source_type
 
     @property
     def population_mapping(self) -> Mapping[str, Sequence[Any]]:
-        """Return the validated population mapping."""
+        """Return the validated population mapping.
+
+        Returns:
+            The validated population mapping.
+        """
         return MappingProxyType(self._population_mapping)
 
     @property
     def metadata(self) -> dict[str, Any]:
-        """Return backend metadata preserved across the gwmock-pop boundary."""
+        """Return backend metadata preserved across the gwmock-pop boundary.
+
+        Returns:
+            The backend metadata.
+        """
         return dict(self._metadata)
 
     def __len__(self) -> int:
-        """Return the number of events available in the adapter."""
+        """Return the number of events available in the adapter.
+
+        Returns:
+            The number of events available in the adapter.
+        """
         return self._sample_count
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
-        """Iterate over per-event parameter dictionaries."""
+        """Iterate over per-event parameter dictionaries.
+
+        Returns:
+            An iterator over the per-event parameter dictionaries.
+        """
         return self.iter_event_parameters()
 
     def iter_event_parameters(self) -> Iterator[dict[str, Any]]:
-        """Yield deterministic per-event parameter dictionaries."""
+        """Yield deterministic per-event parameter dictionaries.
+
+        Returns:
+            An iterator over the per-event parameter dictionaries.
+        """
         for index in range(len(self)):
             yield self.get_event_parameters(index)
 
     def get_event_parameters(self, index: int) -> dict[str, Any]:
-        """Return one event dictionary from the batched population mapping."""
+        """Return one event dictionary from the batched population mapping.
+
+        Args:
+            index: The index of the event to get.
+
+        Returns:
+            The event dictionary.
+        """
         if index < 0 or index >= len(self):
             raise IndexError("Population event index out of range.")
 
@@ -122,6 +180,14 @@ class PopulationAdapter:
 
     @staticmethod
     def _validate_source_type(source_type: str) -> str:
+        """Validate the source type.
+
+        Args:
+            source_type: The source type to validate.
+
+        Returns:
+            The validated source type.
+        """
         if not isinstance(source_type, str) or not source_type.strip():
             raise ValueError("source_type must be a non-empty string.")
         return source_type
@@ -133,6 +199,15 @@ class PopulationAdapter:
         population_mapping: Mapping[str, Sequence[Any]],
         parameter_names: Sequence[str],
     ) -> int:
+        """Validate the population mapping.
+
+        Args:
+            population_mapping: The population mapping to validate.
+            parameter_names: The parameter names to validate.
+
+        Returns:
+            The number of samples in the population mapping.
+        """
         mapping_keys = tuple(population_mapping.keys())
         expected_keys = tuple(parameter_names)
         if mapping_keys != expected_keys:
@@ -155,6 +230,16 @@ class PopulationAdapter:
         values: Sequence[Any],
         expected_length: int | None,
     ) -> int:
+        """Validate the parameter values.
+
+        Args:
+            parameter_name: The parameter name to validate.
+            values: The values to validate.
+            expected_length: The expected length of the values.
+
+        Returns:
+            The length of the values.
+        """
         shape = getattr(values, "shape", None)
         if shape is not None and len(shape) != 1:
             raise ValueError(f"Population values for {parameter_name} must be one-dimensional.")
@@ -170,4 +255,12 @@ class PopulationAdapter:
 
     @staticmethod
     def _coerce_event_value(value: Any) -> Any:
+        """Coerce the event value.
+
+        Args:
+            value: The value to coerce.
+
+        Returns:
+            The coerced value.
+        """
         return value.item() if hasattr(value, "item") else value
