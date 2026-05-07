@@ -50,8 +50,8 @@ Python versions.
 
 ```bash
 # Create a virtual environment (recommended with uv)
-uv venv gwmock-env --python 3.12
-source gwmock-env/bin/activate  # On Windows: gwmock-env\Scripts\activate
+uv venv --python 3.13
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install gwmock
 ```
 
@@ -61,9 +61,9 @@ uv pip install gwmock
 git clone git@github.com:Leuven-Gravity-Institute/gwmock.git
 ce gwmock
 # Create a virtual environment (recommended with uv)
-uv venv --python 3.12
+uv venv --python 3.13
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install .
+uv sync
 ```
 
 ## Quick Start
@@ -159,7 +159,7 @@ for critical issues. Users can view upcoming changes in the draft release on the
 Run the test suite:
 
 ```bash
-pytest
+uv run pytest
 ```
 
 ## License
