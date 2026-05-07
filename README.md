@@ -77,44 +77,60 @@ gwmock simulate config.yaml
 
 ## Configuration
 
-gwmock uses YAML configuration files for reproducible simulations. The primary
-CLI path is now the adapter-backed `orchestration` surface, which keeps backend
-selection explicit without asking users to provide internal Python class paths.
+gwmock uses YAML configuration files for reproducible simulations. New runs use
+the adapter-backed `orchestration` surface, which keeps backend selection
+explicit and lets third-party packages plug in through public protocols.
 
 Key configuration sections:
 
 | Section                    | Purpose                                                                                               |
 | -------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `globals`                  | Shared orchestration parameters such as sampling rate, segment duration, start time, and output roots |
-| `orchestration.population` | Public `gwmock-pop` backend or loader plus its arguments and explicit event count                     |
-| `orchestration.signal`     | Public `gwmock-signal` routing inputs, detector network, and signal output settings                   |
-| `orchestration.noise`      | Public `gwmock-noise` adapter arguments and noise output settings                                     |
+| `orchestration.population` | Public population backend, source type, sample count, and backend arguments                           |
+| `orchestration.signal`     | Public signal backend, detector network, waveform model, and output settings                          |
+| `orchestration.noise`      | Public noise backend, generation arguments, and output settings                                       |
 
-The legacy `simulators.*.class` configuration remains available for selected
-compatibility cases, but in-tree signal and noise simulator classes have been
-removed; noise configs must now point at public `gwmock_noise.*` classes, and
-new configs should prefer the adapter-backed `orchestration` flow. See
-`examples/default_config/config.yaml` and
-`examples/signal/bbh/et_triangle_sardinia/config.yaml` for concrete examples.
+Example:
 
-The first protocol-based compatibility release is intentionally scoped to the
-path covered by the end-to-end tests:
+```yaml
+globals:
+    working-directory: .
+    output-directory: output
+    metadata-directory: metadata
+    simulator-arguments:
+        sampling-frequency: 4096
+        duration: 1024
+        start-time: 1577491218
+        total-duration: 5 hours
 
-- file-backed CBC population catalogues loaded through the public `gwmock-pop`
-  contract,
-- transient CBC signal backends resolved by `source-type` through public
-  `gwmock-signal` APIs,
-- stateless segment generation through the public `gwmock-noise` run boundary,
-  with gwmock still owning orchestration, metadata, and output layout.
+orchestration:
+    population:
+        backend: FilePopulationLoader
+        source-type: bbh
+        n-samples: 1
+        arguments:
+            path: population.h5
+    signal:
+        detectors:
+            - H1
+        waveform-model: IMRPhenomXPHM
+        minimum-frequency: 20
+        output:
+            output_directory: signal
+            file_name: signal-{{ counter }}.gwf
+            arguments:
+                channel: H1:STRAIN
+    noise:
+        output:
+            output_directory: noise
+            file_name: noise-{{ counter }}.gwf
+```
 
-Deferred behavior is explicit rather than silent:
-
-- fresh `simulators.*.class` configs are deprecated and retained only for
-  backwards compatibility plus metadata reproduction,
-- exact hidden-filter continuation across noise segments is still out of scope
-  until `gwmock-noise` exposes a public stateful continuation protocol,
-- non-transient signal backends that do not expose `generate_polarizations()`
-  are not part of the initial compatibility contract.
+Third-party backends can be exposed through an entry point or referenced
+directly as `module:Class`, as long as they satisfy the public protocol for the
+relevant section. See `docs/user-guide/protocols.md`,
+`docs/user-guide/orchestration.md`, and `docs/user-guide/extensibility.md` for
+the protocol model and integration details.
 
 ## Documentation
 

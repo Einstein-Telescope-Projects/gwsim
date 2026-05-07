@@ -6,14 +6,15 @@ gwmock.
 ## Overview
 
 gwmock is designed as an orchestration layer that leverages existing third-party
-packages (PyCBC, LALSuite, scipy, astropy) for actual signal processing and
-waveform generation. The package provides:
+packages for the physics layer. The package provides:
 
 - **Configuration Management**: YAML-based configuration with inheritance and
   template expansion
 - **Reproducible Workflows**: Full state tracking with checksums and metadata
-- **Unified Interfaces**: Consistent APIs across different simulator types
-- **Extensibility**: Easy addition of new simulators without CLI modifications
+- **Protocol-backed Extensibility**: Third-party backends plug in through public
+  protocols and backend resolution
+- **Adapter-backed Layout**: In-tree `signal/`, `noise/`, and `population/`
+  packages expose adapters only
 
 ## Core Design Principles
 
@@ -28,41 +29,29 @@ processing algorithms. This approach:
 
 **Key dependencies:**
 
-- **PyCBC**: Waveform generation and data analysis
-- **LALSuite**: LAL algorithms for GW science
-- **scipy**: Scientific computing utilities
-- **astropy**: Astronomical utilities and units
+- **gwmock-signal**: public signal protocol and adapter surface
+- **gwmock-noise**: public noise protocol and adapter surface
+- **gwmock-pop**: public population protocol and adapter surface
+- **typer** and **pydantic**: CLI and configuration plumbing
 
 ### 2. Stable CLI Interface
 
-The command-line interface remains unchanged regardless of underlying
-implementation changes. New features are added through:
+The command-line interface remains unchanged regardless of backend changes. New
+behavior is added by updating adapters, orchestration, and the public protocols,
+not by adding physics implementations to `gwmock`.
 
-- New simulator classes in `signal/`, `noise/`, `glitch/` modules
-- Updated configuration options
-- No CLI modifications required
+### 3. Orchestration Helpers (`simulator/`, `utils/`)
 
-### 3. Mixin-Based Composition
-
-The package uses a **mixin pattern** for maximum flexibility and code reuse:
-
-```text
-Base Simulator (interface, state management, iteration)
-    ↓
-    ├── + RandomnessMixin → handles random number generation
-    ├── + DetectorMixin → handles detector-specific operations
-    └── + TimeSeriesMixin → handles time series data
-
-    ↓
-Specialized Simulators (NoiseSimulator, SignalSimulator)
-```
+The package keeps shared orchestration helpers for deterministic seeds, state
+tracking, and output layout. These helpers support the adapters, but they are
+not physics implementations.
 
 Benefits:
 
-- Code reuse across simulator types
-- Clean separation of concerns
-- Easy to combine functionality
-- Simple to extend with new mixins
+- Deterministic orchestration
+- Clean separation between adapters and backend physics
+- Centralized checkpoint and seed handling
+- Simple to extend without changing the CLI surface
 
 ## Project Structure
 
@@ -73,58 +62,41 @@ gwmock/
 │   ├── __init__.py
 │   ├── main.py              # Typer CLI entry point
 │   ├── simulate.py          # Simulation command
+│   ├── batch.py             # Batch helpers
+│   ├── merge.py             # Merge helpers
 │   ├── config.py            # Configuration utilities
-│   ├── default_config.py    # Default configuration
-│   └── utils/               # CLI utilities
-│       ├── checkpoint.py    # Checkpointing logic
-│       ├── config.py        # Config loading/validation
-│       ├── retry.py         # Retry decorators
-│       ├── simulation_plan.py # Simulation planning
-│       ├── template.py      # Template expansion
-│       └── utils.py         # Helper utilities
+│   ├── validate.py         # Validation helpers
+│   ├── adapter_orchestration.py
+│   └── simulate_utils.py
 ├── simulator/
 │   ├── __init__.py
 │   ├── base.py              # Base Simulator class
 │   ├── state.py             # StateAttribute descriptor and checkpoint state helpers
-│   ├── registry.py          # Simulator registry
-│   ├── noise.py             # Noise simulator base
-│   ├── signal.py            # Signal simulator base
-│   └── glitch.py            # Glitch simulator base
-├── mixin/
-│   ├── __init__.py
-│   ├── detector.py          # DetectorMixin
-│   ├── randomness.py        # RandomnessMixin
-│   ├── time_series.py       # TimeSeriesMixin
-│   └── gwf.py               # GWF frame handling
-├── noise/
-│   ├── __init__.py
-│   ├── base.py              # BaseNoise class
-│   ├── colored.py           # Colored noise
-│   └── correlated.py        # Correlated noise
+│   └── seeds.py             # Deterministic seed derivation
 ├── signal/
 │   ├── __init__.py
-│   ├── cbc.py               # CBC waveforms
-│   └── population/          # Population models
-├── glitch/
+│   └── adapter.py           # Signal adapter
+├── noise/
 │   ├── __init__.py
-│   ├── base.py              # BaseGlitch class
-│   └── gengli.py            # Gengli glitch generation
+│   └── adapter.py           # Noise adapter
 ├── population/
 │   ├── __init__.py
-│   ├── cbc.py               # CBC population models
-│   └── glitch.py            # Glitch population models
-├── detector/
-│   ├── __init__.py
-│   ├── detectors/           # Detector configurations
-│   └── noise_curves/        # PSD files
+│   └── adapter.py           # Population adapter
 ├── data/
 │   ├── __init__.py
 │   └── ...                  # Data utilities
+├── monitor/
+│   ├── __init__.py
+│   └── resource.py          # Resource monitoring helpers
+├── repository/
+│   ├── __init__.py
+│   └── zenodo.py            # Repository metadata helpers
 ├── utils/
 │   ├── __init__.py
 │   ├── io.py                # File I/O utilities
 │   ├── log.py               # Logging setup
 │   ├── random.py            # Random number management
+│   ├── download.py          # Download helpers
 │   └── validation.py        # Configuration validation
 └── version.py               # Version information
 ```
@@ -158,47 +130,23 @@ gwmock/
 - `PopulationIterationState`: Legacy population checkpoint state for
   orchestration resume
 
-### 3. Mixin System (`mixin/`)
+### 4. Adapter Layer (`signal/`, `noise/`, `population/`)
 
-**Purpose**: Modular functionality for simulators
+**Purpose**: Translate orchestration configs into the public subpackage
+protocols.
 
-**Key mixins:**
+These packages do not contain physics implementations. They resolve public
+backends, validate conformance, and hand off to the relevant subpackage or
+third-party class.
 
-- `RandomnessMixin`: Seeded RNG management
-- `DetectorMixin`: Multi-detector support
-- `TimeSeriesMixin`: Time series handling
+### 5. Backend Integration
 
-Population catalogue loading and validation now live in `gwmock-pop`, with
-gwmock retaining only orchestration-side checkpoint state.
+**Purpose**: Third-party backend support through the public contracts.
 
-**Mixin pattern example:**
+Backends may be shipped by `gwmock`, discovered through entry points, or
+referenced directly as `module:Class`.
 
-```python
-class NoiseSimulator(BaseSimulator, RandomnessMixin, DetectorMixin, TimeSeriesMixin):
-    """Noise simulator with randomness, detector, and time series support."""
-    pass
-```
-
-### 4. Signal Generators (`signal/`, `noise/`, `glitch/`)
-
-**Purpose**: Specific simulator implementations
-
-**Thin wrappers around third-party libraries:**
-
-```python
-class PyCBCStationaryGaussianNoiseSimulator(NoiseSimulator):
-    """Generate stationary Gaussian noise using PyCBC."""
-
-    def generate(self, **params):
-        # Delegate to PyCBC
-        return pycbc.waveform.noise.gaussian_noise(
-            psd_name=self.psd,
-            duration=self.duration,
-            # ...
-        )
-```
-
-### 5. Configuration System (`cli/utils/config.py`)
+### 6. Configuration System (`cli/utils/config.py`)
 
 **Features:**
 
@@ -218,12 +166,12 @@ Inheritance resolution (if inherits field present)
     ↓
 Template expansion (Jinja2)
     ↓
-Class registry resolution
+    Backend resolution
     ↓
 Validated SimulationPlan
 ```
 
-### 6. Checkpointing (`cli/utils/checkpoint.py`)
+### 7. Checkpointing (`cli/utils/checkpoint.py`)
 
 **Purpose**: Resume interrupted simulations
 
@@ -246,7 +194,7 @@ Validated SimulationPlan
 3. Skip completed batches
 4. Continue from last incomplete batch
 
-### 7. State Management (`simulator/state.py`)
+### 8. State Management (`simulator/state.py`)
 
 **Purpose**: Track simulator state across batches
 
@@ -309,73 +257,54 @@ Batch iteration
     ↓
 Output
     - Data files (*.gwf)
-    - Metadata files (*.yaml)
-    - Checkpoint file (checkpoint.json)
+    - Metadata files (*.metadata.json)
+    - Checkpoint file (.gwmock_checkpoint/simulation.checkpoint.json)
 ```
 
 ### Data Generation
 
 ```text
-Simulator.generate()
+Adapter.resolve()
     ↓
-RandomnessMixin (seed management)
+Public protocol backend
     ↓
-Third-party library (PyCBC, LALSuite, etc.)
+Generated strain or population data
     ↓
-Raw signal data
-    ↓
-TimeSeriesMixin (format to gwpy.TimeSeries)
-    ↓
-DetectorMixin (apply detector response)
-    ↓
-GWFMixin (write to frame file)
+Adapter output formatting
     ↓
 gwf file + metadata
 ```
 
 ## Extension Points
 
-### Adding a New Noise Simulator
+### Adding a Third-Party Backend
 
-1. **Create new class** in `noise/`:
-
-    ```python
-    class MyCustomNoise(BaseNoise, RandomnessMixin, TimeSeriesMixin):
-        def generate(self, **params):
-            # Implementation
-            pass
-    ```
-
-2. **Register in CLI** (automatic via entry points or manual in registry)
-
-3. **Use in config**:
+1. **Implement the upstream protocol** in your package.
+2. **Expose the class** through an entry point or importable `module:Class`
+   reference.
+3. **Reference it in config**:
 
     ```yaml
-    simulators:
-        my_noise:
-            class: my_package.noise.MyCustomNoise
+    orchestration:
+        noise:
+            backend: my_package.noise:MyCustomNoise
             arguments:
                 param1: value1
     ```
 
-### Adding a New Mixin
+### Adding an Orchestration Helper
 
-1. **Create mixin class**:
+1. **Create the helper** in `simulator/` or `utils/`:
 
     ```python
-    class MyMixin:
-        """Provides custom functionality."""
+    class MyHelper:
+        """Provides orchestration-only functionality."""
 
         def my_method(self):
             pass
     ```
 
-2. **Use in simulator**:
-
-    ```python
-    class MySimulator(BaseSimulator, MyMixin):
-        pass
-    ```
+2. **Use it from an adapter or CLI helper**, not from a physics package.
 
 ## Thread Safety & Concurrency
 

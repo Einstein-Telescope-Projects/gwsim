@@ -76,6 +76,7 @@ submitting a merge request—this guide will help you get started.
     - Write clear, concise, and well-documented code, ensuring it aligns with the goal of generating simulated GW data.
     - **Follow PEP 8 style conventions strictly**—linting rules are enforced via pre-commit and in CI/CD.
     - Add or update unit tests, especially for GW signal generation and noise simulation, when applicable.
+    - Physics changes should target the relevant subpackage repository (`gwmock-signal`, `gwmock-noise`, or `gwmock-pop`); keep gwmock changes focused on adapters, orchestration, and docs.
     - **Keep changes atomic and focused**: one type of change per commit (e.g., do not mix refactoring with feature addition).
 
 7. Run Tests
