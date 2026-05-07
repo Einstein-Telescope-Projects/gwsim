@@ -24,18 +24,78 @@ def temp_examples_dir(tmp_path):
 
     # Create default config with valid YAML
     (examples_dir / "default_config").mkdir()
-    (examples_dir / "default_config" / "config.yaml").write_text("simulators:\n  noise:\n    class: default")
+    (examples_dir / "default_config" / "config.yaml").write_text(
+        "orchestration:\n"
+        "  population:\n"
+        "    backend: default\n"
+        "    n-samples: 1\n"
+        "    arguments:\n"
+        "      path: population.h5\n"
+        "  signal:\n"
+        "    detectors:\n"
+        "      - H1\n"
+        "    output:\n"
+        "      file_name: signal.gwf\n"
+        "  noise:\n"
+        "    output:\n"
+        "      file_name: noise.gwf\n"
+    )
 
     # Create mock example directories with valid YAML config
     (examples_dir / "example1").mkdir()
-    (examples_dir / "example1" / "config.yaml").write_text("simulators:\n  noise:\n    class: example1")
+    (examples_dir / "example1" / "config.yaml").write_text(
+        "orchestration:\n"
+        "  population:\n"
+        "    backend: example1\n"
+        "    n-samples: 1\n"
+        "    arguments:\n"
+        "      path: population.h5\n"
+        "  signal:\n"
+        "    detectors:\n"
+        "      - H1\n"
+        "    output:\n"
+        "      file_name: signal.gwf\n"
+        "  noise:\n"
+        "    output:\n"
+        "      file_name: noise.gwf\n"
+    )
 
     (examples_dir / "example2").mkdir()
-    (examples_dir / "example2" / "config.yaml").write_text("simulators:\n  noise:\n    class: example2")
+    (examples_dir / "example2" / "config.yaml").write_text(
+        "orchestration:\n"
+        "  population:\n"
+        "    backend: example2\n"
+        "    n-samples: 1\n"
+        "    arguments:\n"
+        "      path: population.h5\n"
+        "  signal:\n"
+        "    detectors:\n"
+        "      - H1\n"
+        "    output:\n"
+        "      file_name: signal.gwf\n"
+        "  noise:\n"
+        "    output:\n"
+        "      file_name: noise.gwf\n"
+    )
 
     # Create a nested example
     (examples_dir / "nested" / "example3").mkdir(parents=True)
-    (examples_dir / "nested" / "example3" / "config.yaml").write_text("simulators:\n  noise:\n    class: example3")
+    (examples_dir / "nested" / "example3" / "config.yaml").write_text(
+        "orchestration:\n"
+        "  population:\n"
+        "    backend: example3\n"
+        "    n-samples: 1\n"
+        "    arguments:\n"
+        "      path: population.h5\n"
+        "  signal:\n"
+        "    detectors:\n"
+        "      - H1\n"
+        "    output:\n"
+        "      file_name: signal.gwf\n"
+        "  noise:\n"
+        "    output:\n"
+        "      file_name: noise.gwf\n"
+    )
 
     return examples_dir
 
@@ -129,4 +189,5 @@ def test_config_output_file(runner, temp_examples_dir, tmp_path):
     assert output_file.exists()
     content = output_file.read_text()
     print(content)
-    assert "simulators:\n  noise:\n    class: example1" in content
+    assert "orchestration:" in content
+    assert "backend: example1" in content

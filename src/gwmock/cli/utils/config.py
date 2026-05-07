@@ -6,12 +6,11 @@ from __future__ import annotations
 
 import importlib.resources
 import logging
-import warnings
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 logger = logging.getLogger("gwmock")
 
@@ -278,39 +277,20 @@ class Config(BaseModel):
     """Top-level configuration model."""
 
     globals: GlobalsConfig = Field(default_factory=GlobalsConfig, description="Global configuration")
-    simulators: dict[str, SimulatorConfig] | None = Field(
-        default=None, description="Legacy simulator dictionary configuration"
-    )
-    orchestration: OrchestrationConfig | None = Field(
-        default=None, description="Adapter-backed orchestration configuration"
-    )
+    orchestration: OrchestrationConfig = Field(..., description="Adapter-backed orchestration configuration")
     batch: BatchConfig | None = Field(default=None, description="Resources and scheduler configuration")
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
-    @field_validator("simulators", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def validate_simulators_not_empty(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
-        """Ensure simulators section is not empty."""
-        if v == {}:
-            raise ValueError("'simulators' section cannot be empty")
-        return v
-
-    @model_validator(mode="after")
-    def validate_execution_mode(self) -> Config:
-        """Require exactly one primary execution surface."""
-        has_legacy = self.simulators is not None
-        has_orchestration = self.orchestration is not None
-        if has_legacy == has_orchestration:
-            raise ValueError("Configuration must define exactly one of 'simulators' or 'orchestration'.")
-        if has_legacy and self.simulators is not None:
-            signal_config = self.simulators.get("signal")
-            if signal_config is not None and signal_config.class_.strip() in _REMOVED_SIGNAL_SIMULATOR_CLASS_SPECS:
-                _raise_removed_signal_simulator_error(signal_config.class_.strip())
-            noise_config = self.simulators.get("noise")
-            if noise_config is not None and noise_config.class_.strip() in _REMOVED_NOISE_SIMULATOR_CLASS_SPECS:
-                _raise_removed_noise_simulator_error(noise_config.class_.strip())
-        return self
+    def reject_legacy_simulators(cls, data: Any) -> Any:
+        """Reject removed legacy simulator configs before model parsing."""
+        if isinstance(data, dict) and "simulators" in data:
+            raise ValueError(
+                "Legacy 'simulators' configurations are no longer supported. Use the adapter-backed 'orchestration' schema."
+            )
+        return data
 
 
 def load_config(file_name: Path, encoding: str = "utf-8") -> Config:
@@ -341,18 +321,9 @@ def load_config(file_name: Path, encoding: str = "utf-8") -> Config:
     # Validate and convert to Config dataclass
     try:
         config = Config(**raw_config)
-        configured_units = len(config.simulators) if config.simulators is not None else 1
-        if config.simulators is not None:
-            warnings.warn(
-                "Legacy 'simulators' configurations are deprecated and will be removed in "
-                f"{_LEGACY_SIMULATORS_REMOVAL_VERSION}. Use the adapter-backed 'orchestration' schema for new configs "
-                f"and migration guidance: {_LEGACY_SIMULATORS_MIGRATION_URL}",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        logger.info("Configuration loaded and validated: %s execution unit(s)", configured_units)
+        logger.info("Configuration loaded and validated")
         return config
-    except ValueError as e:
+    except (ValueError, ValidationError) as e:
         raise ValueError(f"Configuration validation failed: {e}") from e
 
 
@@ -398,7 +369,7 @@ def save_config(
         raise ValueError(f"Failed to save configuration: {e}") from e
 
 
-def validate_config(config: dict) -> None:  # noqa: PLR0912
+def validate_config(config: dict) -> None:
     """Validate configuration structure and provide helpful error messages.
 
     Args:
@@ -407,53 +378,25 @@ def validate_config(config: dict) -> None:  # noqa: PLR0912
     Raises:
         ValueError: If configuration is invalid with detailed error message
     """
-    has_simulators = "simulators" in config
     has_orchestration = "orchestration" in config
 
-    if not has_simulators and not has_orchestration:
-        raise ValueError("Invalid configuration: Must define exactly one of 'simulators' or 'orchestration'")
-    if has_simulators and has_orchestration:
-        raise ValueError("Invalid configuration: Define exactly one of 'simulators' or 'orchestration'")
+    if "simulators" in config:
+        raise ValueError(
+            "Invalid configuration: legacy 'simulators' is no longer supported; use 'orchestration' instead"
+        )
 
-    if has_simulators:
-        simulators = config["simulators"]
+    if not has_orchestration:
+        raise ValueError("Invalid configuration: must define 'orchestration'")
 
-        if not isinstance(simulators, dict):
-            raise ValueError("'simulators' must be a dictionary")
+    orchestration = config["orchestration"]
+    if not isinstance(orchestration, dict):
+        raise ValueError("'orchestration' must be a dictionary")
 
-        if not simulators:
-            raise ValueError("'simulators' section cannot be empty")
-
-        for name, sim_config in simulators.items():
-            if not isinstance(sim_config, dict):
-                raise ValueError(f"Simulator '{name}' configuration must be a dictionary")
-
-            if "class" not in sim_config:
-                raise ValueError(f"Simulator '{name}' missing required 'class' field")
-
-            class_spec = sim_config["class"]
-            if not isinstance(class_spec, str) or not class_spec.strip():
-                raise ValueError(f"Simulator '{name}' 'class' must be a non-empty string")
-            if name == "signal" and class_spec.strip() in _REMOVED_SIGNAL_SIMULATOR_CLASS_SPECS:
-                _raise_removed_signal_simulator_error(class_spec.strip())
-            if name == "noise" and class_spec.strip() in _REMOVED_NOISE_SIMULATOR_CLASS_SPECS:
-                _raise_removed_noise_simulator_error(class_spec.strip())
-
-            if "arguments" in sim_config and not isinstance(sim_config["arguments"], dict):
-                raise ValueError(f"Simulator '{name}' 'arguments' must be a dictionary")
-
-            if "output" in sim_config and not isinstance(sim_config["output"], dict):
-                raise ValueError(f"Simulator '{name}' 'output' must be a dictionary")
-    else:
-        orchestration = config["orchestration"]
-        if not isinstance(orchestration, dict):
-            raise ValueError("'orchestration' must be a dictionary")
-
-        for section in ("population", "signal", "noise"):
-            if section not in orchestration:
-                raise ValueError(f"'orchestration' missing required '{section}' section")
-            if not isinstance(orchestration[section], dict):
-                raise ValueError(f"'orchestration.{section}' must be a dictionary")
+    for section in ("population", "signal", "noise"):
+        if section not in orchestration:
+            raise ValueError(f"'orchestration' missing required '{section}' section")
+        if not isinstance(orchestration[section], dict):
+            raise ValueError(f"'orchestration.{section}' must be a dictionary")
 
     # Validate globals section if present
     if "globals" in config:

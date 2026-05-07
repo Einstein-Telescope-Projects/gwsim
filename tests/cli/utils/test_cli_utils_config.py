@@ -15,6 +15,10 @@ from pydantic import ValidationError
 from gwmock.cli.utils.config import (
     Config,
     GlobalsConfig,
+    NoiseAdapterConfig,
+    OrchestrationConfig,
+    PopulationConfig,
+    SignalConfig,
     SimulatorConfig,
     SimulatorOutputConfig,
     get_examples_dir,
@@ -33,7 +37,24 @@ SAMPLING_FREQUENCY_4096 = 4096
 DURATION_4 = 4
 DURATION_64 = 64
 SAMPLE_RATE_16384 = 16384
-NUM_SIMULATORS = 2
+
+
+def _orchestration_config() -> OrchestrationConfig:
+    """Create a minimal orchestration config for tests."""
+    return OrchestrationConfig(
+        population=PopulationConfig(
+            backend="file",
+            n_samples=1,
+            arguments={"path": "population.h5"},
+        ),
+        signal=SignalConfig(
+            detectors=["H1"],
+            output=SimulatorOutputConfig(file_name="signal-{{ counter }}.gwf"),
+        ),
+        noise=NoiseAdapterConfig(
+            output=SimulatorOutputConfig(file_name="noise-{{ counter }}.gwf"),
+        ),
+    )
 
 
 class TestSimulatorOutputConfig:
@@ -178,48 +199,31 @@ class TestConfig:
 
     def test_valid_config(self):
         """Test creating a valid Config."""
-        config = Config(simulators={"noise": SimulatorConfig(class_="WhiteNoise", arguments={"seed": 42})})
-        assert "noise" in config.simulators
-        assert config.simulators["noise"].class_ == "WhiteNoise"
+        orchestration = _orchestration_config()
+        config = Config(orchestration=orchestration)
+        assert config.orchestration == orchestration
         assert isinstance(config.globals, GlobalsConfig)
 
     def test_config_with_globals(self):
         """Test Config with explicit globals."""
         config = Config(
             globals=GlobalsConfig(working_directory="/data"),
-            simulators={"noise": SimulatorConfig(class_="WhiteNoise")},
+            orchestration=_orchestration_config(),
         )
         assert config.globals.working_directory == "/data"
 
-    def test_config_missing_simulators(self):
-        """Test that simulators field is required."""
+    def test_config_missing_orchestration(self):
+        """Test that orchestration field is required."""
         with pytest.raises(ValidationError):
             Config()
 
-    def test_config_empty_simulators(self):
-        """Test that simulators cannot be empty."""
-        with pytest.raises(ValidationError, match=r"simulators.*cannot be empty"):
-            Config(simulators={})
-
-    def test_config_multiple_simulators(self):
-        """Test Config with multiple simulators."""
-        config = Config(
-            simulators={
-                "noise": SimulatorConfig(class_="WhiteNoise"),
-                "aux": SimulatorConfig(class_="AuxiliarySimulator"),
-            }
-        )
-        assert len(config.simulators) == NUM_SIMULATORS
-        assert "noise" in config.simulators
-        assert "aux" in config.simulators
-
-    @pytest.mark.parametrize("class_spec", ["SignalSimulator", "CBCSignalSimulator"])
-    def test_config_rejects_removed_signal_simulator(self, class_spec: str):
-        """Legacy signal simulator configs should direct users to orchestration."""
-        with pytest.raises(
-            ValidationError, match=r"orchestration\.population.*orchestration\.signal.*orchestration\.noise"
-        ):
-            Config(simulators={"signal": SimulatorConfig(class_=class_spec)})
+    def test_config_rejects_legacy_simulators(self):
+        """Legacy simulator configs should raise a validation error."""
+        with pytest.raises(ValidationError, match="simulators"):
+            Config(
+                orchestration=_orchestration_config(),
+                simulators={"noise": {"class": "WhiteNoise"}},
+            )
 
     def test_config_serialization(self):
         """Test Config serialization for YAML export."""
@@ -228,12 +232,12 @@ class TestConfig:
                 working_directory=".",
                 simulator_arguments={"sampling_frequency": 2048},
             ),
-            simulators={"noise": SimulatorConfig(class_="WhiteNoise", arguments={"seed": 42})},
+            orchestration=_orchestration_config(),
         )
         # Serialize with aliases
         data = config.model_dump(by_alias=True, exclude_none=True)
         assert data["globals"]["simulator-arguments"]["sampling_frequency"] == SAMPLING_FREQUENCY_2048
-        assert data["simulators"]["noise"]["class"] == "WhiteNoise"
+        assert "orchestration" in data
 
 
 class TestLoadConfig:
@@ -247,18 +251,21 @@ globals:
   simulator-arguments:
     sampling-frequency: 2048
   output-arguments: {}
-simulators:
-  noise:
-    class: WhiteNoise
+orchestration:
+  population:
+    backend: file
+    n-samples: 1
     arguments:
-      seed: 42
-      detectors:
-        - H1
-        - L1
+      path: population.h5
+  signal:
+    detectors:
+      - H1
+      - L1
     output:
-      file_name: "{{ detectors }}-{{ start_time }}-{{ duration }}.gwf"
-      arguments:
-        channel: STRAIN
+      file_name: signal-{{ counter }}.gwf
+  noise:
+    output:
+      file_name: noise-{{ counter }}.gwf
 """
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(config_yaml)
@@ -266,20 +273,15 @@ simulators:
             config_path = Path(f.name)
 
         try:
-            with pytest.warns(
-                DeprecationWarning,
-                match=r"Legacy 'simulators' configurations are deprecated and will be removed in v0\.5\.0",
-            ):
-                config = load_config(config_path)
+            config = load_config(config_path)
             assert isinstance(config, Config)
             assert config.globals.simulator_arguments["sampling-frequency"] == SAMPLING_FREQUENCY_2048
-            assert "noise" in config.simulators
-            assert config.simulators["noise"].class_ == "WhiteNoise"
+            assert config.orchestration.population.backend == "file"
         finally:
             config_path.unlink()
 
     def test_load_orchestration_config_does_not_warn(self):
-        """Fresh orchestration configs should not trigger the legacy deprecation warning."""
+        """Fresh orchestration configs should load without warnings."""
         config_yaml = """\
 globals:
   working-directory: .
@@ -341,8 +343,8 @@ orchestration:
         finally:
             config_path.unlink()
 
-    def test_load_config_missing_simulators(self):
-        """Test loading config without simulators raises error."""
+    def test_load_config_missing_orchestration(self):
+        """Test loading config without orchestration raises error."""
         config_yaml = "globals:\n  working-directory: .\n"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(config_yaml)
@@ -363,7 +365,7 @@ class TestSaveConfig:
         """Test that save_config creates a new file."""
         config = Config(
             globals=GlobalsConfig(working_directory="."),
-            simulators={"noise": SimulatorConfig(class_="WhiteNoise")},
+            orchestration=_orchestration_config(),
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.yaml"
@@ -377,12 +379,7 @@ class TestSaveConfig:
                 working_directory="/data",
                 simulator_arguments={"sampling_frequency": 4096},
             ),
-            simulators={
-                "noise": SimulatorConfig(
-                    class_="WhiteNoise",
-                    arguments={"seed": 42},
-                )
-            },
+            orchestration=_orchestration_config(),
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.yaml"
@@ -393,11 +390,11 @@ class TestSaveConfig:
                 data = yaml.safe_load(f)
             assert data["globals"]["working-directory"] == "/data"
             assert data["globals"]["simulator-arguments"]["sampling_frequency"] == SAMPLING_FREQUENCY_4096
-            assert data["simulators"]["noise"]["class"] == "WhiteNoise"
+            assert "orchestration" in data
 
     def test_save_config_file_exists_without_overwrite(self):
         """Test that save_config raises error if file exists and overwrite=False."""
-        config = Config(simulators={"noise": SimulatorConfig(class_="WhiteNoise")})
+        config = Config(orchestration=_orchestration_config())
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.yaml"
             config_path.touch()
@@ -406,19 +403,19 @@ class TestSaveConfig:
 
     def test_save_config_overwrites_with_flag(self):
         """Test that save_config overwrites when overwrite=True."""
-        config = Config(simulators={"noise": SimulatorConfig(class_="WhiteNoise")})
+        config = Config(orchestration=_orchestration_config())
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.yaml"
             config_path.write_text("old content")
             save_config(config_path, config, overwrite=True)
             # Verify new content
             content = config_path.read_text()
-            assert "WhiteNoise" in content
+            assert "orchestration:" in content
             assert "old content" not in content
 
     def test_save_config_creates_backup(self):
         """Test that save_config creates backup when overwriting."""
-        config = Config(simulators={"noise": SimulatorConfig(class_="WhiteNoise")})
+        config = Config(orchestration=_orchestration_config())
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.yaml"
             config_path.write_text("old content")
@@ -522,75 +519,37 @@ class TestValidateConfig:
         """Test validation of a valid configuration."""
         config = {
             "globals": {"simulator-arguments": {"sampling_frequency": 4096}},
-            "simulators": {
-                "noise": {
-                    "class": "WhiteNoise",
-                    "arguments": {"seed": 42},
-                    "output": {"file_name": "noise.gwf", "arguments": {"channel": "H1:STRAIN"}},
-                }
+            "orchestration": {
+                "population": {"backend": "file", "n-samples": 1, "arguments": {"path": "population.h5"}},
+                "signal": {"detectors": ["H1"], "output": {"file_name": "signal.gwf"}},
+                "noise": {"output": {"file_name": "noise.gwf"}},
             },
         }
         # Should not raise
         validate_config(config)
 
-    def test_validate_config_missing_simulators(self):
-        """Test validation fails when simulators section is missing."""
+    def test_validate_config_missing_orchestration(self):
+        """Test validation fails when orchestration section is missing."""
         config = {"globals": {}}
         with pytest.raises(ValueError, match="Invalid configuration"):
             validate_config(config)
 
-    def test_validate_config_empty_simulators(self):
-        """Test validation fails when simulators section is empty."""
-        config = {"simulators": {}}
-        with pytest.raises(ValueError, match="'simulators' section cannot be empty"):
-            validate_config(config)
-
-    def test_validate_config_invalid_simulators_type(self):
-        """Test validation fails when simulators is not a dict."""
-        config = {"simulators": ["noise"]}
-        with pytest.raises(ValueError, match="'simulators' must be a dictionary"):
-            validate_config(config)
-
-    def test_validate_config_invalid_simulator_config_type(self):
-        """Test validation fails when simulator config is not a dict."""
-        config = {"simulators": {"noise": "invalid"}}
-        with pytest.raises(ValueError, match="configuration must be a dictionary"):
-            validate_config(config)
-
-    def test_validate_config_missing_class_field(self):
-        """Test validation fails when class field is missing."""
-        config = {"simulators": {"noise": {"arguments": {}}}}
-        with pytest.raises(ValueError, match="missing required 'class' field"):
-            validate_config(config)
-
-    def test_validate_config_invalid_class_field(self):
-        """Test validation fails when class field is invalid."""
-        config = {"simulators": {"noise": {"class": ""}}}
-        with pytest.raises(ValueError, match="'class' must be a non-empty string"):
-            validate_config(config)
-
-    def test_validate_config_invalid_arguments_field(self):
-        """Test validation fails when arguments field is invalid."""
-        config = {"simulators": {"noise": {"class": "WhiteNoise", "arguments": "invalid"}}}
-        with pytest.raises(ValueError, match="'arguments' must be a dictionary"):
-            validate_config(config)
-
-    def test_validate_config_invalid_output_field(self):
-        """Test validation fails when output field is invalid."""
-        config = {"simulators": {"noise": {"class": "WhiteNoise", "output": "invalid"}}}
-        with pytest.raises(ValueError, match="'output' must be a dictionary"):
-            validate_config(config)
-
-    @pytest.mark.parametrize("class_spec", ["SignalSimulator", "CBCSignalSimulator"])
-    def test_validate_config_rejects_removed_signal_simulator(self, class_spec: str):
-        """Legacy signal simulator configs should raise a migration error."""
-        config = {"simulators": {"signal": {"class": class_spec}}}
-        with pytest.raises(ValueError, match=r"orchestration\.population.*orchestration\.signal.*orchestration\.noise"):
+    def test_validate_config_legacy_simulators(self):
+        """Test validation fails when legacy simulators section is present."""
+        config = {"simulators": {}, "orchestration": {}}
+        with pytest.raises(ValueError, match="simulators"):
             validate_config(config)
 
     def test_validate_config_invalid_globals_field(self):
         """Test validation fails when globals field is invalid."""
-        config = {"globals": "invalid", "simulators": {"noise": {"class": "WhiteNoise"}}}
+        config = {
+            "globals": "invalid",
+            "orchestration": {
+                "population": {"backend": "file", "n-samples": 1, "arguments": {"path": "population.h5"}},
+                "signal": {"detectors": ["H1"], "output": {"file_name": "signal.gwf"}},
+                "noise": {"output": {"file_name": "noise.gwf"}},
+            },
+        }
         with pytest.raises(ValueError, match="'globals' must be a dictionary"):
             validate_config(config)
 
@@ -773,18 +732,21 @@ globals:
   simulator-arguments:
     sampling-frequency: 4096
   output-directory: /output
-simulators:
-  noise:
-    class: WhiteNoise
+orchestration:
+  population:
+    backend: file
+    n-samples: 1
     arguments:
-      seed: 42
-      detectors:
-        - H1
-        - L1
+      path: population.h5
+  signal:
+    detectors:
+      - H1
+      - L1
     output:
-      file_name: "{{ detectors }}-{{ start_time }}-{{ duration }}.gwf"
-      arguments:
-        channel: STRAIN
+      file_name: signal-{{ counter }}.gwf
+  noise:
+    output:
+      file_name: noise-{{ counter }}.gwf
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Load
@@ -801,8 +763,7 @@ simulators:
 
             # Verify equivalence
             assert config1.globals.simulator_arguments == config2.globals.simulator_arguments
-            assert config1.simulators["noise"].class_ == config2.simulators["noise"].class_
-            assert config1.simulators["noise"].arguments["seed"] == config2.simulators["noise"].arguments["seed"]
+            assert config1.orchestration == config2.orchestration
 
     def test_multiple_simulators_round_trip(self):
         """Test round trip with multiple simulators."""
@@ -812,26 +773,14 @@ simulators:
                 working_directory="/data",
                 simulator_arguments={"sampling_frequency": sampling_frequency, "duration": 8},
             ),
-            simulators={
-                "noise": SimulatorConfig(
-                    class_="WhiteNoise",
-                    arguments={"seed": 42},
-                ),
-                "aux": SimulatorConfig(
-                    class_="AuxiliarySimulator",
-                    arguments={"snr_threshold": 10},
-                ),
-            },
+            orchestration=_orchestration_config(),
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.yaml"
             save_config(config_path, config)
             loaded = load_config(config_path)
 
-            expected_num_of_simulators = NUM_SIMULATORS
-            assert len(loaded.simulators) == expected_num_of_simulators
-            assert "noise" in loaded.simulators
-            assert "aux" in loaded.simulators
+            assert loaded.orchestration is not None
             assert loaded.globals.simulator_arguments["sampling_frequency"] == sampling_frequency
 
 
