@@ -52,7 +52,6 @@ Base Simulator (interface, state management, iteration)
     ├── + RandomnessMixin → handles random number generation
     ├── + DetectorMixin → handles detector-specific operations
     ├── + TimeSeriesMixin → handles time series data
-    ├── + PopulationReaderMixin → handles population file I/O
     └── + WaveformMixin → handles waveform generation
 
     ↓
@@ -87,7 +86,7 @@ gwmock/
 ├── simulator/
 │   ├── __init__.py
 │   ├── base.py              # Base Simulator class
-│   ├── state.py             # StateAttribute descriptor
+│   ├── state.py             # StateAttribute descriptor and checkpoint state helpers
 │   ├── registry.py          # Simulator registry
 │   ├── noise.py             # Noise simulator base
 │   ├── signal.py            # Signal simulator base
@@ -98,7 +97,6 @@ gwmock/
 │   ├── randomness.py        # RandomnessMixin
 │   ├── time_series.py       # TimeSeriesMixin
 │   ├── waveform.py          # WaveformMixin
-│   ├── population_reader.py # PopulationReaderMixin
 │   └── gwf.py               # GWF frame handling
 ├── noise/
 │   ├── __init__.py
@@ -159,6 +157,8 @@ gwmock/
 
 - `Simulator`: Abstract base with state management
 - `StateAttribute`: Descriptor for state tracking
+- `PopulationIterationState`: Legacy population checkpoint state for
+  orchestration resume
 
 ### 3. Mixin System (`mixin/`)
 
@@ -170,7 +170,9 @@ gwmock/
 - `DetectorMixin`: Multi-detector support
 - `TimeSeriesMixin`: Time series handling
 - `WaveformMixin`: Waveform generation
-- `PopulationReaderMixin`: Population file reading
+
+Population catalogue loading and validation now live in `gwmock-pop`, with
+gwmock retaining only orchestration-side checkpoint state.
 
 **Mixin pattern example:**
 
