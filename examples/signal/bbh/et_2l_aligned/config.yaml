@@ -47,7 +47,7 @@ orchestration:
                 channel: '{{ detectors }}:STRAIN'
     noise:
         arguments:
-            psd_file: ET_10_full_cryo_psd.txt
+            psd_file: ET_10_full_cryo_psd
             seed: 42
             detectors:
                 - E1_2L_aligned_sardinia

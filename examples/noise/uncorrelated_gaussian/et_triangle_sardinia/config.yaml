@@ -1,43 +1,44 @@
 globals:
-    # Runtime arguments shared by simulators (can be overridden per-simulator)
     simulator-arguments:
-        # Sampling frequency in Hz (affects time resolution and file size)
         sampling-frequency: 4096
-        # Duration of each generated segment in seconds
         duration: 4096
-        # Human-friendly total duration (may be parsed by the config loader)
         total-duration: 1 day
-        # GPS start time for the simulation
         start-time: 1577491218
-    # Working directory for generated outputs (relative or absolute)
     working-directory: .
-    # Default directory where generated frame files are written
     output-directory: output
-    # Directory to store metadata sidecars and checkpoints
     metadata-directory: metadata
 
-simulators:
-    # Uncorrelated Gaussian/Colored noise simulator config for ET triangular detectors
-    noise:
-        class: gwmock_noise.ColoredNoiseSimulator
+orchestration:
+    population:
+        backend: FilePopulationLoader
+        source-type: bbh
+        n-samples: 128
         arguments:
-            # PSD file describing the colored noise shape used by the simulator
-            psd_file: ET_10_full_cryo_psd.txt
-            # List of detector names to generate noise for (network support)
+            path: https://sandbox.zenodo.org/records/413548/files/18321_1yrCatalogBBH.h5
+    signal:
+        waveform-model: IMRPhenomXPHM
+        waveform-arguments:
+            reference_frequency: 50
+        minimum-frequency: 20
+        detectors:
+            - ET-Triangle-Sardinia
+        output:
+            output_directory: signal
+            file_name:
+                'E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration
+                }}.gwf'
+            arguments:
+                channel: '{{ detectors }}:STRAIN'
+    noise:
+        arguments:
+            psd_file: ET_10_full_cryo_psd
+            seed: 42
             detectors:
                 - E1_triangle_sardinia
                 - E2_triangle_sardinia
                 - E3_triangle_sardinia
-            # Low frequency cutoff (Hz) to apply to the generated time series
-            low_frequency_cutoff: 2
-            # RNG seed for reproducibility; change per-run for different realizations
-            seed: 42
         output:
-            # Template used to construct the output file name at runtime. Uses template variables
-            # such as `detectors`, `start_time` and `duration` expanded by the config loader.
-            file_name:
-                'E-{{ detectors }}_NOISE_STRAIN-{{ start_time }}-{{ duration
-                }}.gwf'
+            output_directory: noise
+            file_name: et-noise-{{ counter }}.gwf
             arguments:
-                # Channel name (template) for the output frame (e.g. "E1_triangle_sardinia:STRAIN")
-                channel: '{{ detectors }}:STRAIN'
+                channel_prefix: STRAIN

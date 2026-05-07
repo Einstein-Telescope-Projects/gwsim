@@ -91,31 +91,31 @@ configurations and sensitivities.
 
 - EMR location
     - E1:
-      [`glitch/gengli/et_triangle_emr/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli/et_triangle_emr/e1/config.yaml)
+      [`noise/glitches/gengli/et_triangle_emr/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli/et_triangle_emr/e1/config.yaml)
     - E2:
-      [`glitch/gengli/et_triangle_emr/e2/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli/et_triangle_emr/e2/config.yaml)
+      [`noise/glitches/gengli/et_triangle_emr/e2/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli/et_triangle_emr/e2/config.yaml)
     - E3:
-      [`glitch/gengli/et_triangle_emr/e3/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli/et_triangle_emr/e3/config.yaml)
+      [`noise/glitches/gengli/et_triangle_emr/e3/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli/et_triangle_emr/e3/config.yaml)
 - Sardinia location
     - E1:
-      [`glitch/gengli/et_triangle_sardinia/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli/et_triangle_sardinia/e1/config.yaml)
+      [`noise/glitches/gengli/et_triangle_sardinia/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli/et_triangle_sardinia/e1/config.yaml)
     - E2:
-      [`glitch/gengli/et_triangle_sardinia/e2/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli/et_triangle_sardinia/e2/config.yaml)
+      [`noise/glitches/gengli/et_triangle_sardinia/e2/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli/et_triangle_sardinia/e2/config.yaml)
     - E3:
-      [`glitch/gengli/et_triangle_sardinia/e3/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli/et_triangle_sardinia/e3/config.yaml)
+      [`noise/glitches/gengli/et_triangle_sardinia/e3/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli/et_triangle_sardinia/e3/config.yaml)
 
 ### Einstein Telescope - 2L
 
 - Aligned configuration
     - E1:
-      [`glitch/gengli/et_2l_aligned/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli/et_2l_aligned/e1/config.yaml)
+      [`noise/glitches/gengli/et_2l_aligned/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli/et_2l_aligned/e1/config.yaml)
     - E2:
-      [`glitch/gengli/et_2l_aligned/e2/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli/et_2l_aligned/e2/config.yaml)
+      [`noise/glitches/gengli/et_2l_aligned/e2/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli/et_2l_aligned/e2/config.yaml)
 - Misaligned configuration
     - E1:
-      [`glitch/gengli/et_2l_misaligned/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli/et_2l_misaligned/e1/config.yaml)
+      [`noise/glitches/gengli/et_2l_misaligned/e1/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli/et_2l_misaligned/e1/config.yaml)
     - E2:
-      [`glitch/gengli/et_2l_misaligned/e2/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/glitch/gengli/et_2l_misaligned/e2/config.yaml)
+      [`noise/glitches/gengli/et_2l_misaligned/e2/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise/glitches/gengli/et_2l_misaligned/e2/config.yaml)
 
 ## Storage Estimates
 

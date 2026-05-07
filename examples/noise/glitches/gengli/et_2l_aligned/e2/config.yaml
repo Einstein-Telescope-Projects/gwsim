@@ -14,12 +14,12 @@ orchestration:
         source-type: bbh
         n-samples: 1
         arguments:
-            path: examples/glitch/gengli/bbh_smoke_population.csv
+            path: examples/noise/glitches/gengli/bbh_smoke_population.csv
     signal:
         waveform-model: IMRPhenomXPHM
         minimum-frequency: 2
         detectors:
-            - ET1_SARD
+            - ET-2L-Aligned
         output:
             output_directory: signal
             file_name:
@@ -30,7 +30,7 @@ orchestration:
         arguments:
             seed: 42
             detectors:
-                - E1_triangle_sardinia
+                - E2_2L_aligned_emr
             glitches:
                 - kind: gengli_blip
                   rate: 0.0011111111111111111
@@ -38,8 +38,8 @@ orchestration:
                       distribution: lognormal
                       mean: 1.0
                       std: 0.0
-                  population_file: https://sandbox.zenodo.org/records/413548/files/blip_glitch_population_E1.hdf5
-                  psd_file: ET_10_full_cryo_psd.txt
+                  population_file: https://sandbox.zenodo.org/records/413548/files/blip_glitch_population_E2.hdf5
+                  psd_file: ET_15_full_cryo_psd
                   low_frequency_cutoff: 5.0
         output:
             output_directory: noise
