@@ -72,11 +72,21 @@ For the config shape that feeds this record, see
 ## Reproducing a run
 
 For deterministic reproduction, pin `gwmock`, `gwmock-signal`, `gwmock-noise`,
-and `gwmock-pop`, then rerun the same config with the same seed:
+and `gwmock-pop` to the same versions used originally, then rerun the same
+config file. The seed is stored in the config itself:
 
 ```bash
-gwmock simulate config.yaml --seed=42
+gwmock simulate config.yaml
 ```
 
-In batch reproduction workflows, the generated `*.metadata.json` files can also
-be passed back to `gwmock simulate` directly.
+In batch reproduction workflows, pass the generated `*.metadata.json` files
+directly to `gwmock simulate`. Each metadata file carries the exact config
+snapshot and per-segment seeds needed to reproduce that batch independently:
+
+```bash
+# Reproduce specific batches from their metadata files
+gwmock simulate metadata/noise-0.metadata.json metadata/signal-0.metadata.json
+
+# Or reproduce everything from a metadata directory
+gwmock simulate metadata/
+```

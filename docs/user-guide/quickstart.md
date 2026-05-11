@@ -16,32 +16,31 @@ gwmock simulate quick_start_config.yaml
 
 <!-- typos:off -->
 
-The configuration file `quick_start_config.yaml` generates a single 1024-second
-GWF file containing simulated noise data, using the
-[ET_10_full_cryo_psd](https://github.com/Leuven-Gravity-Institute/gwmock/blob/main/src/gwmock/detector/noise_curves/ET_10_full_cryo_psd.txt)
-sensitivity curve from the
-[CoBA Science Study](https://iopscience.iop.org/article/10.1088/1475-7516/2023/07/068),
-sampled at 4096 Hz.
+The configuration file `quick_start_config.yaml` runs the full orchestration
+pipeline — population sampling, CBC signal injection, and noise generation —
+producing a 1024-second dataset for the ET Sardinia configuration.
+
+It requires an internet connection to fetch the BBH population file from GitHub.
 
 <!-- typos:on -->
+
+<!-- prettier-ignore -->
+!!! note
+    The quick-start fetches a population file on first run.
+    Ensure you have internet access and approximately 50 MB of free disk space.
 
 You should see output like:
 
 ```text
 INFO Config mode: quick_start_config.yaml
-INFO Configuration loaded and validated: 1 simulators
-INFO Created simulation plan from config: 1 batches
+INFO Configuration loaded and validated
 INFO Created simulation plan with 1 batches
-INFO Validating simulation plan with 1 batches
-INFO Simulation plan validation completed successfully
 INFO Simulation plan validation passed
 INFO Executing simulation plan: 1 batches
-INFO Simulation plan validation completed successfully
 INFO Executing 1 simulators
 Executing simulation plan:   0%|                                        | 0/1
 Executing simulation plan: 100%|████████████████████████████████████████| 1/1
-INFO All batches completed successfully. Checkpoint files cleaned up.
-INFO Simulation completed successfully. Output written to data
+INFO Simulation completed successfully. Output written to output
 ```
 
 ## 2. Check the Output
@@ -49,25 +48,27 @@ INFO Simulation completed successfully. Output written to data
 Your working directory will contain:
 
 ```text
-output/
-└── E-E1-NOISE_STRAIN-1577491218-1024.gwf
+noise/
+└── et-noise-0.gwf
+signal/
+└── E-ET-Triangle-Sardinia_STRAIN_BBH-1577491218-1024.gwf
 metadata/
-├── index.yaml
-└── noise-0.metadata.yaml
+└── orchestration-0.metadata.json
+resource_usage_summary.json
 ```
 
-### Data File
+### Data Files
 
-The GWF file contains the simulated strain data, which can be read using
-standard gravitational wave analysis software such as
-[GWpy](https://gwpy.github.io/). For a quick guide on reading and working with
-GWF files, see the [Reading Data](reading-data.md) page.
+`noise/` contains the simulated Gaussian noise strain. `signal/` contains the
+injected CBC signal strain. To produce a realistic data stream, merge the two
+using GWpy (see [Reading Data](reading-data.md)).
 
 ### Metadata File
 
-The metadata file contains everything needed to reproduce this exact simulation.
-For a quick guide on how to inspect and reuse metadata files to reproduce a
-dataset, see the [Metadata Files](metadata.md) page.
+The `.metadata.json` file records the exact configuration, seeds, and package
+versions needed to reproduce this run. For details on the schema and how to
+reuse metadata files, see the [Metadata Files](metadata.md) and
+[Reproducibility](reproducibility.md) pages.
 
 ## 3. Explore Different Simulators
 

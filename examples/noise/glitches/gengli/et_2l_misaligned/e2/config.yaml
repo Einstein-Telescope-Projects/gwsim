@@ -14,7 +14,7 @@ orchestration:
         source-type: bbh
         n-samples: 1
         arguments:
-            path: examples/noise/glitches/gengli/bbh_smoke_population.csv
+            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/main/examples/noise/glitches/gengli/bbh_smoke_population.csv
     signal:
         waveform-model: IMRPhenomXPHM
         minimum-frequency: 2

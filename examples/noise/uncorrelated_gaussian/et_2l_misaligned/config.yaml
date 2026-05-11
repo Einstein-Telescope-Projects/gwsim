@@ -12,13 +12,11 @@ orchestration:
     population:
         backend: FilePopulationLoader
         source-type: bbh
-        n-samples: 128
+        n-samples: 1
         arguments:
-            path: https://sandbox.zenodo.org/records/413548/files/18321_1yrCatalogBBH.h5
+            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/main/examples/signal/bbh_population.csv
     signal:
         waveform-model: IMRPhenomXPHM
-        waveform-arguments:
-            reference_frequency: 50
         minimum-frequency: 20
         detectors:
             - ET-2L-Misaligned

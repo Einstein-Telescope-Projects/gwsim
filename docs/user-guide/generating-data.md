@@ -30,7 +30,7 @@ Noise is simulated using the
 [ET_10_full_cryo_psd](https://github.com/Leuven-Gravity-Institute/gwmock/blob/main/src/gwmock/detector/noise_curves/ET_10_full_cryo_psd.txt)
 sensitivity curve from the
 [CoBA Science Study](https://iopscience.iop.org/article/10.1088/1475-7516/2023/07/068)
-and publicly available. A low-frequency cutoff of 2 Hz is used.
+and publicly available. A low-frequency cutoff of 20 Hz is used.
 
 To generate the ET noise data, run:
 
@@ -59,14 +59,12 @@ Each GWF file is approximately 123 MB. For three detectors with 21 files each:
 Compact Binary Coalescence (CBC) signals can be generated using configuration
 files in the
 [`examples/signal/bbh`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh)
-and
-[`examples/signal/bns`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bns)
-directories.
+directory.
 
 ### Binary Black Hole (BBH) Signals
 
 An example configuration for producing one day of ET data containing BBH signals
-from a realistic population is provided in
+is provided in
 [`signal/bbh/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_triangle_emr/config.yaml):
 
 ```yaml
@@ -74,15 +72,14 @@ from a realistic population is provided in
 ```
 
 As with the noise example, this configuration file produces one day of data per
-detectors, with each frame file lasting 4096 seconds (for a total of 21 frame
+detector, with each frame file lasting 4096 seconds (for a total of 21 frame
 files), starting on 1 January 2030.
 
-BBH signals are injected into zero noise from the
-[18321_1yrCatalogBBH.h5](https://apps.et-gw.eu/tds/?content=3&r=18321)
-population file used in the CoBA study and publicly available. The
+BBH signals are injected into zero noise using the bundled smoke population
+file, which provides one BBH event with canonical columns compatible with the
+`FilePopulationLoader`. The
 [IMRPhenomXPHM](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.103.104056)
-waveform model is used, with a low-frequency cutoff of 2 Hz and including Earth
-rotation effects.
+waveform model is used, with a low-frequency cutoff of 20 Hz.
 
 To generate the ET data with BBH signals, run:
 
@@ -97,51 +94,6 @@ gwmock config --get signal/bbh/et_triangle_emr --output config.yaml
 # Run simulation
 gwmock simulate config.yaml
 ```
-
-<!-- prettier-ignore -->
-!!! note
-    The configuration file automatically downloads the BBH population file from a [Zenodo repository](https://sandbox.zenodo.org/records/413548).
-    The file is saved in a cache directory (by default, `~/.gwmock/population/`).
-    When the same population file is needed again, gwmock uses the cached copy to avoid re-downloading.
-
-### Binary Neutron Star (BNS) Signals
-
-An example configuration for producing one day of ET data containing BNS signals
-from a realistic population is provided in
-[`signal/bns/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bns/et_triangle_emr/config.yaml).
-It is equivalent to the BBH example configuration, except for:
-
-```yaml
-population_file: https://sandbox.zenodo.org/records/413548/files/18321_1yrCatalogBNS.h5
-waveform_model: IMRPhenomPv2_NRTidalv2
-```
-
-BNS signals are injected into zero noise from the
-[18321_1yrCatalogBNS.h5](https://apps.et-gw.eu/tds/?content=3&r=18321)
-population file used in the CoBA study and publicly available. The
-[IMRPhenomPv2_NRTidalv2](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.100.044003)
-waveform model is used, with a low-frequency cutoff of 2 Hz and including Earth
-rotation effects.
-
-To generate the ET data with BNS signals, run:
-
-```bash
-# Create working directory
-mkdir bns_et_triangle_emr
-cd bns_et_triangle_emr
-
-# Copy configuration file to your working directory for BNS simulation
-gwmock config --get signal/bns/et_triangle_emr --output config.yaml
-
-# Run simulation
-gwmock simulate config.yaml
-```
-
-<!-- prettier-ignore -->
-!!! note
-    The configuration file automatically downloads the BNS population file from a [Zenodo repository](https://sandbox.zenodo.org/records/413548).
-    The file is saved in a cache directory (by default, `~/.gwmock/population/`).
-    When the same population file is needed again, `gwmock` uses the cached copy to avoid re-downloading.
 
 ## Generating Transient Noise Artifacts (Glitches)
 
@@ -243,13 +195,13 @@ Multiple Einstein Telescope sensitivity curves (PSD files) are available in
 [`gwmock/detector/noise_curves/`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/src/gwmock/detector/noise_curves).
 These correspond to those used in the CoBA study.
 
-To use a specific sensitivity curve:
+To use a specific sensitivity curve, set `psd_file` in the noise arguments:
 
 ```yaml
-simulators:
+orchestration:
     noise:
         arguments:
-            psd: ET_15_HF_psd.txt
+            psd_file: ET_15_HF_psd.txt
 ```
 
 <!-- prettier-ignore -->
@@ -321,11 +273,12 @@ max_samples = ceil(total-duration / duration)
 ## Generate Multi-Detector Correlated Noise
 
 You can generate multi-detector correlated noise by specifying a cross-power
-spectral density (CSD) file:
+spectral density (CSD) file via the `orchestration.noise` backend. Pass
+`csd_file` as a noise argument:
 
 <!-- prettier-ignore -->
 !!! warning
-    The example configuration file is not fully tested yet. Use at your own risk.
+    Correlated noise generation is experimental and not fully tested. Use at your own risk.
 
 ```yaml
 globals:
@@ -334,20 +287,36 @@ globals:
         duration: 4096
         total-duration: '1 day'
         start-time: 1577491218
-    working-directory: './ET_Triangle_EMR_correlated_noise'
-    output-directory: 'data'
-    metadata-directory: 'metadata'
+    working-directory: .
+    output-directory: output
+    metadata-directory: metadata
 
-simulators:
-    noise:
-        class: gwmock_noise.CorrelatedNoiseSimulator
+orchestration:
+    population:
+        backend: FilePopulationLoader
+        source-type: bbh
+        n-samples: 1
         arguments:
-            psd_file: ET_10_full_cryo_psd.txt
+            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/main/examples/noise/glitches/gengli/bbh_smoke_population.csv
+    signal:
+        waveform-model: IMRPhenomXPHM
+        minimum-frequency: 2
+        detectors:
+            - ET-Triangle-EMR
+        output:
+            file_name:
+                'E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration
+                }}.gwf'
+            arguments:
+                channel: '{{ detectors }}:STRAIN'
+    noise:
+        arguments:
+            psd_file: ET_10_full_cryo_psd
             csd_file: path_to_csd_file.txt
             detectors:
-                - E1_Triangle_EMR
-                - E2_Triangle_EMR
-                - E3_Triangle_EMR
+                - E1_triangle_emr
+                - E2_triangle_emr
+                - E3_triangle_emr
             low_frequency_cutoff: 2
             seed: 42
         output:
@@ -355,7 +324,7 @@ simulators:
                 'E-{{ detectors }}_CORRELATED-NOISE_STRAIN-{{ start_time }}-{{
                 duration }}.gwf'
             arguments:
-                channel: '{{ detectors }}:STRAIN'
+                channel_prefix: STRAIN
 ```
 
 `gwmock` uses a windowing approach to generate long-duration datasets. If the

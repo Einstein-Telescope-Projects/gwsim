@@ -58,8 +58,8 @@ You can also merge files directly using the CLI:
 
 ```bash
 gwmock merge filename_noise.gwf filename_signal.gwf \
-    --metadata noise-0.metadata.yaml \
-    --metadata signal-0.metadata.yaml \
+    --metadata noise-0.metadata.json \
+    --metadata signal-0.metadata.json \
     --channel E1:STRAIN \
     --output-channel E1:STRAIN
 ```
@@ -116,23 +116,32 @@ with:
 ```python
 import json
 
-# Read metadata
-with open("metadata/noise-0.metadata.yaml", "r") as f:
-    import yaml
-    metadata = yaml.safe_load(f)
+# Read a JSON metadata record
+with open("metadata/noise-0.metadata.json", "r") as f:
+    metadata = json.load(f)
 
-print(metadata["simulator_name"])
-print(metadata["simulator_config"])
-print(metadata["output_files"])
+print(metadata["schema_version"])    # e.g. "1.0.0"
+print(metadata["gwmock_version"])    # e.g. "0.5.0"
+print(metadata["config"])            # resolved config snapshot
+print(metadata["outputs"])           # list of generated files with hashes
 ```
 
-**Metadata includes:**
+**Metadata fields:**
 
-- Simulator configuration
-- Random number generator state (for reproducibility)
-- Output file names
-- Version information
-- Generation timestamps
+| Field                 | Description                                                    |
+| --------------------- | -------------------------------------------------------------- |
+| `schema_version`      | Provenance format version                                      |
+| `gwmock_version`      | Package version used to generate the data                      |
+| `subpackage_versions` | Versions of `gwmock_signal`, `gwmock_noise`, `gwmock_pop`      |
+| `config`              | Resolved configuration snapshot for this run                   |
+| `config_sha256`       | SHA-256 hash of the resolved config                            |
+| `seed`                | Top-level RNG seed                                             |
+| `segment_seeds`       | Per-segment deterministic seeds                                |
+| `population`          | Population backend and provenance                              |
+| `signal`              | Signal backend, waveform model, detector network               |
+| `noise`               | Noise backend and PSD                                          |
+| `outputs`             | List of generated files (path, channels, t0, duration, sha256) |
+| `host`                | Platform, Python version, CPU, git SHA                         |
 
 For a quick guide on how to inspect and reuse metadata files to reproduce a
 dataset, see the [Metadata Files](metadata.md) page.
@@ -200,7 +209,7 @@ Check available channels in the file:
 from gwpy.io import gwf
 
 # List all channels
-channels = gwf.get_channels("filename.gwf")
+channels = gwf.get_channel_names("filename.gwf")
 print(channels)
 ```
 
