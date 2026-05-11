@@ -10,9 +10,14 @@ three explicit sections:
 
 ## Migration from `simulators:`
 
-If you still have a legacy config, it will continue to run for now, but the CLI
-warns that it will be removed in `v0.5.0`. For the full configuration shape and
-examples, use the [Configuration Files](configuration.md) guide.
+The legacy `simulators:` schema has been removed. Configs that use a top-level
+`simulators:` key are now rejected at load time with a clear error message. All
+configurations must use the `orchestration:` schema described below. For the
+full configuration shape and examples, see the
+[Configuration Files](configuration.md) guide.
+
+The `orchestration:` section requires all three sub-sections — `population`,
+`signal`, and `noise` — to be present. None of them are optional.
 
 ```yaml
 orchestration:

@@ -19,17 +19,13 @@ orchestration:
     population:
         backend: FilePopulationLoader
         source-type: bbh
-        n-samples: 128
+        n-samples: 1
         arguments:
-            # Path or URL to population file (HDF5) containing simulated BBH events
-            path: https://sandbox.zenodo.org/records/413548/files/18321_1yrCatalogBBH.h5
+            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/main/examples/signal/bbh_population.csv
     signal:
         # Waveform model and arguments for signal generation
         waveform-model: IMRPhenomXPHM
         # Additional waveform model arguments
-        waveform-arguments:
-            # Reference frequency in Hz for waveform generation
-            reference_frequency: 50
         # Minimum frequency in Hz for the waveform generation
         minimum-frequency: 2
         # List of detector names to generate signal for (network support)

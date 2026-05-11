@@ -22,7 +22,7 @@ To list all the available example configuration files:
 gwmock config --list
 ```
 
-To run any of the following configuration file:
+To run any of the following configuration files:
 
 ```bash
 # Copy configuration file to working directory
@@ -31,6 +31,19 @@ gwmock config --get <label> --output config.yaml
 # Run simulation
 gwmock simulate config.yaml
 ```
+
+## Blank Starting Config
+
+The `default_config` label produces a minimal template that shows the full
+`orchestration:` schema with a local `population.h5` placeholder. Use it as a
+starting point when writing a custom configuration from scratch:
+
+```bash
+gwmock config --get default_config --output config.yaml
+```
+
+The generated file expects you to supply a local `population.h5` file. Replace
+`path: population.h5` with an actual path or URL before running.
 
 ## Noise Generation
 
@@ -53,34 +66,22 @@ and sensitivities.
 
 ## CBC Signals Generation
 
-Example configurations for generating detector data with CBC signals with
+Example configurations for generating detector data with BBH signals with
 various configurations and sensitivities.
 
 ### Einstein Telescope - Triangular
 
 - EMR location:
-    - BBH signals:
-      [`signal/bbh/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_triangle_emr/config.yaml)
-    - BNS signals:
-      [`signal/bns/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bns/et_triangle_emr/config.yaml)
+  [`signal/bbh/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_triangle_emr/config.yaml)
 - Sardinia location:
-    - BBH signals:
-      [`signal/bbh/et_triangle_sardinia/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_triangle_sardinia/config.yaml)
-    - BNS signals:
-      [`signal/bns/et_triangle_sardinia/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bns/et_triangle_sardinia/config.yaml)
+  [`signal/bbh/et_triangle_sardinia/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_triangle_sardinia/config.yaml)
 
 ### Einstein Telescope - 2L
 
 - Aligned configuration:
-    - BBH signals:
-      [`signal/bbh/et_2l_aligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_2l_aligned/config.yaml)
-    - BNS signals:
-      [`signal/bns/et_2l_aligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bns/et_2l_aligned/config.yaml)
+  [`signal/bbh/et_2l_aligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_2l_aligned/config.yaml)
 - Misaligned configuration:
-    - BBH signals:
-      [`signal/bbh/et_2l_misaligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_2l_misaligned/config.yaml)
-    - BNS signals:
-      [`signal/bns/et_2l_misaligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bns/et_2l_misaligned/config.yaml)
+  [`signal/bbh/et_2l_misaligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_2l_misaligned/config.yaml)
 
 ## Glitch Generation
 

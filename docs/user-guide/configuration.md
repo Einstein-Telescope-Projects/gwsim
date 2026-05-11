@@ -3,6 +3,19 @@
 This guide explains how to use and write configuration files to generate
 datasets tailored to your needs.
 
+## Verbosity
+
+All gwmock commands accept a top-level `--verbose` / `-v` flag to control log
+output:
+
+```bash
+gwmock --verbose DEBUG simulate config.yaml   # detailed debug output
+gwmock --verbose WARNING simulate config.yaml # only warnings and errors
+```
+
+Supported levels: `NOTSET`, `DEBUG`, `INFO` (default), `WARNING`, `ERROR`,
+`CRITICAL`.
+
 ## Command-Line Options
 
 ### Command [`simulate`](/reference/gwmock/cli/simulate/)
@@ -34,6 +47,22 @@ gwmock simulate config.yaml --dry-run
 
 This validates the configuration and shows what would be generated without
 actually creating files.
+
+#### Flag `--output-dir` (optional)
+
+Override the output directory from the command line without editing the config:
+
+```bash
+gwmock simulate config.yaml --output-dir /scratch/my_run/data
+```
+
+#### Flag `--metadata-dir` (optional)
+
+Override the metadata directory from the command line (config mode only):
+
+```bash
+gwmock simulate config.yaml --metadata-dir /scratch/my_run/metadata
+```
 
 #### Flag `--metadata` (optional)
 
@@ -100,10 +129,12 @@ gwmock config --init config.yaml
 
 By default, gwmock does not overwrite existing configuration files. If a file
 already exists, the tool will raise an error and halt execution. To force
-overwriting of existing files, use the `--overwrite` flag:
+overwriting of existing files, use the `--overwrite` flag together with `--get`
+or `--init`:
 
 ```bash
-gwmock config --overwrite
+gwmock config --get noise/uncorrelated_gaussian/quick_start --overwrite
+gwmock config --init config.yaml --overwrite
 ```
 
 #### Flag `--output` (optional)
@@ -150,37 +181,51 @@ globals:
 - `total-duration`: Total duration of the dataset
 - `output-arguments`: Additional global arguments passed to the file writer
 
-### Simulators
+### Orchestration
 
-List of simulators to run, each with configuration:
+The `orchestration:` section is required and must contain all three
+sub-sections:
 
 ```yaml
-simulators:
-    noise:
-        class: gwmock_noise.ColoredNoiseSimulator
+orchestration:
+    population:
+        backend: FilePopulationLoader # or any registered backend alias
+        source-type: bbh
+        n-samples: 128
         arguments:
+            path: population.h5
+
+    signal:
+        waveform-model: IMRPhenomXPHM
+        minimum-frequency: 2
+        detectors:
+            - ET-Triangle-EMR
         output:
             file_name:
+                'E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration
+                }}.gwf'
             arguments:
+                channel: '{{ detectors }}:STRAIN'
+
+    noise:
+        arguments:
+            psd_file: ET_10_full_cryo_psd
+            seed: 42
+            detectors:
+                - E1_triangle_emr
+                - E2_triangle_emr
+                - E3_triangle_emr
+        output:
+            file_name: et-noise-{{ counter }}.gwf
+            arguments:
+                channel_prefix: STRAIN
 ```
 
-**Simulator properties:**
+All three sections (`population`, `signal`, `noise`) are required. For the full
+schema and backend registration options, see the
+[Orchestration](orchestration.md) guide.
 
-- `class`: Fully qualified class name of the simulator
-- `arguments`: Parameters passed to the simulator
-- `output.file_name`: Template for output file naming (supports Jinja2 syntax)
-- `output.arguments`: Channel naming and other output metadata
-
-In-tree noise simulator classes have been removed from `gwmock`. For legacy
-`simulators.noise.class` configs, point `class` at a public `gwmock_noise.*`
-implementation such as `gwmock_noise.ColoredNoiseSimulator` or
-`gwmock_noise.CorrelatedNoiseSimulator`. For new configurations, prefer the
-adapter-backed `orchestration.noise` flow.
-
-Legacy `signal` simulator classes have been removed. Configure
-gravitational-wave signals under `orchestration.signal` instead.
-
-Transient glitches are now configured on the noise side under
+Transient glitches are configured on the noise side under
 `orchestration.noise.arguments.glitches` using public `gwmock-noise` glitch
 models. For example:
 
@@ -205,24 +250,23 @@ You can use Jinja2-style templates in configuration values such as file names
 and channel names:
 
 ```yaml
-simulators:
+orchestration:
     noise:
-        class: gwmock_noise.ColoredNoiseSimulator
         arguments:
             detectors:
-                - E1_Triangle_EMR
-                - E2_Triangle_EMR
-                - E3_Triangle_EMR
+                - E1_triangle_emr
+                - E2_triangle_emr
+                - E3_triangle_emr
         output:
             file_name:
                 'E-{{ detectors }}_NOISE_STRAIN-{{ start_time }}-{{ duration
                 }}.gwf'
             arguments:
-                channel: '{{ detectors }}:STRAIN'
+                channel_prefix: STRAIN
 ```
 
-In this example, `file_name` and `channel` are automatically updated for each
-detector being processed.
+In this example, `file_name` is automatically expanded for each detector being
+processed.
 
 **Common variables:**
 
@@ -253,6 +297,13 @@ The checkpoint contains:
 - Simulator state
 - Progress information
 - Already-generated file tracking
+
+## Resource Usage Summary
+
+After every successful simulation, gwmock writes a `resource_usage_summary.json`
+file to the working directory. This file records CPU time, peak memory usage,
+and wall time for the run. It is always written (overwriting any previous
+summary) and is not controlled by a flag.
 
 ## Best Practices
 

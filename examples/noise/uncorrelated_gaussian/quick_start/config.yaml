@@ -13,11 +13,9 @@ orchestration:
         source-type: bbh
         n-samples: 1
         arguments:
-            path: https://sandbox.zenodo.org/records/413548/files/18321_1yrCatalogBBH.h5
+            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/main/examples/signal/bbh_population.csv
     signal:
         waveform-model: IMRPhenomXPHM
-        waveform-arguments:
-            reference_frequency: 50
         minimum-frequency: 20
         detectors:
             - ET-Triangle-Sardinia
@@ -33,7 +31,7 @@ orchestration:
             psd_file: ET_10_full_cryo_psd
             seed: 42
             detectors:
-                - E1
+                - E1_triangle_sardinia
         output:
             output_directory: noise
             file_name: et-noise-{{ counter }}.gwf

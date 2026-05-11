@@ -38,7 +38,7 @@ For the latest development version:
 
 ```bash
 git clone git@github.com:Leuven-Gravity-Institute/gwmock.git
-ce gwmock
+cd gwmock
 # Create a virtual environment (recommended with uv)
 uv venv --python 3.13
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
