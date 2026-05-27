@@ -15,6 +15,7 @@ from gwmock_noise import (
     DefaultNoiseSimulator,
     FrameWriter,
     InjectGlitches,
+    NoiseComponentConfig,
     NoiseConfig,
     NoiseSimulator,
     OutputConfig,
@@ -152,6 +153,50 @@ def _parse_csd_file_map(csd_files: dict[str, Path] | None) -> dict[tuple[str, st
             raise ValueError(f"Duplicate CSD file mapping for detector pair {detector_a}-{detector_b}.")
         parsed[normalized_key] = Path(file_path)
     return parsed
+
+
+def _build_components(
+    *,
+    psd_file: Path | None,
+    psd_schedule: list[tuple[float, Path]] | None,
+    psd_files: dict[str, Path] | None,
+    csd_files: dict[str, Path] | None,
+    low_frequency_cutoff: float,
+    high_frequency_cutoff: float | None,
+    spectral_lines: list[Any] | None,
+    glitches: list[Any] | None,
+) -> list[NoiseComponentConfig]:
+    """Translate legacy flat noise fields into the v0.3 component list."""
+    components: list[NoiseComponentConfig] = []
+
+    if psd_files is not None or csd_files is not None:
+        options: dict[str, Any] = {}
+        if psd_files:
+            options["psd_files"] = psd_files
+        if csd_files:
+            options["csd_files"] = csd_files
+        options["low_frequency_cutoff"] = low_frequency_cutoff
+        if high_frequency_cutoff is not None:
+            options["high_frequency_cutoff"] = high_frequency_cutoff
+        components.append(NoiseComponentConfig(simulator="correlated", options=options))
+    elif psd_file is not None or psd_schedule is not None:
+        options = {}
+        if psd_file is not None:
+            options["psd_file"] = psd_file
+        if psd_schedule is not None:
+            options["psd_schedule"] = psd_schedule
+        options["low_frequency_cutoff"] = low_frequency_cutoff
+        if high_frequency_cutoff is not None:
+            options["high_frequency_cutoff"] = high_frequency_cutoff
+        components.append(NoiseComponentConfig(simulator="colored", options=options))
+
+    if spectral_lines:
+        components.append(NoiseComponentConfig(simulator="spectral_lines", options={"lines": spectral_lines}))
+
+    if glitches:
+        components.append(NoiseComponentConfig(simulator="glitches", options={"models": glitches}))
+
+    return components
 
 
 class NoiseAdapter:
@@ -372,18 +417,7 @@ class NoiseAdapter:
         Returns:
             The noise config.
         """
-        return NoiseConfig(
-            detectors=list(detectors),
-            duration=duration,
-            sampling_frequency=sampling_frequency,
-            output=OutputConfig(
-                directory=Path(output_directory),
-                prefix=output_prefix,
-                format=output_format,
-                gps_start=gps_start,
-                channel_prefix=channel_prefix,
-            ),
-            seed=seed,
+        components = _build_components(
             psd_file=_coerce_path(psd_file),
             psd_schedule=_coerce_path_schedule(psd_schedule),
             psd_files=_coerce_path_mapping(psd_files),
@@ -393,6 +427,22 @@ class NoiseAdapter:
             spectral_lines=spectral_lines,
             glitches=glitches,
         )
+        kwargs: dict[str, Any] = {
+            "detectors": list(detectors),
+            "duration": duration,
+            "sampling_frequency": sampling_frequency,
+            "output": OutputConfig(
+                directory=Path(output_directory),
+                prefix=output_prefix,
+                format=output_format,
+                gps_start=gps_start,
+                channel_prefix=channel_prefix,
+            ),
+            "seed": seed,
+        }
+        if components:
+            kwargs["components"] = components
+        return NoiseConfig(**kwargs)
 
     def expected_output_paths(self, *, config: NoiseConfig) -> list[Path]:
         """Return the artifact paths gwmock will write for one chunk.
