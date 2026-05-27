@@ -120,7 +120,11 @@ class TestNoiseAdapter:
         assert config.output.gps_start == TEST_GPS_START
         assert config.output.channel_prefix == "TEST"
         assert config.seed == TEST_SEED
-        assert config.psd_file == psd_path
+        assert len(config.components) == 1
+        assert config.components[0].simulator == "colored"
+        assert config.components[0].options["psd_file"] == psd_path
+        assert config.components[0].options["low_frequency_cutoff"] == 10.0
+        assert config.components[0].options["high_frequency_cutoff"] == 100.0
         assert result.output_paths["H1"] == tmp_path / "segment-0_H1.npy"
 
     def test_open_stream_uses_one_upstream_iterator(self):

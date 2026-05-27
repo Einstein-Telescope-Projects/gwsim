@@ -22,7 +22,7 @@ requires-python = ">=3.12,<3.14"
 dynamic = ["version"]
 dependencies = [
   "gwmock-signal>=0.6.2",
-  "gwmock-noise>=0.2.1",
+  "gwmock-noise>=0.3.0",
   "gwmock-pop>=0.8.1",
   "typer>=0.25.1",
   "tqdm>=4.67.3",
