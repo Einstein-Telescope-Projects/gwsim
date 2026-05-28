@@ -784,10 +784,10 @@ class TestCreatePlanFromMetadata:
         assert plan.batches[0].batch_metadata["author"] == "test_user"
         assert plan.batches[0].batch_metadata["email"] == "test@example.com"
 
-    def test_create_plan_from_metadata_directory_not_found(self):
+    def test_create_plan_from_metadata_directory_not_found(self, tmp_path: Path):
         """Test that non-existent metadata directory raises error."""
         with pytest.raises(FileNotFoundError):
-            create_plan_from_metadata(Path("/nonexistent"), Path("checkpoints"))
+            create_plan_from_metadata(tmp_path / "does_not_exist", Path("checkpoints"))
 
     def test_create_plan_from_metadata_empty_directory(self, tmp_path: Path):
         """Test creating a plan from an empty metadata directory."""

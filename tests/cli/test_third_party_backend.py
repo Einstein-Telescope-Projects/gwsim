@@ -245,7 +245,7 @@ def test_orchestrator_uses_third_party_entry_points(monkeypatch: pytest.MonkeyPa
 
     metadata = yaml.safe_load((tmp_path / "metadata" / "orchestration-0.metadata.json").read_text())
     assert (tmp_path / "output" / "signal" / "signal-0.gwf").exists()
-    assert (tmp_path / "output" / "noise" / "noise-0_H1.npy").exists()
+    assert (tmp_path / "output" / "noise" / "noise-0.npy").exists()
     assert metadata["config"]["orchestration"]["population"]["backend"] == aliases["population"]
     assert metadata["config"]["orchestration"]["signal"]["backend"] == aliases["signal"]
     assert metadata["config"]["orchestration"]["noise"]["backend"] == aliases["noise"]
