@@ -607,11 +607,14 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             raise ValueError("Signal detector, channel, and data selections must have matching lengths.")
 
         mapping = {}
+        effective_names = []
         for detector_name, channel_name, index in zip(
             active_detector_names, channel_names, active_indices, strict=True
         ):
             series = data[index].copy()
-            if channel_name is not None:
-                series.channel = channel_name
-            mapping[detector_name] = series
-        return DetectorStrainStack.from_mapping(active_detector_names, mapping)
+            effective_name = channel_name if channel_name is not None else detector_name
+            if effective_name in mapping:
+                effective_name = f"{effective_name}__{detector_name}"
+            effective_names.append(effective_name)
+            mapping[effective_name] = series
+        return DetectorStrainStack.from_mapping(effective_names, mapping)

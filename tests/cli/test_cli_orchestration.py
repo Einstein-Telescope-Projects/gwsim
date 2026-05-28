@@ -408,3 +408,54 @@ def test_noise_batch_overwrite_check_uses_template_paths(tmp_path: Path):
 
     with pytest.raises(FileExistsError, match=r"noise-0\.npy"):
         orchestrator._run_noise_batch()
+
+
+def test_build_signal_stack_uses_channel_name_as_gwf_channel(tmp_path: Path):
+    """_build_signal_stack uses channel_name as the stack name so GWF writes the right channel."""
+    from gwmock.data.time_series.time_series import TimeSeries as GwmockTimeSeries
+
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    data = GwmockTimeSeries(np.zeros((1, 4)), start_time=0.0, sampling_frequency=1.0)
+
+    stack = orchestrator._build_signal_stack(
+        data=data,
+        channel_names=["H1:STRAIN"],
+        detector_names=["H1"],
+    )
+
+    assert stack.detector_names == ("H1:STRAIN",)
+
+
+def test_build_signal_stack_falls_back_to_detector_name_when_channel_is_none(tmp_path: Path):
+    """_build_signal_stack uses detector_name when channel_name is None (no regression)."""
+    from gwmock.data.time_series.time_series import TimeSeries as GwmockTimeSeries
+
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    data = GwmockTimeSeries(np.zeros((1, 4)), start_time=0.0, sampling_frequency=1.0)
+
+    stack = orchestrator._build_signal_stack(
+        data=data,
+        channel_names=[None],
+        detector_names=["H1"],
+    )
+
+    assert stack.detector_names == ("H1",)
+
+
+def test_build_signal_stack_disambiguates_duplicate_channel_names(tmp_path: Path):
+    """Duplicate effective names are disambiguated so no series silently overwrites another."""
+    from gwmock.data.time_series.time_series import TimeSeries as GwmockTimeSeries
+
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    data = GwmockTimeSeries(np.zeros((2, 4)), start_time=0.0, sampling_frequency=1.0)
+
+    stack = orchestrator._build_signal_stack(
+        data=data,
+        channel_names=["STRAIN", "STRAIN"],
+        detector_names=["H1", "L1"],
+    )
+
+    assert stack.detector_names == ("STRAIN", "STRAIN__L1")
