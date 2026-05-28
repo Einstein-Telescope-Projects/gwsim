@@ -275,18 +275,17 @@ def _build_output_records(
                 }
             )
 
-        channel_prefix = str(
-            expand_template_variables(batch.simulator_config.noise.output.arguments or {}, simulator).get(
-                "channel_prefix",
-                "MOCK",
-            )
-        )
+        noise_output_config = batch_data.noise_result.config.output
         for detector, output_path in batch_data.noise_result.output_paths.items():
+            if noise_output_config.channels and detector in noise_output_config.channels:
+                channel_id = noise_output_config.channels[detector]
+            else:
+                channel_id = f"{detector}:{noise_output_config.channel}"
             output_records.append(
                 {
                     "kind": "noise",
                     "path": _to_path_string(output_path, working_directory),
-                    "channels": [f"{detector}:{channel_prefix}"],
+                    "channels": [channel_id],
                     "t0": _to_plain_number(simulator.start_time),
                     "duration": _to_plain_number(simulator.duration),
                     "sha256": compute_file_hash(output_path),

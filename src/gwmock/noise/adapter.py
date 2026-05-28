@@ -44,23 +44,23 @@ def _format_frame_time_token(value: float) -> str:
     return f"{value:.6f}".rstrip("0").rstrip(".").replace(".", "p")
 
 
-def _frame_channel_name(detector: str, channel_prefix: str) -> str:
+def _frame_channel_name(detector: str, channel: str) -> str:
     """Return detector channel name used by gwmock-noise frame outputs.
 
     Args:
         detector: The detector name.
-        channel_prefix: The channel prefix.
+        channel: The channel name suffix.
 
     Returns:
         The detector channel name.
     """
-    return f"{detector}:{channel_prefix}_NOISE"
+    return f"{detector}:{channel}"
 
 
 def _frame_artifact_name(
     *,
     detector: str,
-    channel_prefix: str,
+    channel: str,
     prefix: str,
     gps_start: float,
     duration: float,
@@ -69,7 +69,7 @@ def _frame_artifact_name(
 
     Args:
         detector: The detector name.
-        channel_prefix: The channel prefix.
+        channel: The full channel name (e.g. ``H1:MOCK_NOISE``).
         prefix: The prefix.
         gps_start: The GPS start time.
         duration: The duration.
@@ -77,7 +77,6 @@ def _frame_artifact_name(
     Returns:
         The GWF filename.
     """
-    channel = _frame_channel_name(detector, channel_prefix)
     start_token = _format_frame_time_token(gps_start)
     duration_token = _format_frame_time_token(duration)
     name = f"{detector[0]}-{channel}_{start_token}-{duration_token}.gwf"
@@ -247,7 +246,8 @@ class NoiseAdapter:
         output_prefix: str,
         output_format: Literal["npy", "gwf"],
         gps_start: float,
-        channel_prefix: str,
+        channel: str = "MOCK_NOISE",
+        channels: dict[str, str] | None = None,
         seed: int | None = None,
         psd_file: str | Path | None = None,
         psd_schedule: list[tuple[float, str | Path]] | None = None,
@@ -268,7 +268,8 @@ class NoiseAdapter:
             output_prefix: The output prefix.
             output_format: The output format.
             gps_start: The GPS start time.
-            channel_prefix: The channel prefix.
+            channel: The channel name suffix assembled as ``{detector}:{channel}``.
+            channels: Optional per-detector full channel names, e.g. ``{"H1": "H1:STRAIN_NOISE"}``.
             seed: The seed.
             psd_file: The PSD file.
             psd_schedule: The PSD schedule.
@@ -290,7 +291,8 @@ class NoiseAdapter:
             output_prefix=output_prefix,
             output_format=output_format,
             gps_start=gps_start,
-            channel_prefix=channel_prefix,
+            channel=channel,
+            channels=channels,
             seed=seed,
             psd_file=psd_file,
             psd_schedule=psd_schedule,
@@ -382,7 +384,8 @@ class NoiseAdapter:
         output_prefix: str,
         output_format: Literal["npy", "gwf"],
         gps_start: float,
-        channel_prefix: str,
+        channel: str = "MOCK_NOISE",
+        channels: dict[str, str] | None = None,
         seed: int | None = None,
         psd_file: str | Path | None = None,
         psd_schedule: list[tuple[float, str | Path]] | None = None,
@@ -403,7 +406,8 @@ class NoiseAdapter:
             output_prefix: The output prefix.
             output_format: The output format.
             gps_start: The GPS start time.
-            channel_prefix: The channel prefix.
+            channel: The channel name suffix assembled as ``{detector}:{channel}``.
+            channels: Optional per-detector full channel names, e.g. ``{"H1": "H1:STRAIN_NOISE"}``.
             seed: The seed.
             psd_file: The PSD file.
             psd_schedule: The PSD schedule.
@@ -436,7 +440,8 @@ class NoiseAdapter:
                 prefix=output_prefix,
                 format=output_format,
                 gps_start=gps_start,
-                channel_prefix=channel_prefix,
+                channel=channel,
+                channels=channels,
             ),
             "seed": seed,
         }
@@ -463,7 +468,11 @@ class NoiseAdapter:
             config.output.directory
             / _frame_artifact_name(
                 detector=detector,
-                channel_prefix=config.output.channel_prefix,
+                channel=(
+                    config.output.channels[detector]
+                    if config.output.channels and detector in config.output.channels
+                    else _frame_channel_name(detector, config.output.channel)
+                ),
                 prefix=config.output.prefix,
                 gps_start=config.output.gps_start,
                 duration=config.duration,
@@ -488,7 +497,8 @@ class NoiseAdapter:
                 _ChunkNoiseSimulator(chunk_by_detector),
                 gps_start=config.output.gps_start,
                 output_dir=config.output.directory,
-                channel_prefix=config.output.channel_prefix,
+                channel=config.output.channel,
+                channels=config.output.channels,
                 prefix=config.output.prefix,
             ).write(
                 duration=config.duration,
