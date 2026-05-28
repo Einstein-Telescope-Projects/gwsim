@@ -193,8 +193,7 @@ def _fake_orchestration_config(tmp_path: Path, *, source_type: str) -> Config:
 
 def _assert_noise_outputs_exist(output_directory: Path) -> None:
     for counter in range(EXPECTED_BATCHES):
-        for detector in ["H1"]:
-            assert (output_directory / f"noise-{counter}_{detector}.npy").exists()
+        assert (output_directory / f"noise-{counter}.npy").exists()
 
 
 def test_create_plan_from_orchestration_config(tmp_path: Path):
@@ -332,3 +331,62 @@ def test_orchestrator_records_single_detector_preset_resolution(tmp_path: Path):
             }
         ],
     }
+
+
+def test_noise_batch_gwf_writes_per_detector_files(monkeypatch, tmp_path: Path):
+    """Noise GWF template with {{ detectors }} produces one file per detector at the template-specified path."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    config.orchestration.noise.arguments = {
+        "seed": 7,
+        "duration": 4.0,
+        "sampling_frequency": 4.0,
+        "detectors": ["H1", "L1"],
+    }
+    config.orchestration.noise.output = SimulatorOutputConfig(
+        file_name="noise-{{ counter }}-{{ detectors }}.gwf",
+        output_directory="noise",
+    )
+
+    monkeypatch.setattr("gwmock.cli.adapter_orchestration.DetectorStrainStack.write", _write_signal_file)
+
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    orchestrator._active_noise_output_directory = tmp_path / "noise"
+    orchestrator._active_overwrite = True
+
+    result = orchestrator._run_noise_batch()
+
+    noise_dir = tmp_path / "noise"
+    assert (noise_dir / "noise-0-H1.gwf").exists()
+    assert (noise_dir / "noise-0-L1.gwf").exists()
+    assert result.output_paths["H1"] == noise_dir / "noise-0-H1.gwf"
+    assert result.output_paths["L1"] == noise_dir / "noise-0-L1.gwf"
+
+
+def test_noise_batch_npy_uses_template_path(tmp_path: Path):
+    """Noise NPY files are written to the exact template-expanded path (no detector suffix appended)."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    orchestrator._active_noise_output_directory = tmp_path / "noise"
+    orchestrator._active_overwrite = True
+
+    result = orchestrator._run_noise_batch()
+
+    assert (tmp_path / "noise" / "noise-0.npy").exists()
+    assert result.output_paths["H1"] == tmp_path / "noise" / "noise-0.npy"
+
+
+def test_noise_batch_overwrite_check_uses_template_paths(tmp_path: Path):
+    """FileExistsError is raised when a template-expanded noise path already exists."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    noise_dir = tmp_path / "noise"
+    noise_dir.mkdir(parents=True)
+    (noise_dir / "noise-0.npy").write_text("existing")
+
+    orchestrator._active_noise_output_directory = noise_dir
+    orchestrator._active_overwrite = False
+
+    with pytest.raises(FileExistsError, match=r"noise-0\.npy"):
+        orchestrator._run_noise_batch()

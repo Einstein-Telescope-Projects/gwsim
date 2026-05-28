@@ -11,6 +11,7 @@ import numpy as np
 from gwmock_noise import SimulationResult
 from gwmock_pop import GWPopSimulator
 from gwmock_signal import DetectorStrainStack, Network
+from gwpy.timeseries import TimeSeries as GWpyTimeSeries
 
 from gwmock.cli.utils.backend_resolver import instantiate_backend, resolve_backend_class, validate_backend
 from gwmock.cli.utils.config import OrchestrationConfig
@@ -40,13 +41,22 @@ def _normalize_keys(values: dict[str, Any]) -> dict[str, Any]:
     return {key.replace("-", "_"): value for key, value in values.items()}
 
 
-def _flatten_first(value: str | list[str] | list[list[str]]) -> str:
-    """Return the first scalar string from an expanded template."""
-    while isinstance(value, list):
-        if not value:
-            raise ValueError("Template expansion produced an empty list; cannot derive a scalar string.")
-        value = value[0]
-    return value
+class _NoiseTemplateProxy:
+    """Forward attribute access to an orchestrator, substituting noise detectors.
+
+    ``expand_template_variables`` resolves ``{{ detectors }}`` via ``getattr``.
+    This proxy redirects that lookup to the noise detector list instead of the
+    signal detector list stored on the real orchestrator.
+    """
+
+    __slots__ = ("_wrapped", "detectors")
+
+    def __init__(self, wrapped: Any, noise_detectors: list[str]) -> None:
+        object.__setattr__(self, "_wrapped", wrapped)
+        object.__setattr__(self, "detectors", noise_detectors)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(object.__getattribute__(self, "_wrapped"), name)
 
 
 class AdapterOrchestrator(TimeSeriesMixin, Simulator):
@@ -369,7 +379,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
 
     def _run_noise_batch(self) -> SimulationResult:
         output_format = self._infer_noise_output_format(self.orchestration_config.noise.output.file_name)
-        output_prefix = self._derive_noise_output_prefix(self.orchestration_config.noise.output.file_name)
+        output_paths = self._expand_noise_output_paths(self.orchestration_config.noise.output.file_name)
         output_arguments = dict(self._active_noise_output_arguments)
         channel_prefix = str(output_arguments.pop("channel_prefix", "MOCK"))
         gps_start = float(output_arguments.pop("gps_start", float(self.start_time.value)))
@@ -380,12 +390,42 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 f"Unsupported keys: {unsupported}."
             )
 
+        if not self._active_overwrite:
+            existing = [path for path in dict.fromkeys(output_paths) if path.exists()]
+            if existing:
+                raise FileExistsError(
+                    f"Noise adapter output(s) already exist: {', '.join(str(path) for path in existing)}. "
+                    "Use overwrite=True to overwrite them."
+                )
+
+        noise_detectors = list(self.noise_arguments["detectors"])
+        chunk = self._next_noise_chunk()
+        output_paths_by_detector: dict[str, Path] = {}
+
+        for i, detector in enumerate(noise_detectors):
+            output_path = output_paths[i] if len(output_paths) > 1 else output_paths[0]
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            if output_format == "gwf":
+                channel_id = f"{detector}:{channel_prefix}"
+                gwpy_ts = GWpyTimeSeries(
+                    np.asarray(chunk[detector], dtype=float),
+                    t0=gps_start,
+                    sample_rate=float(self.sampling_frequency.value),
+                )
+                DetectorStrainStack.from_mapping([channel_id], {channel_id: gwpy_ts}).write(output_path, format="gwf")
+            else:
+                np.save(output_path, chunk[detector])
+            output_paths_by_detector[detector] = output_path
+
+        self.noise_stream_committed_count = max(
+            int(self.noise_stream_committed_count), int(self._noise_stream_position)
+        )
         config = self.noise_adapter.build_config(
-            detectors=list(self.noise_arguments["detectors"]),
+            detectors=noise_detectors,
             duration=float(self.duration.value),
             sampling_frequency=float(self.sampling_frequency.value),
             output_directory=self._active_noise_output_directory,
-            output_prefix=output_prefix,
+            output_prefix="",
             output_format=output_format,
             gps_start=gps_start,
             channel_prefix=channel_prefix,
@@ -399,20 +439,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             spectral_lines=self.noise_arguments.get("spectral_lines"),
             glitches=self.noise_arguments.get("glitches"),
         )
-        if not self._active_overwrite:
-            existing = [path for path in self.noise_adapter.expected_output_paths(config=config) if path.exists()]
-            if existing:
-                raise FileExistsError(
-                    f"Noise adapter output(s) already exist: {', '.join(str(path) for path in existing)}. "
-                    "Use overwrite=True to overwrite them."
-                )
-
-        chunk = self._next_noise_chunk()
-        result = self.noise_adapter.write_chunk(config=config, chunk=chunk)
-        self.noise_stream_committed_count = max(
-            int(self.noise_stream_committed_count), int(self._noise_stream_position)
-        )
-        return result
+        return SimulationResult(output_paths=output_paths_by_detector, config=config)
 
     def segment_seeds(self) -> list[int]:
         """Return the deterministic per-segment seeds derived locally by gwmock."""
@@ -451,10 +478,19 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             raise ValueError("Noise output templates must end with .npy or .gwf.")
         return cast(Literal["npy", "gwf"], suffix)
 
-    def _derive_noise_output_prefix(self, file_name_template: str) -> str:
-        prefix = _flatten_first(expand_template_variables(str(Path(file_name_template).with_suffix("")), self))
-        prefix = prefix.strip("-_ ")
-        return prefix or f"noise-{self.counter}"
+    def _expand_noise_output_paths(self, file_name_template: str) -> list[Path]:
+        """Expand the noise file_name template to one output path per detector."""
+        noise_detectors = list(self.noise_arguments["detectors"])
+        proxy = _NoiseTemplateProxy(self, noise_detectors)
+        expanded = expand_template_variables(file_name_template, proxy)
+        if isinstance(expanded, list):
+            if len(expanded) != len(noise_detectors):
+                raise ValueError(
+                    f"Noise file_name template expanded to {len(expanded)} paths "
+                    f"but there are {len(noise_detectors)} noise detectors."
+                )
+            return [self._active_noise_output_directory / str(p) for p in expanded]
+        return [self._active_noise_output_directory / str(expanded)] * len(noise_detectors)
 
     @staticmethod
     def _resolve_output_directory(
