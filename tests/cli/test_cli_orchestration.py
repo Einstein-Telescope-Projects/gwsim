@@ -376,6 +376,24 @@ def test_noise_batch_npy_uses_template_path(tmp_path: Path):
     assert result.output_paths["H1"] == tmp_path / "noise" / "noise-0.npy"
 
 
+def test_noise_batch_npy_scalar_template_multiple_detectors_raises(tmp_path: Path):
+    """Scalar NPY template with multiple detectors raises ValueError to prevent silent overwrites."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    config.orchestration.noise.arguments = {
+        "seed": 7,
+        "duration": 4.0,
+        "sampling_frequency": 4.0,
+        "detectors": ["H1", "L1"],
+    }
+
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    orchestrator._active_noise_output_directory = tmp_path / "noise"
+    orchestrator._active_overwrite = True
+
+    with pytest.raises(ValueError, match="identical paths for multiple detectors"):
+        orchestrator._run_noise_batch()
+
+
 def test_noise_batch_overwrite_check_uses_template_paths(tmp_path: Path):
     """FileExistsError is raised when a template-expanded noise path already exists."""
     config = _fake_orchestration_config(tmp_path, source_type="bbh")

@@ -489,8 +489,15 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                     f"Noise file_name template expanded to {len(expanded)} paths "
                     f"but there are {len(noise_detectors)} noise detectors."
                 )
-            return [self._active_noise_output_directory / str(p) for p in expanded]
-        return [self._active_noise_output_directory / str(expanded)] * len(noise_detectors)
+            paths = [self._active_noise_output_directory / str(p) for p in expanded]
+        else:
+            paths = [self._active_noise_output_directory / str(expanded)] * len(noise_detectors)
+        if len(set(paths)) < len(paths):
+            raise ValueError(
+                "Noise file_name template produces identical paths for multiple detectors. "
+                "Include {{ detectors }} in the template to generate per-detector paths."
+            )
+        return paths
 
     @staticmethod
     def _resolve_output_directory(
