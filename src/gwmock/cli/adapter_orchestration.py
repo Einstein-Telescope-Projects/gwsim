@@ -157,7 +157,11 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 raise ValueError(f"Population event ordering key '{sort_key}' is missing from one or more events.")
             population_events.sort(key=lambda event: event[sort_key])
 
-        noise_arguments.setdefault("detectors", resolved_detectors)
+        if "detectors" in noise_arguments:
+            noise_network, _ = cls._resolve_detector_network(noise_arguments["detectors"])
+            noise_arguments["detectors"] = cls._network_detector_names(noise_network)
+        else:
+            noise_arguments["detectors"] = resolved_detectors
         noise_adapter = cls._instantiate_noise_adapter(orchestration_config.noise)
 
         return cls(

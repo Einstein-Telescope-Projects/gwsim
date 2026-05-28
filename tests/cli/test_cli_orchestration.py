@@ -293,6 +293,23 @@ def test_orchestrator_records_preset_network_resolution(tmp_path: Path):
     }
 
 
+def test_orchestrator_resolves_noise_detector_alias(tmp_path: Path):
+    """Detector aliases in noise.arguments.detectors must be resolved to sub-detectors."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    config.orchestration.signal.detectors = ["ET-Triangle-Sardinia"]
+    config.orchestration.noise.arguments = {
+        "seed": 7,
+        "duration": 4.0,
+        "sampling_frequency": 4.0,
+        "detectors": ["ET-Triangle-Sardinia"],
+    }
+
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+
+    assert orchestrator.noise_arguments["detectors"] == ["ET1_SARD", "ET2_SARD", "ET3_SARD"]
+    assert orchestrator.detectors == ["ET1_SARD", "ET2_SARD", "ET3_SARD"]
+
+
 def test_orchestrator_records_single_detector_preset_resolution(tmp_path: Path):
     """Single public ET-detector aliases should resolve via the preset-backed detector catalog."""
     config = _fake_orchestration_config(tmp_path, source_type="bbh")
