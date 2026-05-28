@@ -613,6 +613,8 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         ):
             series = data[index].copy()
             effective_name = channel_name if channel_name is not None else detector_name
+            if effective_name in mapping:
+                effective_name = f"{effective_name}__{detector_name}"
             effective_names.append(effective_name)
             mapping[effective_name] = series
         return DetectorStrainStack.from_mapping(effective_names, mapping)
