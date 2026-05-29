@@ -32,8 +32,8 @@ from gwmock.simulator.state import StateAttribute
 class AdapterOrchestrationResult:
     """Artifacts produced by one adapter-backed orchestration batch."""
 
-    signal_segment: TimeSeries
-    noise_result: SimulationResult
+    signal_segment: TimeSeries | None
+    noise_result: SimulationResult | None
 
 
 def _normalize_keys(values: dict[str, Any]) -> dict[str, Any]:
@@ -101,18 +101,26 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         self.minimum_frequency = minimum_frequency
         self.earth_rotation = earth_rotation
         self.orchestration_config = orchestration_config
-        self.signal_adapter = (
-            signal_adapter
-            if signal_adapter is not None
-            else SignalAdapter.from_source_type(
+        if signal_adapter is not None:
+            self.signal_adapter = signal_adapter
+        elif orchestration_config.signal is not None:
+            self.signal_adapter = SignalAdapter.from_source_type(
                 source_type=source_type,
                 waveform_model=waveform_model,
                 network=detector_network,
             )
+        else:
+            self.signal_adapter = None
+        self.detectors = (
+            list(self.signal_adapter.detector_names) if self.signal_adapter is not None else list(detectors)
         )
-        self.detectors = list(self.signal_adapter.detector_names)
         self.noise_arguments = noise_arguments
-        self.noise_adapter = noise_adapter if noise_adapter is not None else NoiseAdapter.from_backend()
+        if noise_adapter is not None:
+            self.noise_adapter = noise_adapter
+        elif orchestration_config.noise is not None:
+            self.noise_adapter = NoiseAdapter.from_backend()
+        else:
+            self.noise_adapter = None
         self._active_signal_output_directory = Path("signal")
         self._active_noise_output_directory = Path("noise")
         self._active_noise_output_arguments: dict[str, Any] = {}
@@ -141,61 +149,136 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         duration = float(global_args.get("duration", 4.0))
         sampling_frequency = float(global_args.get("sampling_frequency", 4096.0))
         start_time = float(global_args.get("start_time", 0.0))
-        noise_arguments = _normalize_keys(orchestration_config.noise.arguments)
-        if global_args.get("seed") is not None:
-            noise_arguments.setdefault("seed", int(global_args["seed"]))
+
+        has_population = orchestration_config.population is not None
+        has_signal = orchestration_config.signal is not None
+
+        noise_arguments, detector_network, detector_resolution, resolved_detectors = (
+            cls._resolve_detectors_and_noise_args(orchestration_config, global_args)
+        )
         top_level_seed = int(noise_arguments["seed"]) if noise_arguments.get("seed") is not None else None
         population_seed = derive_seed(top_level_seed, "population") if top_level_seed is not None else None
-        detector_network, detector_resolution = cls._resolve_detector_network(orchestration_config.signal.detectors)
-        resolved_detectors = cls._network_detector_names(detector_network)
 
-        population_backend = cls._instantiate_population_backend(orchestration_config.population)
-        population_adapter = PopulationAdapter.from_backend(
-            population_backend,
-            n_samples=orchestration_config.population.n_samples,
-            **({"seed": population_seed} if population_seed is not None else {}),
-        )
-        signal_adapter = cls._instantiate_signal_adapter(
-            orchestration_config.signal,
-            source_type=population_adapter.source_type,
-            detector_network=detector_network,
-        )
-        population_events = list(population_adapter.iter_event_parameters())
-        if orchestration_config.population.sort_by:
-            sort_key = orchestration_config.population.sort_by
-            if population_events and any(sort_key not in event for event in population_events):
-                raise ValueError(f"Population event ordering key '{sort_key}' is missing from one or more events.")
-            population_events.sort(key=lambda event: event[sort_key])
+        population_events: list[dict[str, Any]] = []
+        population_metadata: dict[str, Any] = {}
+        source_type = ""
+        source_detector_specs: list[str] = []
+        waveform_model: str | None = None
+        waveform_arguments: dict[str, Any] = {}
+        minimum_frequency = 5.0
+        earth_rotation = True
+        signal_adapter: SignalAdapter | None = None
+        noise_adapter: NoiseAdapter | None = None
 
-        if "detectors" in noise_arguments:
-            noise_network, _ = cls._resolve_detector_network(noise_arguments["detectors"])
-            noise_arguments["detectors"] = cls._network_detector_names(noise_network)
-        else:
-            noise_arguments["detectors"] = resolved_detectors
-        noise_adapter = cls._instantiate_noise_adapter(orchestration_config.noise)
+        if has_population:
+            population_events, population_metadata, source_type = cls._build_population_context(
+                orchestration_config.population,  # type: ignore[arg-type]
+                population_seed,
+            )
+
+        if has_signal:
+            signal_adapter = cls._instantiate_signal_adapter(
+                orchestration_config.signal,
+                source_type=source_type,
+                detector_network=detector_network,
+            )
+            source_detector_specs = list(orchestration_config.signal.detectors)  # type: ignore[union-attr]
+            waveform_model = orchestration_config.signal.waveform_model  # type: ignore[union-attr]
+            waveform_arguments = orchestration_config.signal.waveform_arguments  # type: ignore[union-attr]
+            minimum_frequency = orchestration_config.signal.minimum_frequency  # type: ignore[union-attr]
+            earth_rotation = orchestration_config.signal.earth_rotation  # type: ignore[union-attr]
+            if orchestration_config.noise is None:
+                noise_arguments["detectors"] = resolved_detectors
+
+        if orchestration_config.noise is not None:
+            noise_adapter = cls._instantiate_noise_adapter(orchestration_config.noise)
 
         return cls(
             population_events=population_events,
-            population_metadata=population_adapter.metadata,
-            source_type=population_adapter.source_type,
-            source_detector_specs=list(orchestration_config.signal.detectors),
+            population_metadata=population_metadata,
+            source_type=source_type,
+            source_detector_specs=source_detector_specs,
             detector_network=detector_network,
             detector_resolution=detector_resolution,
-            waveform_model=orchestration_config.signal.waveform_model,
-            waveform_arguments=orchestration_config.signal.waveform_arguments,
+            waveform_model=waveform_model,
+            waveform_arguments=waveform_arguments,
             detectors=resolved_detectors,
             duration=duration,
             sampling_frequency=sampling_frequency,
             start_time=start_time,
             max_samples=max_samples,
-            minimum_frequency=orchestration_config.signal.minimum_frequency,
-            earth_rotation=orchestration_config.signal.earth_rotation,
+            minimum_frequency=minimum_frequency,
+            earth_rotation=earth_rotation,
             noise_arguments=noise_arguments,
             orchestration_config=orchestration_config,
             population_seed=population_seed,
             signal_adapter=signal_adapter,
             noise_adapter=noise_adapter,
         )
+
+    @classmethod
+    def _resolve_detectors_and_noise_args(
+        cls,
+        orchestration_config: OrchestrationConfig,
+        global_args: dict[str, Any],
+    ) -> tuple[dict[str, Any], Network | None, dict[str, Any], list[str]]:
+        """Resolve noise arguments and detector lists for all active adapters."""
+        has_noise = orchestration_config.noise is not None
+        has_signal = orchestration_config.signal is not None
+
+        noise_arguments: dict[str, Any] = (
+            _normalize_keys(orchestration_config.noise.arguments)  # type: ignore[union-attr]
+            if has_noise
+            else {}
+        )
+        if global_args.get("seed") is not None:
+            noise_arguments.setdefault("seed", int(global_args["seed"]))
+
+        detector_network: Network | None = None
+        detector_resolution: dict[str, Any] = {}
+        resolved_detectors: list[str] = []
+
+        if has_signal:
+            detector_network, detector_resolution = cls._resolve_detector_network(
+                orchestration_config.signal.detectors  # type: ignore[union-attr]
+            )
+            resolved_detectors = cls._network_detector_names(detector_network)
+
+        if has_noise:
+            if "detectors" in noise_arguments:
+                noise_network, _ = cls._resolve_detector_network(noise_arguments["detectors"])
+                noise_arguments["detectors"] = cls._network_detector_names(noise_network)
+                if not has_signal:
+                    resolved_detectors = noise_arguments["detectors"]
+            elif has_signal:
+                noise_arguments["detectors"] = resolved_detectors
+            else:
+                raise ValueError(
+                    "noise-only orchestration config must specify detectors under noise.arguments.detectors"
+                )
+
+        return noise_arguments, detector_network, detector_resolution, resolved_detectors
+
+    @classmethod
+    def _build_population_context(
+        cls,
+        population_config: Any,
+        population_seed: int | None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], str]:
+        """Materialise population events and return (events, metadata, source_type)."""
+        population_backend = cls._instantiate_population_backend(population_config)
+        population_adapter = PopulationAdapter.from_backend(
+            population_backend,
+            n_samples=population_config.n_samples,
+            **({"seed": population_seed} if population_seed is not None else {}),
+        )
+        population_events = list(population_adapter.iter_event_parameters())
+        sort_key = population_config.sort_by
+        if sort_key:
+            if population_events and any(sort_key not in event for event in population_events):
+                raise ValueError(f"Population event ordering key '{sort_key}' is missing from one or more events.")
+            population_events.sort(key=lambda event: event[sort_key])
+        return population_events, population_adapter.metadata, population_adapter.source_type
 
     @staticmethod
     def _instantiate_population_backend(population_config) -> GWPopSimulator:
@@ -270,27 +353,29 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
 
     def set_batch_context(self, *, batch: Any, output_directory: Path, overwrite: bool) -> None:
         """Resolve per-batch output directories and runtime arguments."""
-        signal_output = batch.simulator_config.signal.output
-        noise_output = batch.simulator_config.noise.output
-        self._active_signal_output_directory = self._resolve_output_directory(
-            output_directory,
-            signal_output.output_directory,
-            fallback_subdir="signal",
-        )
-        self._active_noise_output_directory = self._resolve_output_directory(
-            output_directory,
-            noise_output.output_directory,
-            fallback_subdir="noise",
-        )
-        noise_detectors = list(self.noise_arguments["detectors"])
-        proxy = _NoiseTemplateProxy(self, noise_detectors)
-        self._active_noise_output_arguments = expand_template_variables(noise_output.arguments or {}, proxy)
+        if batch.simulator_config.signal is not None:
+            signal_output = batch.simulator_config.signal.output
+            self._active_signal_output_directory = self._resolve_output_directory(
+                output_directory,
+                signal_output.output_directory,
+                fallback_subdir="signal",
+            )
+        if batch.simulator_config.noise is not None:
+            noise_output = batch.simulator_config.noise.output
+            self._active_noise_output_directory = self._resolve_output_directory(
+                output_directory,
+                noise_output.output_directory,
+                fallback_subdir="noise",
+            )
+            noise_detectors = list(self.noise_arguments.get("detectors", []))
+            proxy = _NoiseTemplateProxy(self, noise_detectors)
+            self._active_noise_output_arguments = expand_template_variables(noise_output.arguments or {}, proxy)
         self._active_overwrite = overwrite
 
     def simulate(self) -> AdapterOrchestrationResult:
-        """Generate one signal segment and one noise segment for the current batch."""
-        signal_segment = TimeSeriesMixin.simulate(self)
-        noise_result = self._run_noise_batch()
+        """Generate signal and/or noise for the current batch depending on active adapters."""
+        signal_segment = TimeSeriesMixin.simulate(self) if self.signal_adapter is not None else None
+        noise_result = self._run_noise_batch() if self.noise_adapter is not None else None
         return AdapterOrchestrationResult(signal_segment=signal_segment, noise_result=noise_result)
 
     def _simulate(self) -> TimeSeriesList:
@@ -331,6 +416,8 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
 
     def signal_output_arguments(self) -> dict[str, Any]:
         """Return the active signal output keyword arguments."""
+        if self.orchestration_config.signal is None:
+            return {}
         return dict(self.orchestration_config.signal.output.arguments or {})
 
     def _save_data(

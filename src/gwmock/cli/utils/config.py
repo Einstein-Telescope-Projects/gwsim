@@ -205,9 +205,17 @@ class NoiseAdapterConfig(BaseModel):
 class OrchestrationConfig(BaseModel):
     """Composite adapter-backed orchestration configuration."""
 
-    population: PopulationConfig
-    signal: SignalConfig
-    noise: NoiseAdapterConfig
+    noise: NoiseAdapterConfig | None = None
+    population: PopulationConfig | None = None
+    signal: SignalConfig | None = None
+
+    @model_validator(mode="after")
+    def _validate_combinations(self) -> OrchestrationConfig:
+        if self.noise is None and self.population is None and self.signal is None:
+            raise ValueError("orchestration must define at least one of: noise, population, signal")
+        if self.signal is not None and self.population is None:
+            raise ValueError("orchestration.signal requires orchestration.population")
+        return self
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -392,11 +400,15 @@ def validate_config(config: dict) -> None:
     if not isinstance(orchestration, dict):
         raise ValueError("'orchestration' must be a dictionary")
 
-    for section in ("population", "signal", "noise"):
-        if section not in orchestration:
-            raise ValueError(f"'orchestration' missing required '{section}' section")
+    known_sections = {"population", "signal", "noise"}
+    present_sections = known_sections & set(orchestration.keys())
+    if not present_sections:
+        raise ValueError("'orchestration' must define at least one of: noise, population, signal")
+    for section in present_sections:
         if not isinstance(orchestration[section], dict):
             raise ValueError(f"'orchestration.{section}' must be a dictionary")
+    if "signal" in orchestration and "population" not in orchestration:
+        raise ValueError("'orchestration.signal' requires 'orchestration.population'")
 
     # Validate globals section if present
     if "globals" in config:

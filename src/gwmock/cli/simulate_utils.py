@@ -183,6 +183,8 @@ def _build_population_section(simulator: Simulator, batch: SimulationBatch) -> d
     """Build the population section for the metadata schema."""
     simulator_metadata = simulator.metadata
     if isinstance(simulator, AdapterOrchestrator):
+        if batch.simulator_config.population is None:
+            return None
         return {
             "backend": batch.simulator_config.population.backend,
             "source_type": simulator_metadata["orchestration"]["source_type"],
@@ -206,6 +208,8 @@ def _build_signal_section(simulator: Simulator, batch: SimulationBatch) -> dict[
     """Build the signal section for the metadata schema."""
     simulator_metadata = simulator.metadata
     if isinstance(simulator, AdapterOrchestrator):
+        if batch.simulator_config.signal is None or simulator.signal_adapter is None:
+            return None
         return {
             "backend": _backend_path_from_object(simulator.signal_adapter._backend),
             "waveform_model": simulator.waveform_model,
@@ -227,6 +231,8 @@ def _build_noise_section(simulator: Simulator, batch: SimulationBatch) -> dict[s
     """Build the noise section for the metadata schema."""
     simulator_metadata = simulator.metadata
     if isinstance(simulator, AdapterOrchestrator):
+        if batch.simulator_config.noise is None or simulator.noise_adapter is None:
+            return None
         psd_value = simulator.noise_arguments.get("psd_file")
         if psd_value is None and simulator.noise_arguments.get("psd_files"):
             psd_value = "multiple"
@@ -255,42 +261,44 @@ def _build_output_records(
     output_records: list[dict[str, Any]] = []
 
     if isinstance(batch_data, AdapterOrchestrationResult):
-        signal_files = _resolve_output_paths(
-            file_name_template=batch.simulator_config.signal.output.file_name,
-            simulator=simulator,
-            output_directory=cast(AdapterOrchestrator, simulator).signal_output_directory(),
-        )
-        signal_channels = _flatten_to_strings(
-            expand_template_variables(batch.simulator_config.signal.output.arguments.get("channel"), simulator)
-        )
-        for index, output_file in enumerate(signal_files):
-            output_records.append(
-                {
-                    "kind": "signal",
-                    "path": _to_path_string(output_file, working_directory),
-                    "channels": signal_channels[index : index + 1] if signal_channels else [],
-                    "t0": _to_plain_number(batch_data.signal_segment.start_time),
-                    "duration": _to_plain_number(batch_data.signal_segment.duration),
-                    "sha256": compute_file_hash(output_file),
-                }
+        if batch.simulator_config.signal is not None and batch_data.signal_segment is not None:
+            signal_files = _resolve_output_paths(
+                file_name_template=batch.simulator_config.signal.output.file_name,
+                simulator=simulator,
+                output_directory=cast(AdapterOrchestrator, simulator).signal_output_directory(),
             )
+            signal_channels = _flatten_to_strings(
+                expand_template_variables(batch.simulator_config.signal.output.arguments.get("channel"), simulator)
+            )
+            for index, output_file in enumerate(signal_files):
+                output_records.append(
+                    {
+                        "kind": "signal",
+                        "path": _to_path_string(output_file, working_directory),
+                        "channels": signal_channels[index : index + 1] if signal_channels else [],
+                        "t0": _to_plain_number(batch_data.signal_segment.start_time),
+                        "duration": _to_plain_number(batch_data.signal_segment.duration),
+                        "sha256": compute_file_hash(output_file),
+                    }
+                )
 
-        noise_output_config = batch_data.noise_result.config.output
-        for detector, output_path in batch_data.noise_result.output_paths.items():
-            if noise_output_config.channels and detector in noise_output_config.channels:
-                channel_id = noise_output_config.channels[detector]
-            else:
-                channel_id = f"{detector}:{noise_output_config.channel}"
-            output_records.append(
-                {
-                    "kind": "noise",
-                    "path": _to_path_string(output_path, working_directory),
-                    "channels": [channel_id],
-                    "t0": _to_plain_number(simulator.start_time),
-                    "duration": _to_plain_number(simulator.duration),
-                    "sha256": compute_file_hash(output_path),
-                }
-            )
+        if batch_data.noise_result is not None:
+            noise_output_config = batch_data.noise_result.config.output
+            for detector, output_path in batch_data.noise_result.output_paths.items():
+                if noise_output_config.channels and detector in noise_output_config.channels:
+                    channel_id = noise_output_config.channels[detector]
+                else:
+                    channel_id = f"{detector}:{noise_output_config.channel}"
+                output_records.append(
+                    {
+                        "kind": "noise",
+                        "path": _to_path_string(output_path, working_directory),
+                        "channels": [channel_id],
+                        "t0": _to_plain_number(simulator.start_time),
+                        "duration": _to_plain_number(simulator.duration),
+                        "sha256": compute_file_hash(output_path),
+                    }
+                )
         return output_records
 
     if isinstance(batch_data, SimulationResult):
@@ -658,33 +666,44 @@ def process_batch(
         if not isinstance(batch.simulator_config, OrchestrationConfig):
             raise TypeError("Adapter orchestration results require an OrchestrationConfig batch.")
 
-        signal_output = batch.simulator_config.signal.output
-        logger.debug(
-            "[PROCESS] Batch %s: Saving adapter-backed outputs - counter=%s, signal_template=%s, noise_template=%s",
-            batch.batch_index,
-            simulator.counter,
-            signal_output.file_name,
-            batch.simulator_config.noise.output.file_name,
-        )
-        signal_output_files = _resolve_output_paths(
-            file_name_template=signal_output.file_name,
-            simulator=simulator,
-            output_directory=cast(AdapterOrchestrator, simulator).signal_output_directory(),
-        )
-        simulator.save_data(
-            data=batch_data.signal_segment,
-            file_name=signal_output.file_name,
-            output_directory=cast(AdapterOrchestrator, simulator).signal_output_directory(),
-            overwrite=overwrite,
-            **cast(AdapterOrchestrator, simulator).signal_output_arguments(),
-        )
-        noise_output_files = list(batch_data.noise_result.output_paths.values())
-        missing_noise_outputs = [path for path in noise_output_files if not path.exists()]
-        if missing_noise_outputs:
-            raise FileNotFoundError(
-                "Noise adapter reported output files that do not exist: "
-                + ", ".join(str(path) for path in missing_noise_outputs)
+        signal_output_files: list[Path] = []
+        if batch.simulator_config.signal is not None and batch_data.signal_segment is not None:
+            signal_output = batch.simulator_config.signal.output
+            logger.debug(
+                "[PROCESS] Batch %s: Saving signal output - counter=%s, template=%s",
+                batch.batch_index,
+                simulator.counter,
+                signal_output.file_name,
             )
+            signal_output_files = _resolve_output_paths(
+                file_name_template=signal_output.file_name,
+                simulator=simulator,
+                output_directory=cast(AdapterOrchestrator, simulator).signal_output_directory(),
+            )
+            simulator.save_data(
+                data=batch_data.signal_segment,
+                file_name=signal_output.file_name,
+                output_directory=cast(AdapterOrchestrator, simulator).signal_output_directory(),
+                overwrite=overwrite,
+                **cast(AdapterOrchestrator, simulator).signal_output_arguments(),
+            )
+
+        noise_output_files: list[Path] = []
+        if batch_data.noise_result is not None:
+            noise_output_files = list(batch_data.noise_result.output_paths.values())
+            missing_noise_outputs = [path for path in noise_output_files if not path.exists()]
+            if missing_noise_outputs:
+                raise FileNotFoundError(
+                    "Noise adapter reported output files that do not exist: "
+                    + ", ".join(str(path) for path in missing_noise_outputs)
+                )
+
+        logger.debug(
+            "[PROCESS] Batch %s: adapter outputs - signal=%d files, noise=%d files",
+            batch.batch_index,
+            len(signal_output_files),
+            len(noise_output_files),
+        )
         return [*signal_output_files, *noise_output_files]
 
     if isinstance(batch_data, SimulationResult):
@@ -799,9 +818,9 @@ def validate_plan(plan: SimulationPlan) -> None:
             raise ValueError(f"Batch {batch.batch_index} has invalid index")
 
         if isinstance(batch.simulator_config, OrchestrationConfig):
-            if not batch.simulator_config.signal.output.file_name:
+            if batch.simulator_config.signal is not None and not batch.simulator_config.signal.output.file_name:
                 raise ValueError(f"Batch {batch.simulator_name}-{batch.batch_index} missing signal output file_name")
-            if not batch.simulator_config.noise.output.file_name:
+            if batch.simulator_config.noise is not None and not batch.simulator_config.noise.output.file_name:
                 raise ValueError(f"Batch {batch.simulator_name}-{batch.batch_index} missing noise output file_name")
         else:
             output_config = batch.simulator_config.output
