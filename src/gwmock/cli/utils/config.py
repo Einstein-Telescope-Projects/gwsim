@@ -194,7 +194,7 @@ class NoiseAdapterConfig(BaseModel):
         default_factory=lambda: SimulatorOutputConfig(
             file_name="noise-{{ counter }}.gwf",
             output_directory="noise",
-            arguments={"channel_prefix": "MOCK"},
+            arguments={"channel": "MOCK_NOISE"},
         ),
         description="Noise output configuration",
     )

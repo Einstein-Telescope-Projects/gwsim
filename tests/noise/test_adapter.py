@@ -103,7 +103,7 @@ class TestNoiseAdapter:
             output_prefix="segment-0",
             output_format="npy",
             gps_start=TEST_GPS_START,
-            channel_prefix="TEST",
+            channel="TEST",
             seed=TEST_SEED,
             psd_file=psd_path,
             low_frequency_cutoff=10.0,
@@ -118,7 +118,7 @@ class TestNoiseAdapter:
         assert config.output.prefix == "segment-0"
         assert config.output.format == "npy"
         assert config.output.gps_start == TEST_GPS_START
-        assert config.output.channel_prefix == "TEST"
+        assert config.output.channel == "TEST"
         assert config.seed == TEST_SEED
         assert len(config.components) == 1
         assert config.components[0].simulator == "colored"
@@ -164,7 +164,7 @@ class TestNoiseAdapter:
             output_prefix="noise-0",
             output_format="npy",
             gps_start=100.0,
-            channel_prefix="MOCK",
+            channel="MOCK_NOISE",
             seed=7,
         )
 
@@ -194,7 +194,7 @@ class TestNoiseAdapter:
             output_prefix="noise-0",
             output_format="gwf",
             gps_start=100.5,
-            channel_prefix="MOCK",
+            channel="MOCK_NOISE",
             seed=7,
         )
 
@@ -224,7 +224,7 @@ class TestNoiseAdapter:
                 output_prefix=f"noise-{index}",
                 output_format="npy",
                 gps_start=100.0 + index * 2.0,
-                channel_prefix="MOCK",
+                channel="MOCK_NOISE",
                 seed=13,
             )
             result = adapter.write_chunk(config=config, chunk=next(stream))
@@ -233,3 +233,26 @@ class TestNoiseAdapter:
         concatenated = np.concatenate(segments)
         expected = np.concatenate([np.full(8, value, dtype=float) for value in range(5)])
         assert concatenated.tobytes() == expected.tobytes()
+
+    def test_per_detector_channels_config_and_expected_paths(self, tmp_path: Path):
+        """build_config stores channels dict and expected_output_paths uses per-detector names."""
+        adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
+        config = adapter.build_config(
+            detectors=["H1", "L1"],
+            duration=4.0,
+            sampling_frequency=8.0,
+            output_directory=tmp_path,
+            output_prefix="noise-0",
+            output_format="gwf",
+            gps_start=100.5,
+            channel="STRAIN_NOISE",
+            channels={"H1": "H1:STRAIN_NOISE", "L1": "L1:STRAIN_NOISE"},
+            seed=7,
+        )
+
+        assert config.output.channel == "STRAIN_NOISE"
+        assert config.output.channels == {"H1": "H1:STRAIN_NOISE", "L1": "L1:STRAIN_NOISE"}
+        assert adapter.expected_output_paths(config=config) == [
+            tmp_path / "noise-0_H-H1:STRAIN_NOISE_100p5-4.gwf",
+            tmp_path / "noise-0_L-L1:STRAIN_NOISE_100p5-4.gwf",
+        ]

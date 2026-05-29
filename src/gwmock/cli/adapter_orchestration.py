@@ -282,7 +282,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             noise_output.output_directory,
             fallback_subdir="noise",
         )
-        self._active_noise_output_arguments = expand_template_variables(noise_output.arguments or {}, self)
+        noise_detectors = list(self.noise_arguments["detectors"])
+        proxy = _NoiseTemplateProxy(self, noise_detectors)
+        self._active_noise_output_arguments = expand_template_variables(noise_output.arguments or {}, proxy)
         self._active_overwrite = overwrite
 
     def simulate(self) -> AdapterOrchestrationResult:
@@ -381,14 +383,35 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         output_format = self._infer_noise_output_format(self.orchestration_config.noise.output.file_name)
         output_paths = self._expand_noise_output_paths(self.orchestration_config.noise.output.file_name)
         output_arguments = dict(self._active_noise_output_arguments)
-        channel_prefix = str(output_arguments.pop("channel_prefix", "MOCK"))
+        if "channel_prefix" in output_arguments:
+            raise ValueError(
+                "Noise output argument 'channel_prefix' is no longer supported. "
+                "Rename it to 'channel' (e.g. channel: MOCK_NOISE)."
+            )
+        channel_raw = output_arguments.pop("channel", "MOCK_NOISE")
         gps_start = float(output_arguments.pop("gps_start", float(self.start_time.value)))
         if output_arguments:
             unsupported = ", ".join(sorted(output_arguments))
             raise ValueError(
-                "Noise orchestration output arguments only support channel_prefix and gps_start. "
+                "Noise orchestration output arguments only support channel and gps_start. "
                 f"Unsupported keys: {unsupported}."
             )
+
+        noise_detectors = list(self.noise_arguments["detectors"])
+        if isinstance(channel_raw, list):
+            if len(channel_raw) != len(noise_detectors):
+                raise ValueError(
+                    f"Noise channel list expanded to {len(channel_raw)} entries "
+                    f"but there are {len(noise_detectors)} noise detectors."
+                )
+            channels_dict: dict[str, str] | None = dict(
+                zip(noise_detectors, [str(c) for c in channel_raw], strict=True)
+            )
+            first = str(channel_raw[0])
+            channel_str = first.split(":", 1)[1] if ":" in first else first
+        else:
+            channel_str = str(channel_raw)
+            channels_dict = None
 
         if not self._active_overwrite:
             existing = [path for path in dict.fromkeys(output_paths) if path.exists()]
@@ -398,7 +421,6 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                     "Use overwrite=True to overwrite them."
                 )
 
-        noise_detectors = list(self.noise_arguments["detectors"])
         chunk = self._next_noise_chunk()
         output_paths_by_detector: dict[str, Path] = {}
 
@@ -406,7 +428,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             output_path = output_paths[i] if len(output_paths) > 1 else output_paths[0]
             output_path.parent.mkdir(parents=True, exist_ok=True)
             if output_format == "gwf":
-                channel_id = f"{detector}:{channel_prefix}"
+                channel_id = channels_dict[detector] if channels_dict is not None else f"{detector}:{channel_str}"
                 gwpy_ts = GWpyTimeSeries(
                     np.asarray(chunk[detector], dtype=float),
                     t0=gps_start,
@@ -428,7 +450,8 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             output_prefix="",
             output_format=output_format,
             gps_start=gps_start,
-            channel_prefix=channel_prefix,
+            channel=channel_str,
+            channels=channels_dict,
             seed=self._noise_stream_seed(),
             psd_file=self.noise_arguments.get("psd_file"),
             psd_schedule=self.noise_arguments.get("psd_schedule"),
