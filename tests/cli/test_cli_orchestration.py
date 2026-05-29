@@ -459,3 +459,84 @@ def test_build_signal_stack_disambiguates_duplicate_channel_names(tmp_path: Path
     )
 
     assert stack.detector_names == ("STRAIN", "STRAIN__L1")
+
+
+def test_noise_batch_rejects_mismatched_channel_list_length(tmp_path: Path):
+    """List-valued channel with wrong length raises ValueError."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    # One detector in noise arguments but two entries in the channel list.
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    orchestrator._active_noise_output_directory = tmp_path / "noise"
+    orchestrator._active_overwrite = True
+    orchestrator._active_noise_output_arguments = {"channel": ["H1:STRAIN_NOISE", "L1:STRAIN_NOISE"]}
+
+    with pytest.raises(ValueError, match="Noise channel list expanded to 2 entries but there are 1 noise detectors"):
+        orchestrator._run_noise_batch()
+
+
+def test_noise_batch_rejects_channel_prefix_key(tmp_path: Path):
+    """_run_noise_batch raises ValueError when 'channel_prefix' is present (renamed to 'channel')."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    orchestrator._active_noise_output_directory = tmp_path / "noise"
+    orchestrator._active_overwrite = True
+    orchestrator._active_noise_output_arguments = {"channel_prefix": "MOCK"}
+
+    with pytest.raises(ValueError, match="channel_prefix"):
+        orchestrator._run_noise_batch()
+
+
+def test_noise_batch_gwf_per_detector_channel_from_list(monkeypatch, tmp_path: Path):
+    """List-valued channel (from {{ detectors }}:STRAIN_NOISE) produces per-detector channels_dict."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    config.orchestration.noise.arguments = {
+        "seed": 7,
+        "duration": 4.0,
+        "sampling_frequency": 4.0,
+        "detectors": ["H1", "L1"],
+    }
+    config.orchestration.noise.output = SimulatorOutputConfig(
+        file_name="noise-{{ counter }}-{{ detectors }}.gwf",
+        output_directory="noise",
+    )
+    monkeypatch.setattr("gwmock.cli.adapter_orchestration.DetectorStrainStack.write", _write_signal_file)
+
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    orchestrator._active_noise_output_directory = tmp_path / "noise"
+    orchestrator._active_overwrite = True
+    orchestrator._active_noise_output_arguments = {"channel": ["H1:STRAIN_NOISE", "L1:STRAIN_NOISE"]}
+
+    result = orchestrator._run_noise_batch()
+
+    assert result.config.output.channel == "STRAIN_NOISE"
+    assert result.config.output.channels == {"H1": "H1:STRAIN_NOISE", "L1": "L1:STRAIN_NOISE"}
+    assert result.output_paths["H1"] == tmp_path / "noise" / "noise-0-H1.gwf"
+    assert result.output_paths["L1"] == tmp_path / "noise" / "noise-0-L1.gwf"
+
+
+def test_simulate_command_records_per_detector_channel_ids_in_metadata(monkeypatch, tmp_path: Path):
+    """Per-detector channel names from {{ detectors }}:X template are recorded correctly in metadata."""
+    FakeNoiseAdapter.stream_open_calls.clear()
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    config.orchestration.noise.arguments = {
+        "seed": 7,
+        "detectors": ["H1", "L1"],
+        "duration": 4.0,
+        "sampling_frequency": 4.0,
+    }
+    config.orchestration.noise.output = SimulatorOutputConfig(
+        file_name="noise-{{ counter }}-{{ detectors }}.gwf",
+        output_directory="noise",
+        arguments={"channel": "{{ detectors }}:STRAIN_NOISE"},
+    )
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.safe_dump(config.model_dump(by_alias=True, exclude_none=True), sort_keys=False))
+
+    monkeypatch.setattr("gwmock.cli.adapter_orchestration.DetectorStrainStack.write", _write_signal_file)
+
+    _simulate_impl(str(config_file), overwrite=True, metadata=True)
+
+    metadata = yaml.safe_load((tmp_path / "metadata" / "orchestration-0.metadata.json").read_text())
+    noise_outputs = [o for o in metadata["outputs"] if o["kind"] == "noise"]
+    channel_ids = {o["channels"][0] for o in noise_outputs}
+    assert channel_ids == {"H1:STRAIN_NOISE", "L1:STRAIN_NOISE"}
