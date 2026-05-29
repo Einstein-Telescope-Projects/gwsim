@@ -254,7 +254,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 noise_arguments["detectors"] = resolved_detectors
             else:
                 raise ValueError(
-                    "noise-only orchestration config must specify detectors under noise.arguments.detectors"
+                    "noise orchestration without a signal section must specify detectors under noise.arguments.detectors"
                 )
 
         return noise_arguments, detector_network, detector_resolution, resolved_detectors
