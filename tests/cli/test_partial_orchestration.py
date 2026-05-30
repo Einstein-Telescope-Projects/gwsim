@@ -216,7 +216,7 @@ class TestAdapterOrchestratorSimulate:
 
 
 # ---------------------------------------------------------------------------
-# ISS-007 — n_samples optional in PopulationConfig
+# n_samples optional in PopulationConfig
 # ---------------------------------------------------------------------------
 
 
