@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Any
 from gwmock_signal import CustomDetector, DetectorStrainStack, Network, resolve_simulator_backend
 
 from gwmock.data.time_series.time_series import TimeSeries
+
+logger = logging.getLogger("gwmock")
 
 _DEFAULT_WAVEFORM_MODEL = "IMRPhenomXPHM"
 _LEGACY_SINGLE_DETECTOR_ALIASES = {
@@ -158,6 +161,7 @@ class SignalAdapter:
         self._detector_names = tuple(
             detector if isinstance(detector, str) else detector.name for detector in self._network.detector_names
         )
+        self._unsupported_params: set[str] = set()
 
     @classmethod
     def from_source_type(
@@ -343,14 +347,41 @@ class SignalAdapter:
             A DetectorStrainStack instance.
         """
         backend_parameters = {**(waveform_arguments or {}), **dict(parameters)}
-        return self._backend.simulate(
-            backend_parameters,
-            self._network.detector_names,
-            background=None,
-            sampling_frequency=sampling_frequency,
-            minimum_frequency=minimum_frequency,
-            earth_rotation=earth_rotation,
-        )
+        if self._unsupported_params:
+            backend_parameters = {k: v for k, v in backend_parameters.items() if k not in self._unsupported_params}
+        try:
+            return self._backend.simulate(
+                backend_parameters,
+                self._network.detector_names,
+                background=None,
+                sampling_frequency=sampling_frequency,
+                minimum_frequency=minimum_frequency,
+                earth_rotation=earth_rotation,
+            )
+        except ValueError as exc:
+            _prefix = "Unsupported LAL waveform parameters:"
+            msg = str(exc)
+            if not msg.startswith(_prefix):
+                raise
+            extras = {k.strip() for k in msg[len(_prefix) :].split(",")}
+            new = extras - self._unsupported_params
+            if new:
+                logger.warning(
+                    "Waveform backend does not accept the following population parameters "
+                    "and they will be ignored: %s. "
+                    "They are still recorded in injection_parameters metadata.",
+                    ", ".join(sorted(new)),
+                )
+                self._unsupported_params |= new
+            filtered = {k: v for k, v in backend_parameters.items() if k not in self._unsupported_params}
+            return self._backend.simulate(
+                filtered,
+                self._network.detector_names,
+                background=None,
+                sampling_frequency=sampling_frequency,
+                minimum_frequency=minimum_frequency,
+                earth_rotation=earth_rotation,
+            )
 
     def simulate(
         self,

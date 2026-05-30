@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -240,3 +240,103 @@ class TestSignalAdapter:
         assert backend.waveform_model.startswith("__gwmock_custom__")
         assert merged_calls[0]["reference_frequency"] == 50.0
         assert merged_calls[0]["detector_frame_mass_1"] == 30.0
+
+
+class FailingBackend:
+    """Backend that raises 'Unsupported LAL waveform parameters' on the first call."""
+
+    def __init__(self, *, waveform_model: str) -> None:
+        self.waveform_model = waveform_model
+        self.required_params = frozenset({"coa_time"})
+        self.call_count = 0
+        self.received_params: list[dict] = []
+
+    def simulate(
+        self,
+        params,
+        detector_names,
+        background=None,
+        *,
+        sampling_frequency,
+        minimum_frequency,
+        earth_rotation=True,
+        interpolate_if_offset=True,
+    ):
+        self.call_count += 1
+        self.received_params.append(dict(params))
+        if "redshift" in params or "lambda_1" in params:
+            raise ValueError("Unsupported LAL waveform parameters: lambda_1, redshift")
+        names = tuple(d if isinstance(d, str) else d.name for d in detector_names)
+        from gwpy.timeseries import TimeSeries as GWpyTimeSeries
+
+        return DetectorStrainStack.from_mapping(
+            names,
+            {name: GWpyTimeSeries([1.0, 2.0], t0=0.0, sample_rate=sampling_frequency) for name in names},
+        )
+
+
+def _make_network(detector_names=("H1",)):
+    """Return a minimal Network-like stub."""
+    return SimpleNamespace(detector_names=detector_names)
+
+
+def _make_adapter_with_backend(backend):
+    """Build a SignalAdapter using an already-instantiated backend stub."""
+    network = _make_network()
+    return SignalAdapter(source_type="bns", backend=backend, network=network)
+
+
+class TestSimulateStackUnsupportedParams:
+    """Verify catch-parse-retry for 'Unsupported LAL waveform parameters' errors."""
+
+    def test_unsupported_params_trigger_warning_and_retry(self):
+        """On first failure the adapter logs a WARNING and retries without bad keys."""
+        backend = FailingBackend(waveform_model="IMRPhenomXPHM")
+        adapter = _make_adapter_with_backend(backend)
+
+        params = {"mass_1": 1.4, "redshift": 0.05, "lambda_1": 300.0, "coa_time": 0.0}
+
+        with patch("gwmock.signal.adapter.logger") as mock_logger:
+            adapter.simulate_stack(params, sampling_frequency=4.0, minimum_frequency=20.0)
+
+        # Warning was emitted listing the ignored keys
+        mock_logger.warning.assert_called_once()
+        warning_msg = mock_logger.warning.call_args[0][0] % mock_logger.warning.call_args[0][1:]
+        assert "lambda_1" in warning_msg
+        assert "redshift" in warning_msg
+        assert "injection_parameters" in warning_msg
+        # Two backend calls: initial (failing) + retry (filtered)
+        assert backend.call_count == 2
+        assert "redshift" not in backend.received_params[1]
+        assert "lambda_1" not in backend.received_params[1]
+        assert "mass_1" in backend.received_params[1]
+
+    def test_unsupported_params_cached_on_second_call(self):
+        """Subsequent calls pre-filter and do NOT trigger a second backend failure."""
+        backend = FailingBackend(waveform_model="IMRPhenomXPHM")
+        adapter = _make_adapter_with_backend(backend)
+
+        params = {"mass_1": 1.4, "redshift": 0.05, "lambda_1": 300.0, "coa_time": 0.0}
+
+        with patch("gwmock.signal.adapter.logger") as mock_logger:
+            adapter.simulate_stack(params, sampling_frequency=4.0, minimum_frequency=20.0)
+            first_warning_count = mock_logger.warning.call_count
+            adapter.simulate_stack(params, sampling_frequency=4.0, minimum_frequency=20.0)
+            second_warning_count = mock_logger.warning.call_count
+
+        # No additional warning on the second call
+        assert second_warning_count == first_warning_count
+        # Second call: only one backend call (pre-filtered, no failure)
+        assert backend.call_count == 3  # 2 from first simulate_stack + 1 from second
+        assert "redshift" not in backend.received_params[2]
+        assert "lambda_1" not in backend.received_params[2]
+
+    def test_genuine_value_error_is_reraised(self):
+        """A ValueError not matching the prefix must propagate unchanged."""
+        backend = MagicMock()
+        backend.simulate.side_effect = ValueError("mass_1 must be positive")
+        network = _make_network()
+        adapter = SignalAdapter(source_type="bbh", backend=backend, network=network)
+
+        with pytest.raises(ValueError, match="mass_1 must be positive"):
+            adapter.simulate_stack({"mass_1": -1.0}, sampling_frequency=4.0, minimum_frequency=20.0)
