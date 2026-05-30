@@ -6,8 +6,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import click
 import pytest
+import typer
 import yaml
 
 from gwmock.cli.utils.hash import compute_file_hash
@@ -68,7 +68,7 @@ def test_validate_command_failure(sample_metadata, temp_dir, capsys):
     # Modify the file
     output_file.write_text("modified data")
 
-    with patch("os.getcwd", return_value=str(temp_dir)), pytest.raises(click.exceptions.Exit):
+    with patch("os.getcwd", return_value=str(temp_dir)), pytest.raises(typer.Exit):
         validate_command([], metadata_paths=[str(metadata_file)])
 
     captured = capsys.readouterr()
@@ -139,7 +139,7 @@ def test_validate_command_missing_file(sample_metadata, temp_dir, capsys):
     # Remove the output file
     output_file.unlink()
 
-    with patch("os.getcwd", return_value=str(temp_dir)), pytest.raises(click.exceptions.Exit):
+    with patch("os.getcwd", return_value=str(temp_dir)), pytest.raises(typer.Exit):
         validate_command([], metadata_paths=[str(metadata_file)])
 
     captured = capsys.readouterr()
@@ -149,7 +149,7 @@ def test_validate_command_missing_file(sample_metadata, temp_dir, capsys):
 
 def test_validate_command_no_metadata_files(temp_dir):
     """Test validation with no metadata files found."""
-    with patch("os.getcwd", return_value=str(temp_dir)), pytest.raises(click.exceptions.Exit) as exc_info:
+    with patch("os.getcwd", return_value=str(temp_dir)), pytest.raises(typer.Exit) as exc_info:
         validate_command([str(temp_dir / "nonexistent")], metadata_paths=[])
 
     # The command should exit with code 1 when no metadata files are found

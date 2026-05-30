@@ -12,11 +12,11 @@ from gwmock_noise import BaseNoiseSimulator, DefaultNoiseSimulator
 from gwmock_noise.simulators.protocol import NoiseSimulator
 from gwmock_pop import (
     BBHSimulator,
-    BNSPriorSimulator,
-    CBCPriorSimulator,
+    BNSSimulator,
+    CBCSimulator,
     FilePopulationLoader,
     GWPopSimulator,
-    NSBHPriorSimulator,
+    NSBHSimulator,
 )
 from gwmock_signal import GWSimulator, resolve_simulator_backend
 
@@ -31,12 +31,15 @@ _ENTRY_POINT_GROUPS: dict[BackendKind, str] = {
 _POPULATION_BACKENDS: dict[str, type[Any]] = {
     "BBHSimulator": BBHSimulator,
     "bbh": BBHSimulator,
-    "CBCPriorSimulator": CBCPriorSimulator,
-    "cbc_prior": CBCPriorSimulator,
-    "BNSPriorSimulator": BNSPriorSimulator,
-    "bns_prior": BNSPriorSimulator,
-    "NSBHPriorSimulator": NSBHPriorSimulator,
-    "nsbh_prior": NSBHPriorSimulator,
+    "CBCSimulator": CBCSimulator,
+    "CBCPriorSimulator": CBCSimulator,  # legacy alias
+    "cbc_prior": CBCSimulator,
+    "BNSSimulator": BNSSimulator,
+    "BNSPriorSimulator": BNSSimulator,  # legacy alias
+    "bns_prior": BNSSimulator,
+    "NSBHSimulator": NSBHSimulator,
+    "NSBHPriorSimulator": NSBHSimulator,  # legacy alias
+    "nsbh_prior": NSBHSimulator,
     "FilePopulationLoader": FilePopulationLoader,
     "file": FilePopulationLoader,
 }

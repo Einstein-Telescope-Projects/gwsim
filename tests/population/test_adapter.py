@@ -240,9 +240,9 @@ class TestPopulationAdapter:
         ("backend_name", "expected_class_name"),
         [
             ("bbh", "BBHSimulator"),
-            ("cbc_prior", "CBCPriorSimulator"),
-            ("bns_prior", "BNSPriorSimulator"),
-            ("nsbh_prior", "NSBHPriorSimulator"),
+            ("cbc_prior", "CBCSimulator"),
+            ("bns_prior", "BNSSimulator"),
+            ("nsbh_prior", "NSBHSimulator"),
             ("file", "FilePopulationLoader"),
         ],
     )
