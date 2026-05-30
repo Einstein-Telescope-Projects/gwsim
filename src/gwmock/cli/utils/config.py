@@ -118,7 +118,11 @@ class PopulationConfig(BaseModel):
     """Adapter-backed population configuration."""
 
     backend: str = Field(..., description="Public gwmock-pop backend or loader name")
-    n_samples: int = Field(..., alias="n-samples", description="Number of population events to materialize")
+    n_samples: int | None = Field(
+        default=None,
+        alias="n-samples",
+        description="Number of population events to draw. Omit to load the full catalogue (file-backed loaders only).",
+    )
     source_type: str | None = Field(default=None, alias="source-type", description="Optional explicit source type")
     sort_by: str | None = Field(default="coa_time", alias="sort-by", description="Event ordering key")
     arguments: dict[str, Any] = Field(default_factory=dict, description="Arguments passed to the population backend")
@@ -135,9 +139,9 @@ class PopulationConfig(BaseModel):
 
     @field_validator("n_samples")
     @classmethod
-    def validate_n_samples(cls, v: int) -> int:
-        """Require an explicit positive population sample count."""
-        if v <= 0:
+    def validate_n_samples(cls, v: int | None) -> int | None:
+        """Reject n_samples=0 or negative; None means load the full catalogue."""
+        if v is not None and v <= 0:
             raise ValueError("'n-samples' must be a positive integer")
         return v
 
