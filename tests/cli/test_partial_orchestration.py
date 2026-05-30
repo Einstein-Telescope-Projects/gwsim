@@ -17,6 +17,7 @@ from gwmock.cli.utils.config import (
     SignalConfig,
     SimulatorOutputConfig,
 )
+from gwmock.population.adapter import PopulationAdapter
 
 # ---------------------------------------------------------------------------
 # Minimal fake adapters reused across tests
@@ -212,3 +213,35 @@ class TestAdapterOrchestratorSimulate:
         assert isinstance(result, AdapterOrchestrationResult)
         assert result.signal_segment is None
         assert result.noise_result is None
+
+
+# ---------------------------------------------------------------------------
+# ISS-007 — n_samples optional in PopulationConfig
+# ---------------------------------------------------------------------------
+
+
+class TestPopulationConfigNSamples:
+    def test_population_config_without_n_samples_validates(self):
+        cfg_with = PopulationConfig(backend="X", n_samples=1)
+        assert cfg_with.n_samples == 1
+
+        cfg_without = PopulationConfig(backend="X")
+        assert cfg_without.n_samples is None
+
+    def test_population_config_zero_n_samples_rejected(self):
+        with pytest.raises(ValidationError, match="n-samples"):
+            PopulationConfig(backend="X", n_samples=0)
+
+    def test_from_backend_passes_none_to_simulate(self):
+        class _NoneAwareBackend:
+            parameter_names = ("coa_time",)
+            source_type = "bbh"
+            metadata: ClassVar[dict] = {}
+
+            def simulate(self, n_samples, **_kwargs):
+                self._last_n_samples = n_samples
+                return {"coa_time": np.array([1.0])}
+
+        backend = _NoneAwareBackend()
+        PopulationAdapter.from_backend(backend, n_samples=None)
+        assert backend._last_n_samples is None

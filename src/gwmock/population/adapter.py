@@ -41,14 +41,14 @@ class PopulationAdapter:
         cls,
         backend: GWPopSimulator,
         *,
-        n_samples: int,
+        n_samples: int | None,
         **kwargs: Any,
     ) -> PopulationAdapter:
         """Build an adapter from a ``gwmock-pop`` protocol backend.
 
         Args:
             backend: The backend to use.
-            n_samples: The number of samples to generate.
+            n_samples: The number of samples to generate, or ``None`` to load the full catalogue.
             **kwargs: Additional arguments to pass to the backend.
 
         Returns:
@@ -61,7 +61,7 @@ class PopulationAdapter:
         """
         if not isinstance(backend, GWPopSimulator):
             raise TypeError("backend must satisfy the GWPopSimulator protocol.")
-        if n_samples <= 0:
+        if n_samples is not None and n_samples <= 0:
             raise ValueError("n_samples must be a positive integer.")
 
         parameter_names = tuple(backend.parameter_names)
