@@ -245,3 +245,29 @@ class TestPopulationConfigNSamples:
         backend = _NoneAwareBackend()
         PopulationAdapter.from_backend(backend, n_samples=None)
         assert backend._last_n_samples is None
+
+    def test_from_backend_rejects_non_protocol_object(self):
+        with pytest.raises(TypeError, match="GWPopSimulator protocol"):
+            PopulationAdapter.from_backend(object(), n_samples=1)
+
+    def test_from_backend_rejects_negative_n_samples(self):
+        class _MinimalBackend:
+            parameter_names = ("coa_time",)
+            source_type = "bbh"
+
+            def simulate(self, n_samples, **_kwargs):  # pragma: no cover
+                return {"coa_time": np.array([])}
+
+        with pytest.raises(ValueError, match="positive integer"):
+            PopulationAdapter.from_backend(_MinimalBackend(), n_samples=-1)
+
+    def test_from_backend_rejects_empty_parameter_names(self):
+        class _EmptyNamesBackend:
+            parameter_names: ClassVar[tuple] = ()
+            source_type = "bbh"
+
+            def simulate(self, n_samples, **_kwargs):  # pragma: no cover
+                return {}
+
+        with pytest.raises(ValueError, match="parameter_names must not be empty"):
+            PopulationAdapter.from_backend(_EmptyNamesBackend(), n_samples=1)

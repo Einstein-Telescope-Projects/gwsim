@@ -282,3 +282,19 @@ class TestPopulationAdapter:
         assert isinstance(backend, GWPopSimulator)
         assert backend.__class__.__name__ == "EntryPointPopulationBackend"
         assert backend.simulate(1)["detector_frame_mass_1"][0] == pytest.approx(7.0)
+
+    def test_population_mapping_property_returns_proxy(self):
+        adapter = PopulationAdapter.from_mapping({"coa_time": np.array([1.0, 2.0])}, source_type="bbh")
+        mapping = adapter.population_mapping
+        assert mapping["coa_time"] == (1.0, 2.0)
+        with pytest.raises((TypeError, AttributeError)):
+            mapping["coa_time"] = np.array([9.0])  # type: ignore[index]
+
+    def test_get_event_parameters_out_of_bounds(self):
+        adapter = PopulationAdapter.from_mapping({"coa_time": np.array([1.0])}, source_type="bbh")
+        with pytest.raises(IndexError, match="out of range"):
+            adapter.get_event_parameters(5)
+
+    def test_from_mapping_rejects_invalid_source_type(self):
+        with pytest.raises(ValueError, match="non-empty string"):
+            PopulationAdapter.from_mapping({"coa_time": np.array([1.0])}, source_type="")
