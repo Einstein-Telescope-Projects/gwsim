@@ -528,6 +528,11 @@ dependencies = [
     { name = "typer" },
 ]
 
+[package.optional-dependencies]
+sgwb = [
+    { name = "gwmock-signal", extra = ["sgwb"] },
+]
+
 [package.dev-dependencies]
 build = [
     { name = "hatch" },
@@ -550,9 +555,10 @@ release = [
 [package.metadata]
 requires-dist = [
     { name = "filelock", specifier = ">=3.29.0" },
-    { name = "gwmock-noise", specifier = ">=0.4.0" },
+    { name = "gwmock-noise", specifier = ">=0.5.0" },
     { name = "gwmock-pop", specifier = ">=0.9.0" },
-    { name = "gwmock-signal", specifier = ">=0.6.4" },
+    { name = "gwmock-signal", specifier = ">=0.8.0" },
+    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.8.0" },
     { name = "h5py", specifier = ">=3.16.0" },
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pydantic", specifier = ">=2.13.4" },
@@ -560,6 +566,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67.3" },
     { name = "typer", specifier = ">=0.26.4" },
 ]
+provides-extras = ["sgwb"]
 
 [package.metadata.requires-dev]
 build = [{ name = "hatch", specifier = ">=1.16.5" }]
@@ -578,7 +585,7 @@ release = [{ name = "git-cliff", specifier = ">=2.13.1" }]
 
 [[package]]
 name = "gwmock-noise"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -588,9 +595,9 @@ dependencies = [
     { name = "scipy" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/52/1d/0b1db8abd4be2ede56a6dc0a2d421a72d0cb997e0960540aaf01927ad1b0/gwmock_noise-0.4.0.tar.gz", hash = "sha256:48e3fb4412e115065dd5a81977b669519e1097c7ad81ae716082a31769c5bc2c", size = 741474, upload-time = "2026-05-29T07:53:08.373Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6f/29/0e278c42909632db29900fb644d046dbb0c58ec3f559bc03b3c3dc188e36/gwmock_noise-0.5.0.tar.gz", hash = "sha256:509f5a96d8daeb616f011e813b9035793bc9634342493de8b23aef81af31e429", size = 747582, upload-time = "2026-06-03T18:57:29.595Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/65/10/2b71739eeac88066fa0008783816bfcbeacf40a33168d17ced68f55da25f/gwmock_noise-0.4.0-py3-none-any.whl", hash = "sha256:bd444fd84b2459a2b4952b73b3c6aed570dc904c13e8166ea9dd410a2f2d187c", size = 522741, upload-time = "2026-05-29T07:53:09.647Z" },
+    { url = "https://files.pythonhosted.org/packages/67/ee/ac428df030d5780d936552c6bc199cc40d2978271f0d27df29916dcfc4cb/gwmock_noise-0.5.0-py3-none-any.whl", hash = "sha256:0eadd06e22224a56e7eace3517f5e5c25713b4ec576c6e32a35923baa863a3f4", size = 525757, upload-time = "2026-06-03T18:57:30.868Z" },
 ]
 
 [[package]]
@@ -613,7 +620,7 @@ wheels = [
 
 [[package]]
 name = "gwmock-signal"
-version = "0.6.4"
+version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "gwpy" },
@@ -621,9 +628,14 @@ dependencies = [
     { name = "pyyaml" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/26/f3ee996bb94953b3496da3e85a46d14a44a2a635d562d8c2f95db954792c/gwmock_signal-0.6.4.tar.gz", hash = "sha256:2bc3b1b3c993026d29646a55927a81ccfad73721f69eccc2d965730285d85141", size = 215513, upload-time = "2026-05-26T03:51:59.2Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/66/94/3d683cff775143dac69c1051b8ae717f15b663a866f4674900913b005ddc/gwmock_signal-0.8.0.tar.gz", hash = "sha256:c138694395a2939ac4c125e061a06fbc65eb47bd3611bbefb87512ee90ae9d8b", size = 239929, upload-time = "2026-06-03T19:48:14.61Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/b2/1f04b3b30190b8f2ebfa9762458c94fbfdf018fca4c307f49fe033d5c3c8/gwmock_signal-0.6.4-py3-none-any.whl", hash = "sha256:dbc2e2ce433047357d60a7f24db383e9105aebe60337b25a3faf9e6161a48d9d", size = 68696, upload-time = "2026-05-26T03:51:57.685Z" },
+    { url = "https://files.pythonhosted.org/packages/55/e8/3909b84374bf25ad74ce1f9ee56772e2a1f7e00ed9b60e53c9dea4e28f67/gwmock_signal-0.8.0-py3-none-any.whl", hash = "sha256:761aaad5d10f3a1c8f67206b67b3ea6318233b594b2377c398b0bb65292b08c6", size = 79423, upload-time = "2026-06-03T19:48:13.319Z" },
+]
+
+[package.optional-dependencies]
+sgwb = [
+    { name = "gwmock-noise" },
 ]
 
 [[package]]

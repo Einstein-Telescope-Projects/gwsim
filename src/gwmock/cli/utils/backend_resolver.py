@@ -205,7 +205,7 @@ def _builtin_aliases(kind: BackendKind) -> tuple[str, ...]:
     if kind == "population":
         return tuple(_POPULATION_BACKENDS)
     if kind == "signal":
-        return ("bbh", "bns", "nsbh")
+        return ("bbh", "bns", "nsbh", "sgwb")
     return tuple(_NOISE_BACKENDS)
 
 

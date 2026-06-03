@@ -153,6 +153,19 @@ class SignalConfig(BaseModel):
         default=None,
         description="Optional public gwmock-signal backend alias, entry point, or import path",
     )
+    source_type: str | None = Field(
+        default=None,
+        alias="source-type",
+        description="Optional source type for signal-only orchestration, e.g. 'sgwb'.",
+    )
+    arguments: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Arguments passed to the gwmock-signal backend constructor.",
+    )
+    parameters: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Fixed signal parameters passed to the backend simulate method.",
+    )
     waveform_model: str | None = Field(default=None, alias="waveform-model", description="Waveform model name")
     waveform_arguments: dict[str, Any] = Field(
         default_factory=dict,
@@ -217,8 +230,8 @@ class OrchestrationConfig(BaseModel):
     def _validate_combinations(self) -> OrchestrationConfig:
         if self.noise is None and self.population is None and self.signal is None:
             raise ValueError("orchestration must define at least one of: noise, population, signal")
-        if self.signal is not None and self.population is None:
-            raise ValueError("orchestration.signal requires orchestration.population")
+        if self.signal is not None and self.population is None and self.signal.source_type is None:
+            raise ValueError("orchestration.signal without orchestration.population requires signal.source-type")
         return self
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)

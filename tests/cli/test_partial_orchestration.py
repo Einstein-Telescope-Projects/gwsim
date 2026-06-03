@@ -115,13 +115,26 @@ class TestOrchestrationConfigValidation:
         assert cfg.signal is not None
 
     def test_signal_without_population_rejected(self):
-        with pytest.raises(ValidationError, match="population"):
+        with pytest.raises(ValidationError, match="source-type"):
             OrchestrationConfig(
                 signal=SignalConfig(
                     detectors=["H1"],
                     output=SimulatorOutputConfig(file_name="signal.gwf"),
                 )
             )
+
+    def test_signal_without_population_validates_with_source_type(self):
+        cfg = OrchestrationConfig(
+            signal=SignalConfig(
+                source_type="sgwb",
+                detectors=["H1"],
+                parameters={"omega_ref": 1.0e-9},
+                output=SimulatorOutputConfig(file_name="signal.gwf"),
+            )
+        )
+        assert cfg.signal is not None
+        assert cfg.signal.source_type == "sgwb"
+        assert cfg.population is None
 
     def test_empty_orchestration_rejected(self):
         with pytest.raises(ValidationError, match="at least one"):
