@@ -149,9 +149,8 @@ gwmock config --get <label of the configuration file> --output <directory or fil
 
 ## Configuration File Structure
 
-The configuration file uses YAML format. They consist of a shared `globals`
-section plus exactly one execution surface: legacy `simulators` or the
-adapter-backed [orchestration](orchestration.md) schema.
+The configuration file uses YAML format. It consists of a shared `globals`
+section plus the adapter-backed [orchestration](orchestration.md) schema.
 
 ### Globals
 
@@ -183,8 +182,10 @@ globals:
 
 ### Orchestration
 
-The `orchestration:` section is required and must contain all three
-sub-sections:
+The `orchestration:` section is required and must contain at least one of
+`population`, `signal`, or `noise`. CBC signal generation uses `population` plus
+`signal`. SGWB signal generation can use `signal` without `population` when
+`signal.source-type` is set.
 
 ```yaml
 orchestration:
@@ -221,8 +222,26 @@ orchestration:
                 channel_prefix: STRAIN
 ```
 
-All three sections (`population`, `signal`, `noise`) are required. For the full
-schema and backend registration options, see the
+For SGWB studies, use `signal.source-type: sgwb`. Constructor options for the
+SGWB backend belong under `signal.arguments`, while spectrum parameters passed
+to `simulate(...)` belong under `signal.parameters`:
+
+```yaml
+orchestration:
+    signal:
+        source-type: sgwb
+        detectors:
+            - ET-Triangle-Sardinia
+        minimum-frequency: 5
+        parameters:
+            omega_ref: 1.0e-9
+            spectral_index: 0.0
+            reference_frequency: 25.0
+        output:
+            file_name: sgwb-{{ counter }}.hdf5
+```
+
+For the full schema and backend registration options, see the
 [Orchestration](orchestration.md) guide.
 
 Transient glitches are configured on the noise side under

@@ -29,6 +29,7 @@ from gwmock.simulator.seeds import derive_seed
 EXPECTED_BATCHES = 2
 FAKE_POPULATION_BACKEND = "tests.cli.test_cli_orchestration:FakePopulationBackend"
 FAKE_SIGNAL_BACKEND = "tests.cli.test_cli_orchestration:FakeSignalAdapter"
+FAKE_SGWB_SIGNAL_BACKEND = "tests.cli.test_cli_orchestration:FakeSgwbSignalAdapter"
 FAKE_NOISE_BACKEND = "tests.cli.test_cli_orchestration:FakeNoiseAdapter"
 
 
@@ -84,6 +85,55 @@ class FakeSignalAdapter:
                     sample_rate=sampling_frequency,
                 )
                 for detector in detector_names
+            },
+        )
+
+
+class FakeSgwbSignalAdapter:
+    """Stationary signal backend used by SGWB orchestration tests."""
+
+    required_params = frozenset({"omega_ref"})
+
+    def __init__(self, duration: float, seed: int | None = None) -> None:
+        self.duration = duration
+        self.seed = seed
+        self.simulate_calls: list[dict[str, object]] = []
+
+    def simulate(
+        self,
+        parameters: dict,
+        detector_names: tuple[str, ...],
+        background=None,
+        *,
+        sampling_frequency: float,
+        minimum_frequency: float,
+        earth_rotation: bool = True,
+        interpolate_if_offset: bool = True,
+    ) -> DetectorStrainStack:
+        """Return one segment-length stationary signal stack."""
+        _ = minimum_frequency, earth_rotation, interpolate_if_offset
+        names = tuple(detector if isinstance(detector, str) else detector.name for detector in detector_names)
+        n_samples = round(self.duration * sampling_frequency)
+        self.simulate_calls.append(
+            {
+                "parameters": dict(parameters),
+                "detector_names": names,
+                "background": background,
+                "sampling_frequency": sampling_frequency,
+                "seed": self.seed,
+            }
+        )
+        t0 = 0.0 if background is None else float(next(iter(background.values())).t0.value)
+        seed_offset = 0.0 if self.seed is None else float(self.seed % 1000)
+        return DetectorStrainStack.from_mapping(
+            names,
+            {
+                detector: GWpyTimeSeries(
+                    np.full(n_samples, float(parameters["omega_ref"]) + seed_offset + index),
+                    t0=t0,
+                    sample_rate=sampling_frequency,
+                )
+                for index, detector in enumerate(names)
             },
         )
 
@@ -191,6 +241,36 @@ def _fake_orchestration_config(tmp_path: Path, *, source_type: str) -> Config:
     )
 
 
+def _fake_sgwb_config(tmp_path: Path, *, detectors: list[str] | None = None) -> Config:
+    return Config(
+        globals=GlobalsConfig(
+            working_directory=str(tmp_path),
+            output_directory="output",
+            metadata_directory="metadata",
+            simulator_arguments={
+                "sampling-frequency": 8,
+                "duration": 2,
+                "start-time": 100,
+                "max-samples": 2,
+                "seed": 11,
+            },
+        ),
+        orchestration=OrchestrationConfig(
+            signal=SignalConfig(
+                source_type="sgwb",
+                backend=FAKE_SGWB_SIGNAL_BACKEND,
+                detectors=detectors or ["H1", "L1"],
+                parameters={"omega_ref": 3.0},
+                minimum_frequency=1.0,
+                output=SimulatorOutputConfig(
+                    file_name="sgwb-{{ counter }}.hdf5",
+                    output_directory="signal",
+                ),
+            )
+        ),
+    )
+
+
 def _assert_noise_outputs_exist(output_directory: Path) -> None:
     for counter in range(EXPECTED_BATCHES):
         assert (output_directory / f"noise-{counter}.npy").exists()
@@ -205,6 +285,16 @@ def test_create_plan_from_orchestration_config(tmp_path: Path):
     assert plan.total_batches == EXPECTED_BATCHES
     assert all(batch.simulator_name == "orchestration" for batch in plan.batches)
     assert all(isinstance(batch.simulator_config, OrchestrationConfig) for batch in plan.batches)
+
+
+def test_signal_only_sgwb_plan_validates(tmp_path: Path):
+    """Signal-only SGWB orchestration does not require a population section."""
+    config = _fake_sgwb_config(tmp_path)
+
+    plan = create_plan_from_config(config, tmp_path / "checkpoints")
+
+    assert plan.total_batches == 2
+    assert plan.batches[0].simulator_config.signal.source_type == "sgwb"
 
 
 @pytest.mark.parametrize("source_type", ["bbh", "bns", "nsbh", "gengli"])
@@ -250,6 +340,25 @@ def test_simulate_command_runs_adapter_orchestration(monkeypatch, tmp_path: Path
             "seed": derive_seed(7, "noise", "stream"),
         }
     ]
+
+
+def test_simulate_command_runs_signal_only_sgwb_orchestration(monkeypatch, tmp_path: Path):
+    """The CLI should generate stationary SGWB segments without a population catalogue."""
+    config = _fake_sgwb_config(tmp_path)
+    config_file = tmp_path / "sgwb.yaml"
+    config_file.write_text(yaml.safe_dump(config.model_dump(by_alias=True, exclude_none=True), sort_keys=False))
+
+    monkeypatch.setattr("gwmock.cli.adapter_orchestration.DetectorStrainStack.write", _write_signal_file)
+
+    _simulate_impl(str(config_file), overwrite=True, metadata=True)
+
+    assert (tmp_path / "output" / "signal" / "sgwb-0.hdf5").exists()
+    assert (tmp_path / "output" / "signal" / "sgwb-1.hdf5").exists()
+    metadata = yaml.safe_load((tmp_path / "metadata" / "orchestration-0.metadata.json").read_text())
+    assert metadata["simulator_metadata"]["orchestration"]["source_type"] == "sgwb"
+    assert metadata["simulator_metadata"]["orchestration"]["signal"]["parameters"] == {"omega_ref": 3.0}
+    assert metadata["simulator_metadata"]["orchestration"]["signal"]["segment_seed"] == derive_seed(11, "signal", 0)
+    assert metadata["outputs"][0]["kind"] == "signal"
 
 
 def test_orchestrator_restores_noise_stream_from_committed_cursor(tmp_path: Path):

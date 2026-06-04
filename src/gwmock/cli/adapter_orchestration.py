@@ -76,6 +76,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         detector_resolution: dict[str, Any],
         waveform_model: str | None,
         waveform_arguments: dict[str, Any],
+        signal_parameters: dict[str, Any],
         detectors: list[str],
         duration: float,
         sampling_frequency: float,
@@ -98,6 +99,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         self._population_seed = population_seed
         self.waveform_model = waveform_model
         self.waveform_arguments = waveform_arguments
+        self.signal_parameters = signal_parameters
         self.minimum_frequency = minimum_frequency
         self.earth_rotation = earth_rotation
         self.orchestration_config = orchestration_config
@@ -107,6 +109,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             self.signal_adapter = SignalAdapter.from_source_type(
                 source_type=source_type,
                 waveform_model=waveform_model,
+                backend_arguments={"duration": duration} if source_type == "sgwb" else None,
                 network=detector_network,
             )
         else:
@@ -165,6 +168,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         source_detector_specs: list[str] = []
         waveform_model: str | None = None
         waveform_arguments: dict[str, Any] = {}
+        signal_parameters: dict[str, Any] = {}
         minimum_frequency = 5.0
         earth_rotation = True
         signal_adapter: SignalAdapter | None = None
@@ -175,16 +179,20 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 orchestration_config.population,  # type: ignore[arg-type]
                 population_seed,
             )
+        elif has_signal:
+            source_type = str(orchestration_config.signal.source_type)  # type: ignore[union-attr]
 
         if has_signal:
             signal_adapter = cls._instantiate_signal_adapter(
                 orchestration_config.signal,
                 source_type=source_type,
                 detector_network=detector_network,
+                duration=duration,
             )
             source_detector_specs = list(orchestration_config.signal.detectors)  # type: ignore[union-attr]
             waveform_model = orchestration_config.signal.waveform_model  # type: ignore[union-attr]
             waveform_arguments = orchestration_config.signal.waveform_arguments  # type: ignore[union-attr]
+            signal_parameters = orchestration_config.signal.parameters  # type: ignore[union-attr]
             minimum_frequency = orchestration_config.signal.minimum_frequency  # type: ignore[union-attr]
             earth_rotation = orchestration_config.signal.earth_rotation  # type: ignore[union-attr]
             if orchestration_config.noise is None:
@@ -202,6 +210,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             detector_resolution=detector_resolution,
             waveform_model=waveform_model,
             waveform_arguments=waveform_arguments,
+            signal_parameters=signal_parameters,
             detectors=resolved_detectors,
             duration=duration,
             sampling_frequency=sampling_frequency,
@@ -293,12 +302,22 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         )
 
     @staticmethod
-    def _instantiate_signal_adapter(signal_config, *, source_type: str, detector_network: Network) -> SignalAdapter:
+    def _instantiate_signal_adapter(
+        signal_config,
+        *,
+        source_type: str,
+        detector_network: Network,
+        duration: float,
+    ) -> SignalAdapter:
         backend_name = signal_config.backend or source_type
         backend_class = resolve_backend_class("signal", backend_name)
+        backend_arguments = _normalize_keys(dict(signal_config.arguments))
+        if source_type == "sgwb":
+            backend_arguments.setdefault("duration", duration)
         backend_instance = SignalAdapter.instantiate_backend(
             backend_class,
             waveform_model=signal_config.waveform_model,
+            backend_arguments=backend_arguments,
         )
         validate_backend("signal", backend_name, backend_class, backend_instance)
         return SignalAdapter.from_backend(
@@ -335,6 +354,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 "signal": {
                     "waveform_model": self.waveform_model,
                     "waveform_arguments": self.waveform_arguments,
+                    "parameters": self.signal_parameters,
                     "minimum_frequency": self.minimum_frequency,
                     "earth_rotation": self.earth_rotation,
                     "detector_specs": list(self._source_detector_specs),
@@ -380,6 +400,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
 
     def _simulate(self) -> TimeSeriesList:
         """Generate signal chunks for the current segment from population events."""
+        if not self._population_events and self._source_type == "sgwb":
+            return self._simulate_stationary_signal_segment()
+
         chunks = TimeSeriesList()
         while self.population_index < len(self._population_events):
             parameters = dict(self._population_events[int(self.population_index)])
@@ -400,6 +423,33 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             if strain.start_time >= self.end_time:
                 break
         return chunks
+
+    def _simulate_stationary_signal_segment(self) -> TimeSeriesList:
+        """Generate one stationary signal chunk spanning the active segment."""
+        if self.signal_adapter is None:
+            return TimeSeriesList()
+        segment_seed = self._signal_segment_seed()
+        self.signal_adapter.set_seed(segment_seed)
+        n_samples = round(float(self.duration.value) * float(self.sampling_frequency.value))
+        background = {
+            detector: GWpyTimeSeries(
+                np.zeros(n_samples, dtype=float),
+                t0=float(self.start_time.value),
+                sample_rate=float(self.sampling_frequency.value),
+                unit="strain",
+            )
+            for detector in self.signal_adapter.detector_names
+        }
+        parameters = {**self.waveform_arguments, **self.signal_parameters}
+        strain = self.signal_adapter.simulate(
+            parameters,
+            sampling_frequency=float(self.sampling_frequency.value),
+            minimum_frequency=self.minimum_frequency,
+            background=background,
+            earth_rotation=self.earth_rotation,
+        )
+        strain.metadata.update({"signal_parameters": dict(parameters), "segment_seed": segment_seed})
+        return TimeSeriesList([strain])
 
     def update_state(self) -> None:
         """Advance to the next segment."""

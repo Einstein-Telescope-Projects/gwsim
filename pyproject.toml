@@ -21,8 +21,8 @@ classifiers = [
 requires-python = ">=3.12,<3.14"
 dynamic = ["version"]
 dependencies = [
-  "gwmock-signal>=0.6.4",
-  "gwmock-noise>=0.4.0",
+  "gwmock-signal>=0.8.0",
+  "gwmock-noise>=0.5.0",
   "gwmock-pop>=0.9.0",
   "typer>=0.26.4",
   "tqdm>=4.67.3",
@@ -32,6 +32,9 @@ dependencies = [
   "psutil>=7.2.2",
   "filelock>=3.29.0",
 ]
+
+[project.optional-dependencies]
+sgwb = ["gwmock-signal[sgwb]>=0.8.0"]
 
 [dependency-groups]
 dev = [

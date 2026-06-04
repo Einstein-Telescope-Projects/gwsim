@@ -1,0 +1,34 @@
+globals:
+    simulator-arguments:
+        sampling-frequency: 512
+        duration: 16
+        total-duration: 16
+        start-time: 1577491218
+        seed: 42
+    working-directory: .
+    output-directory: output
+    metadata-directory: metadata
+
+orchestration:
+    signal:
+        source-type: sgwb
+        detectors:
+            - ET-2L-Aligned
+        minimum-frequency: 5
+        parameters:
+            omega_ref: 1.0e-9
+            spectral_index: 0.0
+            reference_frequency: 25.0
+        output:
+            output_directory: signal
+            file_name: sgwb-et-2l-aligned-{{ counter }}.hdf5
+            arguments:
+                channel: '{{ detectors }}:SGWB'
+    noise:
+        arguments:
+            psd_file: ET_10_full_cryo_psd
+        output:
+            output_directory: noise
+            file_name: noise-{{ counter }}-{{ detectors }}.gwf
+            arguments:
+                channel: '{{ detectors }}:NOISE'

@@ -169,6 +169,7 @@ class SignalAdapter:
         *,
         source_type: str,
         waveform_model: str | Callable[..., Any] | None,
+        backend_arguments: Mapping[str, Any] | None = None,
         detectors: Sequence[str] | None = None,
         network: Network | None = None,
     ) -> SignalAdapter:
@@ -177,6 +178,7 @@ class SignalAdapter:
         Args:
             source_type: The source type to use for the backend.
             waveform_model: The waveform model to use.
+            backend_arguments: Constructor arguments for the backend.
             detectors: The detectors to use.
             network: The network to use.
 
@@ -187,7 +189,11 @@ class SignalAdapter:
             ValueError: If detectors is not a non-empty sequence.
         """
         backend_class = resolve_simulator_backend(source_type)
-        backend = cls.instantiate_backend(backend_class, waveform_model=waveform_model)
+        backend = cls.instantiate_backend(
+            backend_class,
+            waveform_model=waveform_model,
+            backend_arguments=backend_arguments,
+        )
         return cls(
             source_type=source_type,
             backend=backend,
@@ -225,29 +231,32 @@ class SignalAdapter:
         backend_class: type[Any],
         *,
         waveform_model: str | Callable[..., Any] | None,
+        backend_arguments: Mapping[str, Any] | None = None,
     ) -> Any:
         """Instantiate a signal backend class while preserving callable waveform support.
 
         Args:
             backend_class: The backend class to instantiate.
             waveform_model: The waveform model to use.
+            backend_arguments: Constructor arguments for the backend.
 
         Returns:
             An instantiated backend.
         """
+        init_kwargs = dict(backend_arguments or {})
         if waveform_model is None:
             try:
-                return backend_class(waveform_model=_DEFAULT_WAVEFORM_MODEL)
+                return backend_class(waveform_model=_DEFAULT_WAVEFORM_MODEL, **init_kwargs)
             except TypeError:
-                return backend_class()
+                return backend_class(**init_kwargs)
 
         if callable(waveform_model):
             registry_key = _callable_waveform_registry_key(waveform_model)
-            backend = backend_class(waveform_model=registry_key)
+            backend = backend_class(waveform_model=registry_key, **init_kwargs)
             _register_callable_waveform(backend, registry_key, waveform_model)
             return backend
 
-        return backend_class(waveform_model=waveform_model)
+        return backend_class(waveform_model=waveform_model, **init_kwargs)
 
     @classmethod
     def _require_network(cls, *, detectors: Sequence[str] | None, network: Network | None) -> Network:
@@ -332,6 +341,7 @@ class SignalAdapter:
         sampling_frequency: float,
         minimum_frequency: float,
         waveform_arguments: Mapping[str, Any] | None = None,
+        background: Mapping[str, Any] | None = None,
         earth_rotation: bool = True,
     ) -> DetectorStrainStack:
         """Generate one detector strain stack via the public ``gwmock_signal`` API.
@@ -341,6 +351,7 @@ class SignalAdapter:
             sampling_frequency: The sampling frequency to use for the simulation.
             minimum_frequency: The minimum frequency to use for the simulation.
             waveform_arguments: The waveform arguments to use for the simulation.
+            background: Optional background mapping forwarded to the signal backend.
             earth_rotation: Whether to include earth rotation in the simulation.
 
         Returns:
@@ -353,7 +364,7 @@ class SignalAdapter:
             return self._backend.simulate(
                 backend_parameters,
                 self._network.detector_names,
-                background=None,
+                background=background,
                 sampling_frequency=sampling_frequency,
                 minimum_frequency=minimum_frequency,
                 earth_rotation=earth_rotation,
@@ -377,7 +388,7 @@ class SignalAdapter:
             return self._backend.simulate(
                 filtered,
                 self._network.detector_names,
-                background=None,
+                background=background,
                 sampling_frequency=sampling_frequency,
                 minimum_frequency=minimum_frequency,
                 earth_rotation=earth_rotation,
@@ -390,6 +401,7 @@ class SignalAdapter:
         sampling_frequency: float,
         minimum_frequency: float,
         waveform_arguments: Mapping[str, Any] | None = None,
+        background: Mapping[str, Any] | None = None,
         earth_rotation: bool = True,
     ) -> TimeSeries:
         """Generate one signal chunk via the public gwmock-signal ``simulate`` API.
@@ -399,6 +411,7 @@ class SignalAdapter:
             sampling_frequency: The sampling frequency to use for the simulation.
             minimum_frequency: The minimum frequency to use for the simulation.
             waveform_arguments: The waveform arguments to use for the simulation.
+            background: Optional background mapping forwarded to the signal backend.
             earth_rotation: Whether to include earth rotation in the simulation.
 
         Returns:
@@ -409,6 +422,7 @@ class SignalAdapter:
             sampling_frequency=sampling_frequency,
             minimum_frequency=minimum_frequency,
             waveform_arguments=waveform_arguments,
+            background=background,
             earth_rotation=earth_rotation,
         )
         return TimeSeries(
@@ -416,3 +430,8 @@ class SignalAdapter:
             start_time=strain_stack.t0,
             sampling_frequency=strain_stack.sample_rate,
         )
+
+    def set_seed(self, seed: int | None) -> None:
+        """Set a backend seed attribute when the backend exposes one."""
+        if hasattr(self._backend, "seed"):
+            self._backend.seed = seed
