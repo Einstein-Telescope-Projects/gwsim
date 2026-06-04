@@ -230,8 +230,12 @@ class OrchestrationConfig(BaseModel):
     def _validate_combinations(self) -> OrchestrationConfig:
         if self.noise is None and self.population is None and self.signal is None:
             raise ValueError("orchestration must define at least one of: noise, population, signal")
-        if self.signal is not None and self.population is None and self.signal.source_type is None:
-            raise ValueError("orchestration.signal without orchestration.population requires signal.source-type")
+        if self.signal is not None and self.population is None and self.signal.source_type != "sgwb":
+            raise ValueError(
+                "orchestration.signal without orchestration.population is only supported when "
+                "signal.source_type is 'sgwb'; other source types require orchestration.population "
+                "and will fail in AdapterOrchestrator._simulate()"
+            )
         return self
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
