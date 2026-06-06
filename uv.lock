@@ -564,7 +564,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pymap3d", specifier = ">=3.2.0" },
     { name = "tqdm", specifier = ">=4.67.3" },
-    { name = "typer", specifier = ">=0.26.6" },
+    { name = "typer", specifier = ">=0.26.7" },
 ]
 provides-extras = ["sgwb"]
 
