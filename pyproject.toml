@@ -44,7 +44,7 @@ dev = [
   "pytest>=9.0.3",
   "pytest-github-actions-annotate-failures>=0.4.0",
 ]
-docs = ["zensical>=0.0.43", "mkdocstrings-python>=2.0.3"]
+docs = ["zensical>=0.0.44", "mkdocstrings-python>=2.0.3"]
 build = ["hatch>=1.17.0"]
 release = ["git-cliff>=2.13.1"]
 
