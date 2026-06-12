@@ -25,7 +25,7 @@ dependencies = [
   "gwmock-noise>=0.5.1",
   "gwmock-pop>=0.9.2",
   "typer>=0.26.7",
-  "tqdm>=4.68.1",
+  "tqdm>=4.68.2",
   "h5py>=3.16.0",
   "pydantic>=2.13.4",
   "pymap3d>=3.2.0",
@@ -44,7 +44,7 @@ dev = [
   "pytest>=9.0.3",
   "pytest-github-actions-annotate-failures>=0.4.0",
 ]
-docs = ["zensical>=0.0.44", "mkdocstrings-python>=2.0.4"]
+docs = ["zensical>=0.0.45", "mkdocstrings-python>=2.0.4"]
 build = ["hatch>=1.17.0"]
 release = ["git-cliff>=2.13.1"]
 
