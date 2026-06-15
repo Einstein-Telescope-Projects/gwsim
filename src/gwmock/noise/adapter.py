@@ -25,6 +25,8 @@ from gwmock_noise import (
 from gwmock_noise import (
     open_stream as upstream_open_stream,
 )
+from gwmock_noise.gaussian import normalize_spectral_lines
+from gwmock_noise.glitches import normalize_glitch_models
 
 _SUPPORTED_OUTPUT_FORMATS = {"npy", "gwf"}
 _DETECTOR_PAIR_SIZE = 2
@@ -657,16 +659,17 @@ class NoiseAdapter:
         if spectral_lines is not None:
             if not spectral_lines:
                 raise ValueError("spectral_lines must contain at least one spectral line.")
+            normalized_lines = normalize_spectral_lines(spectral_lines)
             simulator = (
                 SpectralLineSimulator(
-                    lines=spectral_lines,
+                    lines=normalized_lines,
                     detectors=detectors,
                     duration=chunk_duration,
                     sampling_frequency=sampling_frequency,
                     seed=seed,
                 )
                 if simulator is None
-                else AddLines(simulator, spectral_lines)
+                else AddLines(simulator, normalized_lines)
             )
 
         if glitches is not None:
@@ -679,7 +682,7 @@ class NoiseAdapter:
                     sampling_frequency=sampling_frequency,
                     seed=seed,
                 )
-            simulator = InjectGlitches(simulator, glitches)
+            simulator = InjectGlitches(simulator, normalize_glitch_models(glitches))
 
         return simulator
 
