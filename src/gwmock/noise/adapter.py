@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 import numpy as np
 from gwmock_noise import (
@@ -27,6 +29,8 @@ from gwmock_noise import (
 )
 from gwmock_noise.gaussian import normalize_spectral_lines
 from gwmock_noise.glitches import normalize_glitch_models
+
+from gwmock.utils.download import download_file
 
 _SUPPORTED_OUTPUT_FORMATS = {"npy", "gwf"}
 _DETECTOR_PAIR_SIZE = 2
@@ -154,6 +158,65 @@ def _parse_csd_file_map(csd_files: dict[str, Path] | None) -> dict[tuple[str, st
             raise ValueError(f"Duplicate CSD file mapping for detector pair {detector_a}-{detector_b}.")
         parsed[normalized_key] = Path(file_path)
     return parsed
+
+
+_REMOTE_GLITCH_FILE_KEYS = ("population_file", "psd_file")
+
+
+def _is_remote_url(value: Any) -> bool:
+    """Return True if ``value`` is an ``http``/``https`` URL string.
+
+    Args:
+        value: The candidate file reference.
+
+    Returns:
+        Whether the value is a remote URL (named assets and local paths are not).
+    """
+    return isinstance(value, str) and urlparse(value).scheme in {"http", "https"}
+
+
+def _glitch_population_cache_directory() -> Path:
+    """Return the cache directory for downloaded glitch population/PSD files."""
+    return Path(tempfile.gettempdir()) / "gwmock" / "noise_glitches"
+
+
+def _resolve_glitch_file_urls(glitches: list[Any] | None) -> list[Any] | None:
+    """Download URL-valued glitch file references to a local cache.
+
+    gwmock-noise glitch models (e.g. ``GengliBlipGlitch``) read ``population_file``
+    and ``psd_file`` with ``Path``/``h5py``, which cannot handle URLs. Resolve any
+    ``http(s)`` URL to a cached local path so remote files declared in configs work
+    transparently. Named bundled assets (e.g. ``ET_10_full_cryo_psd``) and local
+    paths are returned unchanged. The input list and its entries are not mutated.
+
+    Args:
+        glitches: The raw glitch-model configuration entries.
+
+    Returns:
+        A copy of ``glitches`` with remote file references replaced by local paths.
+    """
+    if not glitches:
+        return glitches
+
+    resolved: list[Any] = []
+    for entry in glitches:
+        if not isinstance(entry, Mapping):
+            resolved.append(entry)
+            continue
+        updated = dict(entry)
+        for key in _REMOTE_GLITCH_FILE_KEYS:
+            value = updated.get(key)
+            if _is_remote_url(value):
+                updated[key] = str(
+                    download_file(
+                        value,
+                        outdir=_glitch_population_cache_directory(),
+                        allow_existing=True,
+                        dest_path_from_hashed_url=True,
+                    )
+                )
+        resolved.append(updated)
+    return resolved
 
 
 def _build_components(
@@ -675,6 +738,7 @@ class NoiseAdapter:
         if glitches is not None:
             if not glitches:
                 raise ValueError("glitches must contain at least one glitch model.")
+            resolved_glitches = _resolve_glitch_file_urls(glitches)
             if simulator is None:
                 simulator = _ZeroNoiseSimulator(
                     detectors=detectors,
@@ -682,7 +746,7 @@ class NoiseAdapter:
                     sampling_frequency=sampling_frequency,
                     seed=seed,
                 )
-            simulator = InjectGlitches(simulator, normalize_glitch_models(glitches))
+            simulator = InjectGlitches(simulator, normalize_glitch_models(resolved_glitches))
 
         return simulator
 

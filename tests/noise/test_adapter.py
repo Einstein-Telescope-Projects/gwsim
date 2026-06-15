@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from gwmock.noise import NoiseAdapter
+from gwmock.noise import adapter as noise_adapter
 
 TEST_DURATION = 8.0
 TEST_SAMPLING_FREQUENCY = 256.0
@@ -333,3 +334,104 @@ class TestDefaultStreamBackendComponentNormalization:
         n_samples = round(TEST_DURATION * TEST_SAMPLING_FREQUENCY)
         assert chunk["H1"].shape == (n_samples,)
         assert np.all(np.isfinite(chunk["H1"]))
+
+
+def _gengli_glitch_dict(population_file: str) -> dict[str, object]:
+    """Return a dict-form gengli_blip glitch config with the given population_file."""
+    return {
+        "kind": "gengli_blip",
+        "rate": 1.0,
+        "amplitude_distribution": {"distribution": "lognormal", "mean": 1.0, "std": 0.0},
+        "population_file": population_file,
+        "psd_file": "ET_10_full_cryo_psd",
+        "low_frequency_cutoff": 5.0,
+    }
+
+
+class TestGlitchPopulationUrlResolution:
+    """Regression tests for ISS-012.
+
+    A glitch ``population_file`` given as an ``http(s)`` URL must be downloaded to a
+    local cache and replaced by the local path before it reaches the gwmock-noise
+    glitch model (which reads it with ``Path``/``h5py`` and cannot handle URLs).
+    Named bundled assets and local paths must pass through untouched.
+    """
+
+    def test_resolve_downloads_remote_population_file(self, monkeypatch, tmp_path: Path):
+        """A URL population_file is downloaded and replaced with the local path."""
+        local = tmp_path / "blip.hdf5"
+        local.write_bytes(b"")
+        calls = []
+
+        def fake_download(url, **kwargs):
+            calls.append((url, kwargs))
+            return local
+
+        monkeypatch.setattr(noise_adapter, "download_file", fake_download)
+
+        url = "https://example.org/records/1/files/blip.hdf5"
+        glitches = [_gengli_glitch_dict(url)]
+        resolved = noise_adapter._resolve_glitch_file_urls(glitches)
+
+        # URL replaced by the local path; named PSD asset untouched.
+        assert resolved[0]["population_file"] == str(local)
+        assert resolved[0]["psd_file"] == "ET_10_full_cryo_psd"
+        # Original input is not mutated.
+        assert glitches[0]["population_file"] == url
+        # Downloaded exactly once, with caching enabled.
+        assert len(calls) == 1
+        assert calls[0][0] == url
+        assert calls[0][1]["allow_existing"] is True
+        assert calls[0][1]["dest_path_from_hashed_url"] is True
+
+    def test_resolve_passes_through_non_url_values(self, monkeypatch, tmp_path: Path):
+        """Local paths and named assets are returned unchanged without downloading."""
+
+        def fail_download(*args, **kwargs):
+            raise AssertionError("download_file must not be called for non-URL inputs")
+
+        monkeypatch.setattr(noise_adapter, "download_file", fail_download)
+
+        local_population = tmp_path / "local_blip.hdf5"
+        glitches = [_gengli_glitch_dict(str(local_population)), _blip_glitch_dict()]
+        resolved = noise_adapter._resolve_glitch_file_urls(glitches)
+
+        assert resolved == glitches
+
+    def test_resolve_returns_empty_input_unchanged(self):
+        """``None``/empty glitch lists are returned as-is."""
+        assert noise_adapter._resolve_glitch_file_urls(None) is None
+        assert noise_adapter._resolve_glitch_file_urls([]) == []
+
+    def test_configure_default_stream_backend_resolves_urls(self, monkeypatch, tmp_path: Path):
+        """The streaming backend hands the local path (not the URL) to gwmock-noise."""
+        local = tmp_path / "blip.hdf5"
+        local.write_bytes(b"")
+        monkeypatch.setattr(noise_adapter, "download_file", lambda url, **kwargs: local)
+
+        received = {}
+
+        def fake_normalize(glitches):
+            received["glitches"] = glitches
+            return ["sentinel-model"]
+
+        monkeypatch.setattr(noise_adapter, "normalize_glitch_models", fake_normalize)
+
+        adapter = NoiseAdapter.from_backend()  # DefaultNoiseSimulator
+        url = "https://example.org/records/1/files/blip.hdf5"
+        adapter._configure_default_stream_backend(
+            chunk_duration=TEST_DURATION,
+            sampling_frequency=TEST_SAMPLING_FREQUENCY,
+            detectors=["E1"],
+            seed=TEST_SEED,
+            psd_file=None,
+            psd_schedule=None,
+            psd_files=None,
+            csd_files=None,
+            low_frequency_cutoff=2.0,
+            high_frequency_cutoff=None,
+            spectral_lines=None,
+            glitches=[_gengli_glitch_dict(url)],
+        )
+
+        assert received["glitches"][0]["population_file"] == str(local)
