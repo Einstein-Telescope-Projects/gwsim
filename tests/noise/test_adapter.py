@@ -256,3 +256,80 @@ class TestNoiseAdapter:
             tmp_path / "noise-0_H-H1:STRAIN_NOISE_100p5-4.gwf",
             tmp_path / "noise-0_L-L1:STRAIN_NOISE_100p5-4.gwf",
         ]
+
+
+def _blip_glitch_dict() -> dict[str, object]:
+    """Return a valid dict-form blip glitch config."""
+    return {
+        "kind": "blip",
+        "rate": 1.0,
+        "amplitude_distribution": {"distribution": "lognormal", "mean": 1e-21, "std": 0.0},
+        "width": 0.01,
+    }
+
+
+class TestDefaultStreamBackendComponentNormalization:
+    """Regression tests for ISS-011.
+
+    The default stream backend builds ``SpectralLineSimulator`` / ``AddLines`` /
+    ``InjectGlitches`` directly, so the adapter must normalize dict-form config
+    entries into ``SpectralLine`` / ``GlitchModel`` instances first. Before the
+    fix these raised ``AttributeError: 'dict' object has no attribute ...`` on the
+    first chunk.
+    """
+
+    def test_open_stream_accepts_dict_form_spectral_lines(self):
+        """A dict-form spectral_lines entry generates a chunk (no AttributeError)."""
+        adapter = NoiseAdapter.from_backend()  # DefaultNoiseSimulator
+        stream = adapter.open_stream(
+            chunk_duration=TEST_DURATION,
+            sampling_frequency=TEST_SAMPLING_FREQUENCY,
+            detectors=["H1"],
+            seed=TEST_SEED,
+            spectral_lines=[{"frequency": 60.0, "amplitude": 1e-23}],
+        )
+
+        chunk = next(stream)
+
+        n_samples = round(TEST_DURATION * TEST_SAMPLING_FREQUENCY)
+        assert chunk["H1"].shape == (n_samples,)
+        assert np.all(np.isfinite(chunk["H1"]))
+        assert np.any(chunk["H1"] != 0.0)
+
+    def test_open_stream_accepts_dict_form_glitches(self):
+        """A dict-form glitches entry generates a chunk (no AttributeError)."""
+        adapter = NoiseAdapter.from_backend()  # DefaultNoiseSimulator
+        stream = adapter.open_stream(
+            chunk_duration=TEST_DURATION,
+            sampling_frequency=TEST_SAMPLING_FREQUENCY,
+            detectors=["H1"],
+            seed=TEST_SEED,
+            glitches=[_blip_glitch_dict()],
+        )
+
+        chunk = next(stream)
+
+        n_samples = round(TEST_DURATION * TEST_SAMPLING_FREQUENCY)
+        assert chunk["H1"].shape == (n_samples,)
+        assert np.all(np.isfinite(chunk["H1"]))
+
+    def test_open_stream_accepts_dataclass_instances(self):
+        """Passing SpectralLine/GlitchModel instances still works (normalize is idempotent)."""
+        from gwmock_noise.gaussian import SpectralLine
+        from gwmock_noise.glitches.models import BlipGlitch, LogNormalAmplitudeDistribution
+
+        adapter = NoiseAdapter.from_backend()  # DefaultNoiseSimulator
+        stream = adapter.open_stream(
+            chunk_duration=TEST_DURATION,
+            sampling_frequency=TEST_SAMPLING_FREQUENCY,
+            detectors=["H1"],
+            seed=TEST_SEED,
+            spectral_lines=[SpectralLine(frequency=60.0, amplitude=1e-23)],
+            glitches=[BlipGlitch(rate=1.0, amplitude_distribution=LogNormalAmplitudeDistribution(mean=1e-21))],
+        )
+
+        chunk = next(stream)
+
+        n_samples = round(TEST_DURATION * TEST_SAMPLING_FREQUENCY)
+        assert chunk["H1"].shape == (n_samples,)
+        assert np.all(np.isfinite(chunk["H1"]))
