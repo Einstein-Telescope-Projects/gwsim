@@ -127,6 +127,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         self._active_signal_output_directory = Path("signal")
         self._active_noise_output_directory = Path("noise")
         self._active_noise_output_arguments: dict[str, Any] = {}
+        self._active_noise_file_name: str | list[str] | None = None
         self._active_overwrite = False
         self._noise_stream: Iterator[dict[str, Any]] | None = None
         self._noise_stream_position = 0
@@ -390,6 +391,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             noise_detectors = list(self.noise_arguments.get("detectors", []))
             proxy = _NoiseTemplateProxy(self, noise_detectors)
             self._active_noise_output_arguments = expand_template_variables(noise_output.arguments or {}, proxy)
+            self._active_noise_file_name = noise_output.file_name
         self._active_overwrite = overwrite
 
     def simulate(self) -> AdapterOrchestrationResult:
@@ -517,8 +519,17 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             )
 
     def _run_noise_batch(self) -> SimulationResult:
-        output_format = self._infer_noise_output_format(self.orchestration_config.noise.output.file_name)
-        output_paths = self._expand_noise_output_paths(self.orchestration_config.noise.output.file_name)
+        # Source the file_name from the active per-batch context so that reproduction from
+        # metadata (where each batch carries its own already-expanded literal file_name) writes
+        # to the correct per-batch path instead of reusing the first batch's filenames. Falls
+        # back to the instantiation-time config when no batch context has been set.
+        file_name = (
+            self._active_noise_file_name
+            if self._active_noise_file_name is not None
+            else self.orchestration_config.noise.output.file_name
+        )
+        output_format = self._infer_noise_output_format(file_name)
+        output_paths = self._expand_noise_output_paths(file_name)
         output_arguments = dict(self._active_noise_output_arguments)
         if "channel_prefix" in output_arguments:
             raise ValueError(
@@ -632,15 +643,23 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             raise ValueError("Signal output files must end with .gwf, .hdf5, .h5, .npy, or .txt.")
         return cast(Literal["gwf", "hdf5", "npy", "txt"], suffix)
 
-    def _infer_noise_output_format(self, file_name_template: str) -> Literal["npy", "gwf"]:
-        suffix = Path(file_name_template).suffix.lower().lstrip(".")
+    def _infer_noise_output_format(self, file_name_template: str | list[str]) -> Literal["npy", "gwf"]:
+        first = file_name_template[0] if isinstance(file_name_template, list) else file_name_template
+        suffix = Path(first).suffix.lower().lstrip(".")
         if suffix not in {"npy", "gwf"}:
             raise ValueError("Noise output templates must end with .npy or .gwf.")
         return cast(Literal["npy", "gwf"], suffix)
 
-    def _expand_noise_output_paths(self, file_name_template: str) -> list[Path]:
+    def _expand_noise_output_paths(self, file_name_template: str | list[str]) -> list[Path]:
         """Expand the noise file_name template to one output path per detector."""
         noise_detectors = list(self.noise_arguments["detectors"])
+        if isinstance(file_name_template, list):
+            if len(file_name_template) != len(noise_detectors):
+                raise ValueError(
+                    f"Noise file_name list has {len(file_name_template)} entries "
+                    f"but there are {len(noise_detectors)} noise detectors."
+                )
+            return [self._active_noise_output_directory / str(p) for p in file_name_template]
         proxy = _NoiseTemplateProxy(self, noise_detectors)
         expanded = expand_template_variables(file_name_template, proxy)
         if isinstance(expanded, list):

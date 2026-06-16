@@ -810,6 +810,134 @@ class TestCreatePlanFromMetadata:
         with pytest.raises(ValueError, match="Invalid metadata"):
             create_plan_from_metadata(metadata_directory, Path("checkpoints"))
 
+    def test_create_plan_from_metadata_orchestration_noise_only(
+        self,
+        metadata_directory: Path,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """Noise-only orchestration metadata (config.orchestration with only 'noise') must produce OrchestrationConfig."""
+        noise_orch = OrchestrationConfig(noise=NoiseAdapterConfig())
+        config_payload = {
+            "globals": globals_config.model_dump(by_alias=True, exclude_none=True),
+            "orchestration": noise_orch.model_dump(by_alias=True, exclude_none=True),
+        }
+        metadata = create_batch_metadata(
+            simulator_name="orchestration",
+            batch_index=0,
+            simulator_config=simulator_config,
+            globals_config=globals_config,
+            config_payload=config_payload,
+        )
+        metadata_file = metadata_directory / "orchestration-0.metadata.json"
+        with metadata_file.open("w") as f:
+            json.dump(metadata, f)
+
+        plan = create_plan_from_metadata(metadata_directory, Path("checkpoints"))
+
+        assert plan.total_batches == 1
+        assert isinstance(plan.batches[0].simulator_config, OrchestrationConfig)
+        assert plan.batches[0].simulator_config.noise is not None
+        assert plan.batches[0].simulator_config.population is None
+        assert plan.batches[0].simulator_config.signal is None
+
+    def test_create_plan_from_metadata_orchestration_population_only(
+        self,
+        metadata_directory: Path,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """Population-only orchestration metadata must produce OrchestrationConfig."""
+        pop_orch = OrchestrationConfig(population=PopulationConfig(backend="file"))
+        config_payload = {
+            "globals": globals_config.model_dump(by_alias=True, exclude_none=True),
+            "orchestration": pop_orch.model_dump(by_alias=True, exclude_none=True),
+        }
+        metadata = create_batch_metadata(
+            simulator_name="orchestration",
+            batch_index=0,
+            simulator_config=simulator_config,
+            globals_config=globals_config,
+            config_payload=config_payload,
+        )
+        metadata_file = metadata_directory / "orchestration-0.metadata.json"
+        with metadata_file.open("w") as f:
+            json.dump(metadata, f)
+
+        plan = create_plan_from_metadata(metadata_directory, Path("checkpoints"))
+
+        assert plan.total_batches == 1
+        assert isinstance(plan.batches[0].simulator_config, OrchestrationConfig)
+        assert plan.batches[0].simulator_config.population is not None
+        assert plan.batches[0].simulator_config.noise is None
+
+    def test_create_plan_from_metadata_orchestration_noise_only_list_file_name(
+        self,
+        metadata_directory: Path,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """Noise-only orchestration metadata with pre-resolved list file_name (as stored by _build_config_payload) must round-trip."""
+        config_payload = {
+            "globals": globals_config.model_dump(by_alias=True, exclude_none=True),
+            "orchestration": {
+                "noise": {
+                    "arguments": {"detectors": ["ET1_EMR", "ET2_EMR", "ET3_EMR"]},
+                    "output": {
+                        "file_name": [
+                            "E-ET1_EMR_STRAIN_NOISE-1577491218-4096.gwf",
+                            "E-ET2_EMR_STRAIN_NOISE-1577491218-4096.gwf",
+                            "E-ET3_EMR_STRAIN_NOISE-1577491218-4096.gwf",
+                        ],
+                        "output_directory": "noise",
+                        "arguments": {"channel": ["ET1_EMR:STRAIN", "ET2_EMR:STRAIN", "ET3_EMR:STRAIN"]},
+                    },
+                }
+            },
+        }
+        metadata = create_batch_metadata(
+            simulator_name="orchestration",
+            batch_index=0,
+            simulator_config=simulator_config,
+            globals_config=globals_config,
+            config_payload=config_payload,
+        )
+        metadata_file = metadata_directory / "orchestration-0.metadata.json"
+        with metadata_file.open("w") as f:
+            json.dump(metadata, f)
+
+        plan = create_plan_from_metadata(metadata_directory, Path("checkpoints"))
+
+        assert plan.total_batches == 1
+        assert isinstance(plan.batches[0].simulator_config, OrchestrationConfig)
+        noise_cfg = plan.batches[0].simulator_config.noise
+        assert noise_cfg is not None
+        assert isinstance(noise_cfg.output.file_name, list)
+        assert len(noise_cfg.output.file_name) == 3
+
+    def test_create_plan_from_metadata_orchestration_unknown_shape_raises(
+        self,
+        metadata_directory: Path,
+        globals_config: GlobalsConfig,
+    ):
+        """Orchestration config with no recognised section keys must still raise 'Invalid metadata'."""
+        metadata = {
+            "simulator_name": "orchestration",
+            "batch_index": 0,
+            "config": {
+                "globals": globals_config.model_dump(by_alias=True, exclude_none=True),
+                "orchestration": {"unrecognised": "value"},
+            },
+            "globals_config": globals_config.model_dump(by_alias=True, exclude_none=True),
+            "simulator_config": {},
+        }
+        metadata_file = metadata_directory / "orchestration-0.metadata.json"
+        with metadata_file.open("w") as f:
+            json.dump(metadata, f)
+
+        with pytest.raises(ValueError, match="Invalid metadata"):
+            create_plan_from_metadata(metadata_directory, Path("checkpoints"))
+
     def test_create_plan_from_metadata_missing_simulator_name(
         self,
         metadata_directory: Path,
