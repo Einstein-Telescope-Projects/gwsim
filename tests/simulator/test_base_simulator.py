@@ -9,7 +9,9 @@ from typing import Any
 import numpy as np
 import pytest
 import yaml
+from astropy.units.quantity import Quantity
 
+from gwmock.mixin.time_series import TimeSeriesMixin
 from gwmock.simulator.base import Simulator
 
 
@@ -50,6 +52,16 @@ class MockSimulator(Simulator):
                 data = data.item()
             with Path(file_name).open("w", encoding="utf-8") as f:
                 yaml.safe_dump(data, f)
+
+
+class MockTimeSeriesSimulator(TimeSeriesMixin, Simulator):
+    """Mock simulator with TimeSeriesMixin for testing Quantity state restoration."""
+
+    def simulate(self) -> int:
+        return self.counter
+
+    def _save_data(self, data: Any, file_name: str | Path | np.ndarray[Any, np.dtype[np.object_]], **kwargs) -> None:
+        pass
 
 
 @pytest.fixture
@@ -340,3 +352,35 @@ class TestSimulatorSaveData:
             with open(file_path, encoding="utf-8") as f:
                 loaded_data = yaml.safe_load(f)
             assert loaded_data == new_data
+
+
+class TestSimulatorStateQuantityRewrap:
+    """Test that state setter re-wraps plain numbers to Quantity for Quantity StateAttributes."""
+
+    def test_start_time_plain_float_rewrapped_to_quantity(self):
+        """state setter must restore a plain-float start_time as a Quantity."""
+        sim = MockTimeSeriesSimulator()
+        assert hasattr(sim.start_time, "unit"), "start_time must be a Quantity after __init__"
+
+        sim.state = {"start_time": 1577491218.0, "counter": 3}
+
+        assert hasattr(sim.start_time, "unit"), "start_time must remain a Quantity after state restore"
+        assert hasattr(sim.start_time, "value")
+        assert sim.start_time.value == 1577491218.0
+        # This is the exact call that crashed during reproduction runs
+        assert float(sim.start_time.value) == 1577491218.0
+
+    def test_start_time_quantity_accepted_without_double_wrap(self):
+        """state setter must accept a Quantity start_time unchanged."""
+        sim = MockTimeSeriesSimulator()
+        q = Quantity(1577491218.0, unit="s")
+        sim.state = {"start_time": q, "counter": 0}
+        assert sim.start_time.value == 1577491218.0
+        assert str(sim.start_time.unit) == "s"
+
+    def test_non_quantity_state_attribute_unaffected(self):
+        """Plain int state attributes must be stored as-is, not wrapped in Quantity."""
+        sim = MockTimeSeriesSimulator()
+        sim.state = {"counter": 42, "start_time": sim.start_time}
+        assert sim.counter == 42
+        assert not hasattr(sim.counter, "unit")
