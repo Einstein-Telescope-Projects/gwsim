@@ -456,7 +456,7 @@ def create_plan_from_metadata_files(
                 raw_simulator_config = metadata["simulator_config"]
             if "class" in raw_simulator_config or "class_" in raw_simulator_config:
                 simulator_config = SimulatorConfig(**raw_simulator_config)
-            elif {"population", "signal", "noise"}.issubset(raw_simulator_config):
+            elif raw_simulator_config.keys() & {"population", "signal", "noise"}:
                 simulator_config = OrchestrationConfig(**raw_simulator_config)
             else:
                 raise ValueError("unknown simulator_config shape")
