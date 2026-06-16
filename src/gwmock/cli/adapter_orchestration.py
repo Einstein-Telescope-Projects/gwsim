@@ -482,6 +482,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         if not isinstance(data, TimeSeries):
             raise TypeError(f"AdapterOrchestrator can only save TimeSeries signal data, got {type(data)}.")
 
+        if isinstance(file_name, list):
+            file_name = np.asarray(file_name, dtype=object)
+
         channel_names = self._resolve_signal_channels(data=data, channel_spec=kwargs.pop("channel", None))
         if kwargs:
             unsupported = ", ".join(sorted(kwargs))
@@ -644,11 +647,15 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         return cast(Literal["gwf", "hdf5", "npy", "txt"], suffix)
 
     def _infer_noise_output_format(self, file_name_template: str | list[str]) -> Literal["npy", "gwf"]:
-        first = file_name_template[0] if isinstance(file_name_template, list) else file_name_template
-        suffix = Path(first).suffix.lower().lstrip(".")
-        if suffix not in {"npy", "gwf"}:
+        names = list(file_name_template) if isinstance(file_name_template, list) else [file_name_template]
+        if not names:
+            raise ValueError("Noise file_name list must contain at least one entry.")
+        suffixes = {Path(name).suffix.lower().lstrip(".") for name in names}
+        if not suffixes <= {"npy", "gwf"}:
             raise ValueError("Noise output templates must end with .npy or .gwf.")
-        return cast(Literal["npy", "gwf"], suffix)
+        if len(suffixes) != 1:
+            raise ValueError("All noise file_name entries must use the same extension (.npy or .gwf).")
+        return cast(Literal["npy", "gwf"], suffixes.pop())
 
     def _expand_noise_output_paths(self, file_name_template: str | list[str]) -> list[Path]:
         """Expand the noise file_name template to one output path per detector."""
@@ -659,18 +666,19 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                     f"Noise file_name list has {len(file_name_template)} entries "
                     f"but there are {len(noise_detectors)} noise detectors."
                 )
-            return [self._active_noise_output_directory / str(p) for p in file_name_template]
-        proxy = _NoiseTemplateProxy(self, noise_detectors)
-        expanded = expand_template_variables(file_name_template, proxy)
-        if isinstance(expanded, list):
-            if len(expanded) != len(noise_detectors):
-                raise ValueError(
-                    f"Noise file_name template expanded to {len(expanded)} paths "
-                    f"but there are {len(noise_detectors)} noise detectors."
-                )
-            paths = [self._active_noise_output_directory / str(p) for p in expanded]
+            paths = [self._active_noise_output_directory / str(p) for p in file_name_template]
         else:
-            paths = [self._active_noise_output_directory / str(expanded)] * len(noise_detectors)
+            proxy = _NoiseTemplateProxy(self, noise_detectors)
+            expanded = expand_template_variables(file_name_template, proxy)
+            if isinstance(expanded, list):
+                if len(expanded) != len(noise_detectors):
+                    raise ValueError(
+                        f"Noise file_name template expanded to {len(expanded)} paths "
+                        f"but there are {len(noise_detectors)} noise detectors."
+                    )
+                paths = [self._active_noise_output_directory / str(p) for p in expanded]
+            else:
+                paths = [self._active_noise_output_directory / str(expanded)] * len(noise_detectors)
         if len(set(paths)) < len(paths):
             raise ValueError(
                 "Noise file_name template produces identical paths for multiple detectors. "
