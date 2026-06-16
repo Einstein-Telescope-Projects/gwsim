@@ -78,7 +78,13 @@ def _raise_removed_noise_simulator_error(class_spec: str) -> None:
 class SimulatorOutputConfig(BaseModel):
     """Configuration for simulator output handling."""
 
-    file_name: str = Field(..., description="Output file name template (supports {{ variable }} placeholders)")
+    file_name: str | list[str] = Field(
+        ...,
+        description=(
+            "Output file name template (supports {{ variable }} placeholders), "
+            "or a pre-resolved list of filenames as stored in batch metadata."
+        ),
+    )
     arguments: dict[str, Any] = Field(
         default_factory=dict, description="Output-specific arguments (e.g., channel name)"
     )

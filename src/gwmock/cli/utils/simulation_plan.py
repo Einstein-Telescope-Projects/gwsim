@@ -456,7 +456,7 @@ def create_plan_from_metadata_files(
                 raw_simulator_config = metadata["simulator_config"]
             if "class" in raw_simulator_config or "class_" in raw_simulator_config:
                 simulator_config = SimulatorConfig(**raw_simulator_config)
-            elif {"population", "signal", "noise"}.issubset(raw_simulator_config):
+            elif raw_simulator_config.keys() & {"population", "signal", "noise"}:
                 simulator_config = OrchestrationConfig(**raw_simulator_config)
             else:
                 raise ValueError("unknown simulator_config shape")
@@ -486,11 +486,53 @@ def create_plan_from_metadata_files(
         )
         plan.add_batch(batch)
 
+    _warn_version_mismatches(plan.batches, get_dependency_versions())
+
     logger.info(
         "Created simulation plan from %d metadata files",
         len(metadata_files),
     )
     return plan
+
+
+def _warn_version_mismatches(
+    batches: list[SimulationBatch],
+    installed: dict[str, str | None],
+) -> None:
+    """Emit a warning for each gwmock-family package whose stored version differs from installed."""
+    field_to_pkg: list[tuple[str | None, str, str]] = [
+        # (top-level key or None, subpackage_versions subkey or "", installed pkg key)
+        ("gwmock_version", "", "gwmock"),
+        (None, "gwmock_noise", "gwmock-noise"),
+        (None, "gwmock_pop", "gwmock-pop"),
+        (None, "gwmock_signal", "gwmock-signal"),
+    ]
+
+    seen: dict[str, set[str]] = {}
+    for batch in batches:
+        metadata = batch.batch_metadata
+        if not metadata:
+            continue
+        for top_key, sub_key, pkg_key in field_to_pkg:
+            if top_key:
+                stored = metadata.get(top_key)
+            else:
+                subpkg = metadata.get("subpackage_versions") or {}
+                stored = subpkg.get(sub_key) if isinstance(subpkg, dict) else None
+            if stored:
+                seen.setdefault(pkg_key, set()).add(stored)
+
+    for pkg_key, stored_versions in seen.items():
+        installed_ver = installed.get(pkg_key)
+        for stored_ver in stored_versions:
+            if stored_ver != installed_ver:
+                logger.warning(
+                    "Version mismatch for %s: metadata records %s but %s is installed."
+                    " Results may not be bit-per-bit reproducible.",
+                    pkg_key,
+                    stored_ver,
+                    installed_ver or "unknown",
+                )
 
 
 def create_plan_from_metadata(

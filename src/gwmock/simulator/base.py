@@ -112,7 +112,17 @@ class Simulator(ABC):
         for key, value in state.items():
             if key not in state_attrs:
                 raise ValueError(f"Attribute {key} is not registered as a state attribute.")
-            setattr(self, key, value)
+            existing = getattr(self, key, None)
+            if (
+                existing is not None
+                and hasattr(existing, "unit")
+                and hasattr(existing, "value")
+                and not (hasattr(value, "unit") and hasattr(value, "value"))
+                and value is not None
+            ):
+                setattr(self, key, existing.__class__(value, unit=existing.unit))
+            else:
+                setattr(self, key, value)
 
     @property
     def metadata(self) -> dict:

@@ -23,7 +23,7 @@ from gwmock.cli.utils.config import (
     SignalConfig,
     SimulatorOutputConfig,
 )
-from gwmock.cli.utils.simulation_plan import create_plan_from_config
+from gwmock.cli.utils.simulation_plan import SimulationBatch, create_plan_from_config
 from gwmock.simulator.seeds import derive_seed
 
 EXPECTED_BATCHES = 2
@@ -517,6 +517,131 @@ def test_noise_batch_overwrite_check_uses_template_paths(tmp_path: Path):
 
     with pytest.raises(FileExistsError, match=r"noise-0\.npy"):
         orchestrator._run_noise_batch()
+
+
+def _make_noise_only_batch(tmp_path: Path, *, batch_index: int, file_name: list[str]) -> SimulationBatch:
+    """Build a noise-only orchestration batch with an explicit per-batch file_name list.
+
+    Mirrors a metadata-reproduction batch, where ``file_name`` is an already-expanded literal
+    list (one entry per detector) rather than a template.
+    """
+    return SimulationBatch(
+        simulator_name="orchestration",
+        simulator_config=OrchestrationConfig(
+            noise=NoiseAdapterConfig(
+                backend=FAKE_NOISE_BACKEND,
+                arguments={"seed": 7, "detectors": ["H1", "L1"], "duration": 4.0, "sampling_frequency": 4.0},
+                output=SimulatorOutputConfig(file_name=file_name, output_directory="noise"),
+            ),
+        ),
+        globals_config=GlobalsConfig(
+            working_directory=str(tmp_path),
+            output_directory="output",
+            metadata_directory="metadata",
+            simulator_arguments={"sampling-frequency": 4, "duration": 4, "start-time": 100, "max-samples": 6},
+        ),
+        batch_index=batch_index,
+    )
+
+
+def test_set_batch_context_applies_per_batch_noise_file_name(tmp_path: Path):
+    """Reproduction: each batch writes its own per-batch noise file_name, not batch 0's (ISS-016).
+
+    The orchestrator is instantiated once from the first batch's config. When reproducing from
+    metadata each batch carries its own already-expanded literal file_name; ``set_batch_context``
+    must make ``_run_noise_batch`` use that per-batch file_name rather than the instantiation-time
+    config, otherwise every batch reuses the first batch's filenames and the second batch collides.
+    """
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    config.orchestration.noise.arguments = {
+        "seed": 7,
+        "duration": 4.0,
+        "sampling_frequency": 4.0,
+        "detectors": ["H1", "L1"],
+    }
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+
+    batch0 = _make_noise_only_batch(tmp_path, batch_index=0, file_name=["E-H1-100.npy", "E-L1-100.npy"])
+    batch1 = _make_noise_only_batch(tmp_path, batch_index=1, file_name=["E-H1-104.npy", "E-L1-104.npy"])
+    output_directory = tmp_path / "output"
+
+    orchestrator.set_batch_context(batch=batch0, output_directory=output_directory, overwrite=True)
+    assert orchestrator._active_noise_file_name == ["E-H1-100.npy", "E-L1-100.npy"]
+    result0 = orchestrator._run_noise_batch()
+    assert {path.name for path in result0.output_paths.values()} == {"E-H1-100.npy", "E-L1-100.npy"}
+
+    orchestrator.set_batch_context(batch=batch1, output_directory=output_directory, overwrite=True)
+    assert orchestrator._active_noise_file_name == ["E-H1-104.npy", "E-L1-104.npy"]
+    result1 = orchestrator._run_noise_batch()
+    # Second batch must use its own filenames (104), not batch 0's (100) — the collision bug.
+    assert {path.name for path in result1.output_paths.values()} == {"E-H1-104.npy", "E-L1-104.npy"}
+    assert set(result1.output_paths.values()).isdisjoint(result0.output_paths.values())
+
+    noise_dir = result0.output_paths["H1"].parent
+    for name in ("E-H1-100.npy", "E-L1-100.npy", "E-H1-104.npy", "E-L1-104.npy"):
+        assert (noise_dir / name).exists()
+
+
+def test_infer_noise_format_empty_list_raises(tmp_path: Path):
+    """_infer_noise_output_format rejects an empty list."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    with pytest.raises(ValueError, match="at least one entry"):
+        orchestrator._infer_noise_output_format([])
+
+
+def test_infer_noise_format_invalid_suffix_in_list_raises(tmp_path: Path):
+    """_infer_noise_output_format rejects a list entry with an unsupported extension."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    with pytest.raises(ValueError, match=r"must end with \.npy or \.gwf"):
+        orchestrator._infer_noise_output_format(["noise-H1.wav", "noise-L1.wav"])
+
+
+def test_infer_noise_format_mixed_suffixes_raises(tmp_path: Path):
+    """_infer_noise_output_format rejects a list that mixes .npy and .gwf entries."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    with pytest.raises(ValueError, match="same extension"):
+        orchestrator._infer_noise_output_format(["noise-H1.npy", "noise-L1.gwf"])
+
+
+def test_expand_noise_output_paths_list_duplicate_paths_raises(tmp_path: Path):
+    """_expand_noise_output_paths rejects a pre-resolved list where two entries map to the same path."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    config.orchestration.noise.arguments = {
+        "seed": 7,
+        "duration": 4.0,
+        "sampling_frequency": 4.0,
+        "detectors": ["H1", "L1"],
+    }
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    orchestrator._active_noise_output_directory = tmp_path / "noise"
+    with pytest.raises(ValueError, match="identical paths"):
+        orchestrator._expand_noise_output_paths(["same-file.npy", "same-file.npy"])
+
+
+def test_save_data_list_file_name_coerced_to_ndarray(monkeypatch, tmp_path: Path):
+    """_save_data accepts list[str] file_name and routes it through the ndarray dispatch path."""
+    from gwmock.data.time_series.time_series import TimeSeries as GwmockTimeSeries
+
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    data = GwmockTimeSeries(np.zeros((1, 4)), start_time=0.0, sampling_frequency=1.0)
+
+    written: list[Path] = []
+
+    def _mock_write(self, path, **kwargs):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+        written.append(path)
+
+    monkeypatch.setattr("gwmock.cli.adapter_orchestration.DetectorStrainStack.write", _mock_write)
+
+    out = tmp_path / "signal" / "H1.npy"
+    orchestrator._save_data(data, [str(out)])
+
+    assert written == [out]
 
 
 def test_build_signal_stack_uses_channel_name_as_gwf_channel(tmp_path: Path):
