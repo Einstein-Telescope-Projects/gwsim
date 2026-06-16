@@ -830,6 +830,97 @@ def validate_plan(plan: SimulationPlan) -> None:
     logger.info("Simulation plan validation completed successfully")
 
 
+def _resolve_recorded_output_paths(metadata: dict[str, Any], working_directory: str | None) -> list[Path]:
+    """Resolve the output file paths recorded in a batch's metadata.
+
+    Paths in ``outputs[].path`` are stored relative to the working directory (see
+    ``_to_path_string``); resolve them back against it so existence can be checked.
+    """
+    base = Path(working_directory) if working_directory else None
+    paths: list[Path] = []
+    for record in metadata.get("outputs", []) or []:
+        raw = record.get("path") if isinstance(record, dict) else None
+        if not raw:
+            continue
+        path = Path(raw)
+        if base is not None and not path.is_absolute():
+            path = base / path
+        paths.append(path)
+    return paths
+
+
+def _batch_outputs_present(batch: SimulationBatch, metadata_directory: Path) -> bool | None:
+    """Return whether the outputs recorded for ``batch`` all exist on disk.
+
+    Returns:
+        ``True`` if the batch metadata exists and every recorded output is present,
+        ``False`` if the metadata exists but one or more recorded outputs are missing,
+        ``None`` if the batch metadata file itself is missing.
+    """
+    metadata_file = metadata_directory / f"{batch.simulator_name}-{batch.batch_index}.metadata.json"
+    if not metadata_file.exists():
+        return None
+    try:
+        with metadata_file.open("r") as handle:
+            metadata = json.load(handle)
+    except (OSError, ValueError) as error:
+        logger.warning(
+            "Failed to read metadata for batch %d during checkpoint reconciliation: %s", batch.batch_index, error
+        )
+        return None
+    working_directory = getattr(batch.globals_config, "working_directory", None)
+    recorded = _resolve_recorded_output_paths(metadata, working_directory)
+    if not recorded:
+        # No output paths recorded to verify; trust the checkpoint for this batch.
+        return True
+    missing = [path for path in recorded if not path.exists()]
+    if missing:
+        logger.warning(
+            "Checkpoint marks batch %d complete but output(s) are missing: %s",
+            batch.batch_index,
+            ", ".join(str(path) for path in missing),
+        )
+        return False
+    return True
+
+
+def reconcile_completed_batches(
+    plan: SimulationPlan,
+    metadata_directory: Path,
+    completed_batch_indices: set[int],
+) -> set[int]:
+    """Prune checkpointed batches whose outputs are missing from disk.
+
+    Resume restores simulator state from a single tail snapshot and assumes the
+    completed batches form a contiguous prefix (the orchestration noise stream is
+    sequential/stateful). So the completed set is validated in order and truncated at
+    the FIRST batch whose recorded outputs (or metadata) are missing: that batch and
+    every later batch are dropped so they get re-run.
+
+    Returns the validated contiguous prefix of ``completed_batch_indices``.
+    """
+    if not completed_batch_indices:
+        return set()
+    batch_by_index = {batch.batch_index: batch for batch in plan.batches}
+    valid: set[int] = set()
+    for index in sorted(completed_batch_indices):
+        batch = batch_by_index.get(index)
+        if batch is None:
+            logger.warning("Checkpoint references unknown batch %d; it and later batches will be re-run.", index)
+            break
+        present = _batch_outputs_present(batch, metadata_directory)
+        if present is None:
+            logger.warning(
+                "Checkpoint marks batch %d complete but its metadata is missing; it and later batches will be re-run.",
+                index,
+            )
+            break
+        if not present:
+            break
+        valid.add(index)
+    return valid
+
+
 def execute_plan(  # noqa: PLR0915
     plan: SimulationPlan,
     output_directory: Path,
@@ -875,13 +966,32 @@ def execute_plan(  # noqa: PLR0915
 
     # Initialize checkpoint manager for resumption support
     checkpoint_manager = CheckpointManager(plan.checkpoint_directory)
-    completed_batch_indices = checkpoint_manager.get_completed_batch_indices()
+    loaded_batch_indices = checkpoint_manager.get_completed_batch_indices()
+    resuming = bool(loaded_batch_indices)
 
-    if completed_batch_indices:
+    # Reconcile the checkpoint against the filesystem: a batch may be recorded as
+    # completed while its output is missing (partial write at interrupt, an external
+    # move/backup, fs hiccup). Skipping such a batch would silently drop a file.
+    completed_batch_indices = reconcile_completed_batches(plan, metadata_directory, loaded_batch_indices)
+
+    if not resuming:
+        logger.debug("No checkpoint found or no batches completed yet")
+        last_simulator_state = None
+    elif completed_batch_indices == loaded_batch_indices:
         logger.info("Loaded checkpoint: %d batches already completed", len(completed_batch_indices))
         last_simulator_state = checkpoint_manager.get_last_simulator_state()
     else:
-        logger.debug("No checkpoint found or no batches completed yet")
+        # One or more checkpointed batches are missing their outputs. The checkpoint
+        # only holds the tail simulator state, so an interior batch cannot be
+        # regenerated in isolation; discard the checkpoint and regenerate from the
+        # first batch to keep the simulator/noise-stream/RNG state consistent.
+        logger.warning(
+            "Checkpoint listed %d completed batch(es) but only the first %d still have all outputs "
+            "on disk; regenerating the simulation from the start to restore the missing output(s).",
+            len(loaded_batch_indices),
+            len(completed_batch_indices),
+        )
+        completed_batch_indices = set()
         last_simulator_state = None
 
     # Group batches by simulator name to execute sequentially per simulator
@@ -904,13 +1014,19 @@ def execute_plan(  # noqa: PLR0915
 
             # Process batches sequentially, maintaining state across them
             for batch_idx, batch in enumerate(batches):
-                # Skip batches that were already completed (for resumption after interrupt)
-                if checkpoint_manager.should_skip_batch(batch.batch_index):
+                # Skip batches that were already completed AND whose outputs were verified
+                # on disk during reconciliation (for resumption after interrupt).
+                if batch.batch_index in completed_batch_indices:
                     logger.info(
                         "Skipping batch %d (already completed from checkpoint)",
                         batch.batch_index,
                     )
                     continue
+
+                # On resume, any output present for a batch we are about to run is an
+                # unverified leftover (orphan/partial) from the interrupted attempt, not
+                # user data, so allow overwriting it even without --overwrite.
+                batch_overwrite = overwrite or resuming
 
                 try:
                     logger.debug(
@@ -941,6 +1057,7 @@ def execute_plan(  # noqa: PLR0915
                         _batch=batch,
                         _output_directory=output_directory,
                         _pre_batch_state=pre_batch_state,
+                        _overwrite=batch_overwrite,
                     ):
                         """Execute a single batch with state management."""
                         set_batch_context = getattr(_simulator, "set_batch_context", None)
@@ -948,7 +1065,7 @@ def execute_plan(  # noqa: PLR0915
                             set_batch_context(
                                 batch=_batch,
                                 output_directory=_output_directory,
-                                overwrite=overwrite,
+                                overwrite=_overwrite,
                             )
 
                         # Generate data by calling next() - this advances simulator state
@@ -962,7 +1079,7 @@ def execute_plan(  # noqa: PLR0915
                             batch_data=batch_data,
                             batch=_batch,
                             output_directory=_output_directory,
-                            overwrite=overwrite,
+                            overwrite=_overwrite,
                         )
 
                         # Only save metadata if data save succeeded

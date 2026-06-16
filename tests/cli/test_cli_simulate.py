@@ -21,12 +21,14 @@ from gwmock.cli.simulate_utils import (
     execute_plan,
     instantiate_simulator,
     process_batch,
+    reconcile_completed_batches,
     restore_batch_state,
     retry_with_backoff,
     save_batch_metadata,
     update_metadata_index,
     validate_plan,
 )
+from gwmock.cli.utils.checkpoint import CheckpointManager
 from gwmock.cli.utils.config import (
     Config,
     GlobalsConfig,
@@ -814,6 +816,147 @@ class TestExecutePlan:
             counter_0 = metadata_0["pre_batch_state"]["counter"]
             counter_1 = metadata_1["pre_batch_state"]["counter"]
             assert counter_1 > counter_0
+
+
+class TestCheckpointReconciliation:
+    """Resume must reconcile the checkpoint against the filesystem (ISS-013).
+
+    A batch may be recorded as completed in the checkpoint while its output is
+    missing (partial write at interrupt, external move/backup, fs hiccup). Trusting
+    the checkpoint blindly silently drops files; an orphan output from a not-yet
+    checkpointed batch must not abort resume with FileExistsError.
+    """
+
+    @staticmethod
+    def _build_plan(checkpoint_dir: Path, n_batches: int) -> SimulationPlan:
+        plan = SimulationPlan(checkpoint_directory=checkpoint_dir)
+        for i in range(n_batches):
+            plan.add_batch(
+                SimulationBatch(
+                    simulator_name="mock",
+                    simulator_config=SimulatorConfig(
+                        class_="tests.cli.test_cli_simulate.MockSimulator",
+                        arguments={"seed": 42},
+                        output=SimulatorOutputConfig(file_name=f"batch_{i}.json"),
+                    ),
+                    globals_config=GlobalsConfig(),
+                    batch_index=i,
+                )
+            )
+        return plan
+
+    @staticmethod
+    def _stepped_state(plan: SimulationPlan, steps: int) -> dict[str, Any]:
+        """Return a valid simulator state advanced ``steps`` times (counter == steps)."""
+        simulator = instantiate_simulator(plan.batches[0].simulator_config, "mock", {})
+        for _ in range(steps):
+            simulator.simulate()
+            simulator.update_state()
+        return simulator.state
+
+    def test_reconcile_truncates_at_first_missing_artifact(self):
+        """reconcile_completed_batches keeps the valid contiguous prefix only."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "output"
+            metadata_dir = Path(tmpdir) / "metadata"
+            plan = self._build_plan(Path(tmpdir) / "ckpt", n_batches=3)
+
+            execute_plan(plan, output_dir, metadata_dir, overwrite=True)
+
+            # All outputs present -> whole set is valid.
+            assert reconcile_completed_batches(plan, metadata_dir, {0, 1, 2}) == {0, 1, 2}
+
+            # A missing output truncates at that batch (it and later batches re-run).
+            (output_dir / "batch_1.json").unlink()
+            assert reconcile_completed_batches(plan, metadata_dir, {0, 1, 2}) == {0}
+
+            # A missing metadata file truncates there too.
+            (metadata_dir / "mock-0.metadata.json").unlink()
+            assert reconcile_completed_batches(plan, metadata_dir, {0, 1, 2}) == set()
+
+    def test_resume_regenerates_when_checkpointed_output_missing(self):
+        """User scenario: checkpoint says batch done but its output is gone -> regenerate.
+
+        Before the fix this silently reported success with fewer files than configured.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "output"
+            metadata_dir = Path(tmpdir) / "metadata"
+            checkpoint_dir = Path(tmpdir) / "ckpt"
+            plan = self._build_plan(checkpoint_dir, n_batches=3)
+
+            # Produce a complete run, then plant a stale checkpoint claiming 0,1,2 done.
+            execute_plan(plan, output_dir, metadata_dir, overwrite=True)
+            CheckpointManager(checkpoint_dir).save_checkpoint(
+                completed_batch_indices=[0, 1, 2],
+                last_simulator_name="mock",
+                last_completed_batch_index=2,
+                last_simulator_state=self._stepped_state(plan, 3),
+            )
+
+            # The first batch's output goes missing while the checkpoint persists.
+            (output_dir / "batch_0.json").unlink()
+
+            execute_plan(plan, output_dir, metadata_dir, overwrite=True)
+
+            # Every configured batch output exists again (no silent drop).
+            for i in range(3):
+                assert (output_dir / f"batch_{i}.json").exists()
+
+    def test_resume_tolerates_orphan_output_without_overwrite_flag(self):
+        """An orphan output for a not-checkpointed batch must not abort resume.
+
+        Before the fix this raised FileExistsError (overwrite=False) and resume could
+        not proceed at all.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "output"
+            metadata_dir = Path(tmpdir) / "metadata"
+            checkpoint_dir = Path(tmpdir) / "ckpt"
+            plan = self._build_plan(checkpoint_dir, n_batches=3)
+
+            # All outputs on disk, but the checkpoint only records batch 0 as complete,
+            # so batch_1.json / batch_2.json are orphan leftovers relative to it.
+            execute_plan(plan, output_dir, metadata_dir, overwrite=True)
+            CheckpointManager(checkpoint_dir).save_checkpoint(
+                completed_batch_indices=[0],
+                last_simulator_name="mock",
+                last_completed_batch_index=0,
+                last_simulator_state=self._stepped_state(plan, 1),
+            )
+
+            # Resume WITHOUT --overwrite must succeed (orphans are unverified leftovers).
+            execute_plan(plan, output_dir, metadata_dir, overwrite=False)
+
+            for i in range(3):
+                assert (output_dir / f"batch_{i}.json").exists()
+
+    def test_resume_skips_completed_batches_with_present_outputs(self):
+        """Happy path: validated-complete batches are skipped, not regenerated."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "output"
+            metadata_dir = Path(tmpdir) / "metadata"
+            checkpoint_dir = Path(tmpdir) / "ckpt"
+            plan = self._build_plan(checkpoint_dir, n_batches=3)
+
+            execute_plan(plan, output_dir, metadata_dir, overwrite=True)
+            CheckpointManager(checkpoint_dir).save_checkpoint(
+                completed_batch_indices=[0, 1],
+                last_simulator_name="mock",
+                last_completed_batch_index=1,
+                last_simulator_state=self._stepped_state(plan, 2),
+            )
+
+            # Sentinel content on the completed batches: untouched iff they are skipped.
+            sentinel = '{"sentinel": true}'
+            (output_dir / "batch_0.json").write_text(sentinel)
+            (output_dir / "batch_1.json").write_text(sentinel)
+
+            execute_plan(plan, output_dir, metadata_dir, overwrite=True)
+
+            assert (output_dir / "batch_0.json").read_text() == sentinel
+            assert (output_dir / "batch_1.json").read_text() == sentinel
+            assert (output_dir / "batch_2.json").exists()
 
 
 @pytest.mark.skip(reason="Legacy simulator configs removed; orchestration tests cover this path.")
