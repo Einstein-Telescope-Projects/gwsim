@@ -6,8 +6,8 @@ import datetime
 import json
 import tempfile
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock
+from typing import Any, ClassVar
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -25,6 +25,7 @@ from gwmock.cli.utils.config import (
 from gwmock.cli.utils.simulation_plan import (
     SimulationBatch,
     SimulationPlan,
+    _warn_version_mismatches,
     create_batch_metadata,
     create_plan_from_config,
     create_plan_from_metadata,
@@ -1317,3 +1318,124 @@ class TestMergePlans:
         assert noise_batch.has_state_snapshot()
         assert noise_batch.batch_metadata["author"] == "merge_author"
         assert noise_batch.batch_metadata["email"] == "merge@example.com"
+
+
+# ============================================================================
+# _warn_version_mismatches Tests
+# ============================================================================
+
+
+def _make_batch_with_metadata(
+    globals_config: GlobalsConfig,
+    simulator_config: SimulatorConfig,
+    batch_metadata: dict,
+) -> SimulationBatch:
+    """Build a minimal SimulationBatch with the given batch_metadata dict."""
+    return SimulationBatch(
+        simulator_name="orchestration",
+        simulator_config=simulator_config,
+        globals_config=globals_config,
+        batch_index=0,
+        source="metadata_config",
+        batch_metadata=batch_metadata,
+    )
+
+
+class TestWarnVersionMismatches:
+    """Tests for _warn_version_mismatches helper."""
+
+    _INSTALLED: ClassVar[dict[str, str]] = {
+        "gwmock": "0.7.1",
+        "gwmock-noise": "0.5.2",
+        "gwmock-pop": "0.9.3",
+        "gwmock-signal": "0.8.2",
+    }
+
+    def _metadata(self, **overrides) -> dict:
+        """Return a metadata dict with all four versions set to match _INSTALLED."""
+        base = {
+            "gwmock_version": "0.7.1",
+            "subpackage_versions": {
+                "gwmock_noise": "0.5.2",
+                "gwmock_pop": "0.9.3",
+                "gwmock_signal": "0.8.2",
+            },
+        }
+        base.update(overrides)
+        return base
+
+    def test_no_warning_on_version_match(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """All stored versions match installed → logger.warning never called."""
+        batch = _make_batch_with_metadata(globals_config, simulator_config, self._metadata())
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_version_mismatches([batch], self._INSTALLED)
+        mock_logger.warning.assert_not_called()
+
+    def test_warns_on_gwmock_version_mismatch(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """gwmock_version differs from installed → warning names package and both versions."""
+        batch = _make_batch_with_metadata(globals_config, simulator_config, self._metadata(gwmock_version="0.6.0"))
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_version_mismatches([batch], self._INSTALLED)
+        mock_logger.warning.assert_called_once()
+        call_args = mock_logger.warning.call_args
+        assert "gwmock" in call_args.args[1]
+        assert "0.6.0" in call_args.args[2]
+        assert "0.7.1" in call_args.args[3]
+
+    def test_warns_on_subpackage_mismatch(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """gwmock_noise version differs → warning emitted for gwmock-noise."""
+        meta = self._metadata()
+        meta["subpackage_versions"]["gwmock_noise"] = "0.4.0"
+        batch = _make_batch_with_metadata(globals_config, simulator_config, meta)
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_version_mismatches([batch], self._INSTALLED)
+        mock_logger.warning.assert_called_once()
+        call_args = mock_logger.warning.call_args
+        assert "gwmock-noise" in call_args.args[1]
+        assert "0.4.0" in call_args.args[2]
+        assert "0.5.2" in call_args.args[3]
+
+    def test_no_warning_for_none_version(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """gwmock_version is None in metadata → silently skipped, no warning."""
+        batch = _make_batch_with_metadata(globals_config, simulator_config, self._metadata(gwmock_version=None))
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_version_mismatches([batch], self._INSTALLED)
+        mock_logger.warning.assert_not_called()
+
+    def test_deduplicates_across_batches(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """Two batches with the same stored mismatch → warning called exactly once per package."""
+        stale_meta = self._metadata(gwmock_version="0.6.0")
+        batches = [
+            _make_batch_with_metadata(globals_config, simulator_config, stale_meta),
+            SimulationBatch(
+                simulator_name="orchestration",
+                simulator_config=simulator_config,
+                globals_config=globals_config,
+                batch_index=1,
+                source="metadata_config",
+                batch_metadata=stale_meta,
+            ),
+        ]
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_version_mismatches(batches, self._INSTALLED)
+        assert mock_logger.warning.call_count == 1
