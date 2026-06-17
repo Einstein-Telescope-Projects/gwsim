@@ -9,23 +9,6 @@ globals:
     metadata-directory: metadata
 
 orchestration:
-    population:
-        backend: FilePopulationLoader
-        source-type: bbh
-        n-samples: 1
-        arguments:
-            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/main/examples/noise/glitches/gengli/bbh_smoke_population.csv
-    signal:
-        waveform-model: IMRPhenomXPHM
-        minimum-frequency: 2
-        detectors:
-            - ET-Triangle-Sardinia
-        output:
-            output_directory: signal
-            file_name:
-                signal-{{ detectors }}-{{ start_time }}-{{ duration }}.gwf
-            arguments:
-                channel: '{{ detectors }}:STRAIN'
     noise:
         arguments:
             seed: 42
@@ -33,16 +16,18 @@ orchestration:
                 - E3_triangle_sardinia
             glitches:
                 - kind: gengli_blip
-                  rate: 0.0011111111111111111
-                  amplitude_distribution:
+                  rate: 0.016666667 # 1 glitch per minute (1/60 Hz)
+                  amplitude_distribution: # no amplitude scaling (multiply by 1.0)
                       distribution: lognormal
                       mean: 1.0
                       std: 0.0
-                  population_file: https://sandbox.zenodo.org/records/413548/files/blip_glitch_population_E3.hdf5
+                  population_file: https://sandbox.zenodo.org/records/514722/files/blip_glitch_population_E3.hdf5
                   psd_file: ET_10_full_cryo_psd
                   low_frequency_cutoff: 5.0
         output:
-            output_directory: noise
-            file_name: glitch-{{ counter }}.gwf
+            output_directory: glitch
+            file_name:
+                'E-{{ detectors }}_STRAIN_GLITCH-{{ start_time }}-{{ duration
+                }}.gwf'
             arguments:
-                channel_prefix: STRAIN
+                channel: '{{ detectors }}:STRAIN'

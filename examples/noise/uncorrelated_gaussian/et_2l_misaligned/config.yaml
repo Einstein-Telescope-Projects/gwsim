@@ -9,33 +9,17 @@ globals:
     metadata-directory: metadata
 
 orchestration:
-    population:
-        backend: FilePopulationLoader
-        source-type: bbh
-        n-samples: 1
-        arguments:
-            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/main/examples/signal/bbh_population.csv
-    signal:
-        waveform-model: IMRPhenomXPHM
-        minimum-frequency: 20
-        detectors:
-            - ET-2L-Misaligned
-        output:
-            output_directory: signal
-            file_name:
-                'E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration
-                }}.gwf'
-            arguments:
-                channel: '{{ detectors }}:STRAIN'
     noise:
         arguments:
             psd_file: ET_15_full_cryo_psd
             seed: 42
+            minimum_frequency: 3
             detectors:
-                - E1_2L_misaligned_sardinia
-                - E2_2L_misaligned_emr
+                - ET-2L-Misaligned
         output:
             output_directory: noise
-            file_name: et-noise-{{ counter }}.gwf
+            file_name:
+                'E-{{ detectors }}_STRAIN_NOISE-{{ start_time }}-{{ duration
+                }}.gwf'
             arguments:
-                channel_prefix: STRAIN
+                channel: '{{ detectors }}:STRAIN'
