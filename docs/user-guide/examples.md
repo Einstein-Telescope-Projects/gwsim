@@ -5,11 +5,14 @@ simulations.
 
 ## Overview
 
-All example configurations in the
+Most of the ET noise, BBH, and BNS example configurations in the
 [`examples/`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples)
-directory generate one day of data per detector, divided into 4096-seconds
-frames (21 frame files in total), sampled at 4096 Hz, starting from 1
-January 2030.
+directory generate one day of data per interferometer, divided into 4096-second
+frames (21 frame files per interferometer), sampled at 4096 Hz. The noise
+examples start at GPS 1577491218 (1 January 2030); the BBH/BNS signal examples
+start at GPS 1000000540 (14 September 2011). A few examples differ on purpose:
+`quick_start` is a short single-segment (1024 s) demonstration, and the SGWB
+examples generate a short stochastic-background segment.
 
 For guidance on changing dataset duration or simulation properties, see the
 [Generating Data](generating-data.md) page. For a more complete guide to writing
@@ -34,16 +37,18 @@ gwmock simulate config.yaml
 
 ## Blank Starting Config
 
-The `default_config` label produces a minimal template that shows the full
-`orchestration:` schema with a local `population.h5` placeholder. Use it as a
-starting point when writing a custom configuration from scratch:
+The `default_config` label produces a minimal, hand-commented noise-only
+orchestration template for the ET Sardinia triangle. Use it as a starting point
+when writing a custom configuration from scratch:
 
 ```bash
 gwmock config --get default_config --output config.yaml
 ```
 
-The generated file expects you to supply a local `population.h5` file. Replace
-`path: population.h5` with an actual path or URL before running.
+It runs as-is (noise only). To generate signals as well, add `population` and
+`signal` sections to the `orchestration:` block — see the
+[Configuration Files](configuration.md) and [Orchestration](orchestration.md)
+guides, or copy one of the signal examples below.
 
 ## Noise Generation
 
@@ -66,22 +71,40 @@ and sensitivities.
 
 ## CBC Signals Generation
 
-Example configurations for generating detector data with BBH signals with
-various configurations and sensitivities.
+Example configurations for generating detector data with compact-binary
+coalescence (BBH and BNS) signals for various detector configurations.
 
-### Einstein Telescope - Triangular
+### Binary Black Hole (BBH)
 
-- EMR location:
+- EMR (triangular):
   [`signal/bbh/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_triangle_emr/config.yaml)
-- Sardinia location:
+- Sardinia (triangular):
   [`signal/bbh/et_triangle_sardinia/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_triangle_sardinia/config.yaml)
-
-### Einstein Telescope - 2L
-
-- Aligned configuration:
+- 2L aligned:
   [`signal/bbh/et_2l_aligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_2l_aligned/config.yaml)
-- Misaligned configuration:
+- 2L misaligned:
   [`signal/bbh/et_2l_misaligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bbh/et_2l_misaligned/config.yaml)
+
+### Binary Neutron Star (BNS)
+
+- EMR (triangular):
+  [`signal/bns/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bns/et_triangle_emr/config.yaml)
+- Sardinia (triangular):
+  [`signal/bns/et_triangle_sardinia/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bns/et_triangle_sardinia/config.yaml)
+- 2L aligned:
+  [`signal/bns/et_2l_aligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bns/et_2l_aligned/config.yaml)
+- 2L misaligned:
+  [`signal/bns/et_2l_misaligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/bns/et_2l_misaligned/config.yaml)
+
+## Stochastic Background (SGWB) Generation
+
+Example configurations for generating an isotropic stochastic gravitational-wave
+background. These set `signal.source-type: sgwb` and require no population:
+
+- Sardinia (triangular):
+  [`signal/sgwb/et_triangle_sardinia/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/sgwb/et_triangle_sardinia/config.yaml)
+- 2L aligned:
+  [`signal/sgwb/et_2l_aligned/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/signal/sgwb/et_2l_aligned/config.yaml)
 
 ## Glitch Generation
 

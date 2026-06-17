@@ -48,20 +48,30 @@ INFO Simulation completed successfully. Output written to output
 Your working directory will contain:
 
 ```text
-noise/
-└── et-noise-0.gwf
-signal/
-└── E-ET-Triangle-Sardinia_STRAIN_BBH-1577491218-1024.gwf
+output/
+├── noise/
+│   ├── E-ET1_SARD_STRAIN_NOISE-1577491218-1024.gwf
+│   ├── E-ET2_SARD_STRAIN_NOISE-1577491218-1024.gwf
+│   └── E-ET3_SARD_STRAIN_NOISE-1577491218-1024.gwf
+└── signal/
+    ├── E-ET1_SARD_STRAIN_BBH-1577491218-1024.gwf
+    ├── E-ET2_SARD_STRAIN_BBH-1577491218-1024.gwf
+    └── E-ET3_SARD_STRAIN_BBH-1577491218-1024.gwf
 metadata/
+├── index.yaml
 └── orchestration-0.metadata.json
 resource_usage_summary.json
 ```
 
+The `ET-Triangle-Sardinia` network alias expands to its three interferometers
+(`ET1_SARD`, `ET2_SARD`, `ET3_SARD`), so one frame file per interferometer is
+written for both noise and signal.
+
 ### Data Files
 
-`noise/` contains the simulated Gaussian noise strain. `signal/` contains the
-injected CBC signal strain. To produce a realistic data stream, merge the two
-using GWpy (see [Reading Data](reading-data.md)).
+`output/noise/` contains the simulated Gaussian noise strain. `output/signal/`
+contains the injected CBC signal strain. To produce a realistic data stream,
+merge the two using GWpy (see [Reading Data](reading-data.md)).
 
 ### Metadata File
 
