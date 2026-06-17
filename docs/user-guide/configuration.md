@@ -192,13 +192,13 @@ orchestration:
     population:
         backend: FilePopulationLoader # or any registered backend alias
         source-type: bbh
-        n-samples: 128
+        n-samples: 128 # optional; omit to load the full catalogue
         arguments:
             path: population.h5
 
     signal:
         waveform-model: IMRPhenomXPHM
-        minimum-frequency: 2
+        minimum-frequency: 10
         detectors:
             - ET-Triangle-EMR
         output:
@@ -213,13 +213,13 @@ orchestration:
             psd_file: ET_10_full_cryo_psd
             seed: 42
             detectors:
-                - E1_triangle_emr
-                - E2_triangle_emr
-                - E3_triangle_emr
+                - ET-Triangle-EMR
         output:
-            file_name: et-noise-{{ counter }}.gwf
+            file_name:
+                'E-{{ detectors }}_STRAIN_NOISE-{{ start_time }}-{{ duration
+                }}.gwf'
             arguments:
-                channel_prefix: STRAIN
+                channel: '{{ detectors }}:STRAIN'
 ```
 
 For SGWB studies, use `signal.source-type: sgwb`. Constructor options for the
@@ -278,10 +278,10 @@ orchestration:
                 - E3_triangle_emr
         output:
             file_name:
-                'E-{{ detectors }}_NOISE_STRAIN-{{ start_time }}-{{ duration
+                'E-{{ detectors }}_STRAIN_NOISE-{{ start_time }}-{{ duration
                 }}.gwf'
             arguments:
-                channel_prefix: STRAIN
+                channel: '{{ detectors }}:STRAIN'
 ```
 
 In this example, `file_name` is automatically expanded for each detector being
@@ -291,7 +291,10 @@ processed.
 
 - `{{ start_time }}`: GPS start time from globals
 - `{{ duration }}`: Segment duration from globals
-- `{{ detectors }}`: Current detector being processed
+- `{{ detectors }}`: Current detector being processed. A network alias such as
+  `ET-Triangle-EMR` expands to one file/channel per interferometer, with
+  `{{ detectors }}` resolving to the per-interferometer token (`ET1_EMR`,
+  `ET2_EMR`, `ET3_EMR`)
 
 ## Checkpointing
 

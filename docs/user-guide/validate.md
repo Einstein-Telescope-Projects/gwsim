@@ -32,13 +32,13 @@ gwmock validate output/ metadata/
 gwmock finds the corresponding metadata files automatically:
 
 ```bash
-gwmock validate noise/et-noise-0.gwf signal/E-ET-Triangle-Sardinia_STRAIN_BBH-1577491218-1024.gwf
+gwmock validate output/noise/E-ET1_SARD_STRAIN_NOISE-1577491218-1024.gwf output/signal/E-ET1_SARD_STRAIN_BBH-1577491218-1024.gwf
 ```
 
 ### Validate from metadata files directly
 
 ```bash
-gwmock validate metadata/noise-0.metadata.json metadata/signal-0.metadata.json
+gwmock validate metadata/orchestration-0.metadata.json
 ```
 
 ### Validate a subset by pattern

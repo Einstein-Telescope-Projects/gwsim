@@ -16,7 +16,7 @@ file:
 from gwpy.timeseries import TimeSeries
 
 # Read specific channel from a frame file
-data = TimeSeries.read("filename.gwf", channel="E1:STRAIN")
+data = TimeSeries.read("filename.gwf", channel="ET1_EMR:STRAIN")
 ```
 
 **Parameters:**
@@ -29,8 +29,8 @@ data = TimeSeries.read("filename.gwf", channel="E1:STRAIN")
 ```python
 from gwpy.timeseries import TimeSeries
 
-# Read E1 strain data
-e1_data = TimeSeries.read("E-E1-NOISE_STRAIN-1577491218-4096.gwf", channel="E1:STRAIN")
+# Read ET1_EMR strain data
+e1_data = TimeSeries.read("E-ET1_EMR_STRAIN_NOISE-1577491218-4096.gwf", channel="ET1_EMR:STRAIN")
 
 # Check properties
 print(f"Duration: {e1_data.duration}")
@@ -47,8 +47,8 @@ signals, glitches). To obtain a realistic data stream, merge multiple files:
 from gwpy.timeseries import TimeSeries
 
 # Read noise and signal data
-noise_data = TimeSeries.read("filename_noise.gwf", channel="E1:STRAIN")
-signal_data = TimeSeries.read("filename_signal.gwf", channel="E1:STRAIN")
+noise_data = TimeSeries.read("filename_noise.gwf", channel="ET1_EMR:STRAIN")
+signal_data = TimeSeries.read("filename_signal.gwf", channel="ET1_EMR:STRAIN")
 
 # Combine them
 combined_data = noise_data.inject(signal_data)
@@ -58,10 +58,10 @@ You can also merge files directly using the CLI:
 
 ```bash
 gwmock merge filename_noise.gwf filename_signal.gwf \
-    --metadata noise-0.metadata.json \
-    --metadata signal-0.metadata.json \
-    --channel E1:STRAIN \
-    --output-channel E1:STRAIN
+    --metadata noise/metadata/orchestration-0.metadata.json \
+    --metadata signal/metadata/orchestration-0.metadata.json \
+    --channel ET1_EMR:STRAIN \
+    --output-channel ET1_EMR:STRAIN
 ```
 
 This produces a merged frame file and a merged metadata file documenting all
@@ -75,13 +75,13 @@ To merge a sequence of files:
 from gwpy.timeseries import TimeSeries
 
 files = [
-    "E-E1-NOISE_STRAIN-1000000000-1024.gwf",
-    "E-E1-NOISE_STRAIN-1000001024-1024.gwf",
-    "E-E1-NOISE_STRAIN-1000002048-1024.gwf"
+    "E-ET1_EMR_STRAIN_NOISE-1000000000-1024.gwf",
+    "E-ET1_EMR_STRAIN_NOISE-1000001024-1024.gwf",
+    "E-ET1_EMR_STRAIN_NOISE-1000002048-1024.gwf"
 ]
 
 # Read all files
-data_list = [TimeSeries.read(f, channel="E1:STRAIN") for f in files]
+data_list = [TimeSeries.read(f, channel="ET1_EMR:STRAIN") for f in files]
 
 # Concatenate
 combined = data_list[0]
@@ -117,7 +117,7 @@ with:
 import json
 
 # Read a JSON metadata record
-with open("metadata/noise-0.metadata.json", "r") as f:
+with open("metadata/orchestration-0.metadata.json", "r") as f:
     metadata = json.load(f)
 
 print(metadata["schema_version"])    # e.g. "1.0.0"
@@ -153,13 +153,13 @@ Process data from multiple detectors:
 ```python
 from gwpy.timeseries import TimeSeries
 
-detectors = ["E1", "E2", "E3"]
+detectors = ["ET1_EMR", "ET2_EMR", "ET3_EMR"]
 
 # Read data for each detector
 detector_data = {}
 for detector in detectors:
     channel = f"{detector}:STRAIN"
-    filename = f"E-{detector}-NOISE_STRAIN-1000000000-1024.gwf"
+    filename = f"E-{detector}_STRAIN_NOISE-1000000000-1024.gwf"
     detector_data[detector] = TimeSeries.read(filename, channel=channel)
 
 # Process or analyze each
@@ -176,7 +176,7 @@ from gwpy.timeseries import TimeSeries
 import matplotlib.pyplot as plt
 
 # Read data
-data = TimeSeries.read("E-E1-NOISE_STRAIN-1000000000-1024.gwf", channel="E1:STRAIN")
+data = TimeSeries.read("E-ET1_EMR_STRAIN_NOISE-1000000000-1024.gwf", channel="ET1_EMR:STRAIN")
 
 # Plot time series
 plot = data.plot(title="Strain Data")

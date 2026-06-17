@@ -14,7 +14,7 @@ output GWF files, see the [Reading Data](reading-data.md) page.
 
 Detector noise can be generated using configuration files in the
 [`examples/noise`](https://github.com/Leuven-Gravity-Institute/gwmock/tree/main/examples/noise)
-directory. An example configuration for producing two hours of ET noise data is
+directory. An example configuration for producing one day of ET noise data is
 provided in
 [`uncorrelated_gaussian/et_triangle_emr/config.yaml`](https://github.com/Leuven-Gravity-Institute/gwmock/blob/main/examples/noise/uncorrelated_gaussian/et_triangle_emr/config.yaml):
 
@@ -22,15 +22,16 @@ provided in
 --8<-- "examples/noise/uncorrelated_gaussian/et_triangle_emr/config.yaml"
 ```
 
-This configuration generates one day of noise data per detector (E1, E2, E3).
-Each frame file covers 4096 seconds, resulting in 22 frame files, starting on 1
-January 2030.
+This configuration uses the `ET-Triangle-EMR` network alias, which expands to
+its three interferometers (`ET1_EMR`, `ET2_EMR`, `ET3_EMR`), generating one day
+of noise data per interferometer. Each frame file covers 4096 seconds, resulting
+in 21 frame files per interferometer, starting on 1 January 2030.
 
 Noise is simulated using the
 [ET_10_full_cryo_psd](https://github.com/Leuven-Gravity-Institute/gwmock/blob/main/src/gwmock/detector/noise_curves/ET_10_full_cryo_psd.txt)
 sensitivity curve from the
 [CoBA Science Study](https://iopscience.iop.org/article/10.1088/1475-7516/2023/07/068)
-and publicly available. A low-frequency cutoff of 20 Hz is used.
+and publicly available. A low-frequency cutoff of 3 Hz is used.
 
 To generate the ET noise data, run:
 
@@ -72,14 +73,15 @@ is provided in
 ```
 
 As with the noise example, this configuration file produces one day of data per
-detector, with each frame file lasting 4096 seconds (for a total of 21 frame
-files), starting on 1 January 2030.
+interferometer, with each frame file lasting 4096 seconds (for a total of 21
+frame files), starting at GPS 1000000540 (14 September 2011).
 
-BBH signals are injected into zero noise using the bundled smoke population
-file, which provides one BBH event with canonical columns compatible with the
-`FilePopulationLoader`. The
+BBH signals are injected into zero noise. The population is loaded with the
+`FilePopulationLoader` from the MDC1 BBH catalogue hosted on Zenodo
+(`mdc1_bbh.h5`); because `n-samples` is omitted, the full catalogue is used. The
 [IMRPhenomXPHM](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.103.104056)
-waveform model is used, with a low-frequency cutoff of 20 Hz.
+waveform model is used, with a low-frequency cutoff of 10 Hz and the
+time-dependent detector response enabled (`earth-rotation: true`).
 
 To generate the ET data with BBH signals, run:
 
@@ -92,6 +94,25 @@ cd bbh_et_triangle_emr
 gwmock config --get signal/bbh/et_triangle_emr --output config.yaml
 
 # Run simulation
+gwmock simulate config.yaml
+```
+
+### Binary Neutron Star (BNS) Signals
+
+BNS datasets are produced the same way, using the `signal/bns/*` examples. These
+set `population.source-type: bns`, load the MDC1 BNS catalogue from Zenodo
+(`mdc1_bns.h5`), and use the tidal
+[IMRPhenomPv2_NRTidalv2](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.100.044003)
+waveform model with a low-frequency cutoff of 20 Hz:
+
+```yaml
+--8<-- "examples/signal/bns/et_triangle_emr/config.yaml"
+```
+
+To generate the ET data with BNS signals, run:
+
+```bash
+gwmock config --get signal/bns/et_triangle_emr --output config.yaml
 gwmock simulate config.yaml
 ```
 
@@ -118,7 +139,7 @@ into 4096-second frame files (for a total of 21 frames), starting on 1
 January 2030.
 
 Blip glitches are injected into zero noise from the
-[blip_glitch_population_E1.h5](https://sandbox.zenodo.org/records/413548)
+[blip_glitch_population_E1.hdf5](https://sandbox.zenodo.org/records/514722)
 population file, which can be generated from GravitySpy tables with
 `gwmock-noise build-blip-glitch-table`. These glitches are modeled on LIGO blip
 glitches observed during the O3 observing run and recolored to match the ET
@@ -141,7 +162,7 @@ gwmock simulate config.yaml
 <!-- prettier-ignore -->
 !!! note
     The configuration file automatically downloads the glitch population file from a
-    [Zenodo repository](https://sandbox.zenodo.org/records/413548).
+    [Zenodo repository](https://sandbox.zenodo.org/records/514722).
     The file is saved in a cache directory (by default, `~/.gwmock/population/`).
     When the same population file is needed again, gwmock uses the cached copy to avoid re-downloading.
 
@@ -228,11 +249,14 @@ samples per second, measured in Hz), using the `sampling-frequency` argument.
 **Total number of frame files:**
 
 The total number of frame files depends on the duration of each frame file and
-the total duration of the dataset, and it's rounded up to the next integer:
+the total duration of the dataset, and it's rounded to the nearest integer:
 
 ```python
-max_samples = ceil(total-duration / duration)
+max_samples = round(total-duration / duration)
 ```
+
+For example, a one-day dataset (86400 s) in 4096-second frames yields
+`round(86400 / 4096) = 21` frame files per interferometer.
 
 <!-- prettier-ignore-start -->
 
@@ -292,39 +316,21 @@ globals:
     metadata-directory: metadata
 
 orchestration:
-    population:
-        backend: FilePopulationLoader
-        source-type: bbh
-        n-samples: 1
-        arguments:
-            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/main/examples/noise/glitches/gengli/bbh_smoke_population.csv
-    signal:
-        waveform-model: IMRPhenomXPHM
-        minimum-frequency: 2
-        detectors:
-            - ET-Triangle-EMR
-        output:
-            file_name:
-                'E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration
-                }}.gwf'
-            arguments:
-                channel: '{{ detectors }}:STRAIN'
     noise:
         arguments:
             psd_file: ET_10_full_cryo_psd
             csd_file: path_to_csd_file.txt
             detectors:
-                - E1_triangle_emr
-                - E2_triangle_emr
-                - E3_triangle_emr
-            low_frequency_cutoff: 2
+                - ET-Triangle-EMR
+            minimum_frequency: 3
             seed: 42
         output:
+            output_directory: noise
             file_name:
-                'E-{{ detectors }}_CORRELATED-NOISE_STRAIN-{{ start_time }}-{{
+                'E-{{ detectors }}_STRAIN_CORRELATED-NOISE-{{ start_time }}-{{
                 duration }}.gwf'
             arguments:
-                channel_prefix: STRAIN
+                channel: '{{ detectors }}:STRAIN'
 ```
 
 `gwmock` uses a windowing approach to generate long-duration datasets. If the

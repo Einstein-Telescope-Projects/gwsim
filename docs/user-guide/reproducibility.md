@@ -31,7 +31,7 @@ Consumers must reject unknown major versions.
     "signal": {
         "backend": "module:Class",
         "waveform_model": "IMRPhenomXPHM",
-        "detector_network": ["ET1"],
+        "detector_network": ["ET1_SARD", "ET2_SARD", "ET3_SARD"],
         "metadata": {}
     },
     "noise": {
@@ -42,8 +42,8 @@ Consumers must reject unknown major versions.
     "outputs": [
         {
             "kind": "signal",
-            "path": "output/signal-0.gwf",
-            "channels": ["ET1:STRAIN"],
+            "path": "output/signal/E-ET1_SARD_STRAIN_BBH-1577491218-1024.gwf",
+            "channels": ["ET1_SARD:STRAIN"],
             "t0": 1577491218,
             "duration": 1024,
             "sha256": "..."
@@ -85,7 +85,7 @@ snapshot and per-segment seeds needed to reproduce that batch independently:
 
 ```bash
 # Reproduce specific batches from their metadata files
-gwmock simulate metadata/noise-0.metadata.json metadata/signal-0.metadata.json
+gwmock simulate metadata/orchestration-0.metadata.json metadata/orchestration-1.metadata.json
 
 # Or reproduce everything from a metadata directory
 gwmock simulate metadata/
