@@ -1,55 +1,29 @@
 globals:
     simulator-arguments:
-        # Sampling frequency in Hz (affects time resolution and file size)
         sampling-frequency: 4096
-        # Duration of each generated segment in seconds
         duration: 4096
-        # Human-friendly total duration (may be parsed by the config loader)
         total-duration: 1 day
-        # GPS start time for the simulation
-        start-time: 1577491218
-    # Working directory for generated outputs (relative or absolute)
+        start-time: 1000000540
     working-directory: .
-    # Default directory where generated frame files are written
     output-directory: output
-    # Directory to store metadata sidecars and checkpoints
     metadata-directory: metadata
 
 orchestration:
     population:
         backend: FilePopulationLoader
         source-type: bbh
-        n-samples: 1
         arguments:
-            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/main/examples/signal/bbh_population.csv
+            path: 'https://sandbox.zenodo.org/records/514722/files/mdc1_bbh.h5'
     signal:
-        # Waveform model and arguments for signal generation
         waveform-model: IMRPhenomXPHM
-        # Additional waveform model arguments
-        # Minimum frequency in Hz for the waveform generation
-        minimum-frequency: 2
-        # List of detector names to generate signal for (network support)
+        minimum-frequency: 10
+        earth-rotation: true
         detectors:
             - ET-2L-Misaligned
         output:
             output_directory: signal
-            # Template used to construct the output file name at runtime. Uses template variables
-            # such as `detectors`, `start_time` and `duration` expanded by the config loader.
             file_name:
                 'E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration
                 }}.gwf'
             arguments:
-                # Channel name (template) for the output frame (e.g. "E1_2L_misaligned_sardinia:STRAIN")
                 channel: '{{ detectors }}:STRAIN'
-    noise:
-        arguments:
-            psd_file: ET_10_full_cryo_psd
-            seed: 42
-            detectors:
-                - E1_2L_misaligned_sardinia
-                - E2_2L_misaligned_emr
-        output:
-            output_directory: noise
-            file_name: et-noise-{{ counter }}.gwf
-            arguments:
-                channel_prefix: STRAIN

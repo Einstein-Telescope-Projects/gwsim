@@ -31,9 +31,11 @@ orchestration:
             psd_file: ET_10_full_cryo_psd
             seed: 42
             detectors:
-                - E1_triangle_sardinia
+                - ET-Triangle-Sardinia
         output:
             output_directory: noise
-            file_name: et-noise-{{ counter }}.gwf
+            file_name:
+                'E-{{ detectors }}_STRAIN_NOISE-{{ start_time }}-{{ duration
+                }}.gwf'
             arguments:
-                channel_prefix: STRAIN
+                channel: '{{ detectors }}:STRAIN'

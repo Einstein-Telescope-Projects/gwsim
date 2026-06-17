@@ -11,19 +11,19 @@ globals:
 orchestration:
     population:
         backend: FilePopulationLoader
-        source-type: bbh
+        source-type: bns
         arguments:
-            path: 'https://sandbox.zenodo.org/records/514722/files/mdc1_bbh.h5'
+            path: 'https://sandbox.zenodo.org/records/514722/files/mdc1_bns.h5'
     signal:
-        waveform-model: IMRPhenomXPHM
-        minimum-frequency: 10
+        waveform-model: IMRPhenomPv2_NRTidalv2
+        minimum-frequency: 20
         earth-rotation: true
         detectors:
             - ET-2L-Aligned
         output:
             output_directory: signal
             file_name:
-                'E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration
+                'E-{{ detectors }}_STRAIN_BNS-{{ start_time }}-{{ duration
                 }}.gwf'
             arguments:
                 channel: '{{ detectors }}:STRAIN'

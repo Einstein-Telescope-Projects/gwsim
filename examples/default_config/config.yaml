@@ -1,40 +1,27 @@
 # Example adapter-backed orchestration file for gwmock.
 
 globals:
+    simulator-arguments:
+        sampling-frequency: 4096
+        duration: 4096
+        total-duration: 4096
+        start-time: 1577491218
     working-directory: .
     output-directory: output
     metadata-directory: metadata
-    simulator-arguments:
-        sampling-frequency: 4096
-        duration: 1024
-        start-time: 1577491218
-        total-duration: 5 hours
 
 orchestration:
-    population:
-        backend: FilePopulationLoader
-        source-type: bbh
-        n-samples: 1
-        arguments:
-            path: population.h5
-    signal:
-        detectors:
-            - ET-Triangle-Sardinia
-        waveform-model: IMRPhenomXPHM
-        minimum-frequency: 20
-        output:
-            output_directory: signal
-            file_name: signal-{{ counter }}.gwf
-            arguments:
-                channel: '{{ detectors }}:STRAIN'
     noise:
-        output:
-            output_directory: noise
-            file_name: noise-{{ counter }}.gwf
         arguments:
             psd_file: ET_10_full_cryo_psd
             seed: 42
+            minimum_frequency: 20
             detectors:
-                - E1_triangle_sardinia
-                - E2_triangle_sardinia
-                - E3_triangle_sardinia
+                - ET-Triangle-Sardinia
+        output:
+            output_directory: noise
+            file_name:
+                'E-{{ detectors }}_STRAIN_NOISE-{{ start_time }}-{{ duration
+                }}.gwf'
+            arguments:
+                channel: '{{ detectors }}:STRAIN'
