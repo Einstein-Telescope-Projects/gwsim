@@ -569,7 +569,7 @@ provides-extras = ["sgwb"]
 [package.metadata.requires-dev]
 build = [{ name = "hatch", specifier = ">=1.17.0" }]
 dev = [
-    { name = "prek", specifier = ">=0.4.4" },
+    { name = "prek", specifier = ">=0.4.5" },
     { name = "pytest", specifier = ">=9.1.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "pytest-github-actions-annotate-failures", specifier = ">=0.4.0" },
