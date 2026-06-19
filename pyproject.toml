@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sgwb = ["gwmock-signal[sgwb]>=0.8.1"]
+sgwb = ["gwmock-signal[sgwb]>=0.8.2"]
 
 [dependency-groups]
 dev = [
