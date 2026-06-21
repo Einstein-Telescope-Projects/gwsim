@@ -40,11 +40,11 @@ pages for more details:
   [uv on GitHub](https://github.com/astral-sh/uv)
 - Full documentation and usage guide: [uv docs](https://docs.astral.sh/uv/)
 
-**Note:** The package is built and tested against Python 3.12-3.13. When
-creating a virtual environment with `uv`, specify the Python version to ensure
-compatibility: `uv venv --python 3.12` (replace `3.12` with your preferred
-version in the 3.12-3.13 range). This avoids potential issues with unsupported
-Python versions.
+**Note:** The package requires Python 3.12 or later and is built and tested
+against Python 3.12–3.14. When creating a virtual environment with `uv`, specify
+the Python version to ensure compatibility: `uv venv --python 3.12` (replace
+`3.12` with your preferred supported version: 3.12, 3.13, or 3.14). This avoids
+potential issues with unsupported Python versions.
 
 ### From PyPI
 
