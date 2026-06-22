@@ -25,7 +25,7 @@ from tqdm import tqdm
 from gwmock.cli.adapter_orchestration import AdapterOrchestrationResult, AdapterOrchestrator
 from gwmock.cli.utils.checkpoint import CheckpointManager
 from gwmock.cli.utils.config import OrchestrationConfig, SimulatorConfig, resolve_class_path
-from gwmock.cli.utils.hash import compute_file_hash
+from gwmock.cli.utils.hash import compute_content_hash, compute_file_hash
 from gwmock.cli.utils.metadata import save_metadata_record
 from gwmock.cli.utils.simulation_plan import (
     SimulationBatch,
@@ -279,6 +279,7 @@ def _build_output_records(
                         "t0": _to_plain_number(batch_data.signal_segment.start_time),
                         "duration": _to_plain_number(batch_data.signal_segment.duration),
                         "sha256": compute_file_hash(output_file),
+                        "content_sha256": compute_content_hash(output_file),
                     }
                 )
 
@@ -297,6 +298,7 @@ def _build_output_records(
                         "t0": _to_plain_number(simulator.start_time),
                         "duration": _to_plain_number(simulator.duration),
                         "sha256": compute_file_hash(output_path),
+                        "content_sha256": compute_content_hash(output_path),
                     }
                 )
         return output_records
@@ -312,6 +314,7 @@ def _build_output_records(
                     "t0": _to_plain_number(getattr(simulator, "start_time", None)),
                     "duration": _to_plain_number(getattr(simulator, "duration", None)),
                     "sha256": compute_file_hash(output_path),
+                    "content_sha256": compute_content_hash(output_path),
                 }
             )
         return output_records
@@ -327,6 +330,7 @@ def _build_output_records(
                 "t0": _to_plain_number(getattr(batch_data, "start_time", getattr(simulator, "start_time", None))),
                 "duration": _to_plain_number(getattr(batch_data, "duration", getattr(simulator, "duration", None))),
                 "sha256": compute_file_hash(output_file),
+                "content_sha256": compute_content_hash(output_file),
             }
         )
     return output_records
@@ -616,8 +620,12 @@ def save_batch_metadata(
     # Store just the file names, not full paths
     metadata["output_files"] = [f.name for f in output_files]
 
-    # Compute and add file hashes for integrity checking
+    # Compute and add file hashes for integrity checking. Two hashes are kept:
+    #   * file_hashes    -- raw container bytes (exact-file integrity)
+    #   * content_hashes -- decoded scientific content, stable across write-time
+    #                       and frame-library version (reproducibility check)
     file_hashes = {}
+    content_hashes = {}
     for output_file in output_files:
         try:
             file_hash = compute_file_hash(output_file)
@@ -626,8 +634,12 @@ def save_batch_metadata(
         except OSError as e:
             logger.warning("Failed to compute hash for %s: %s", output_file.name, e)
             # Continue without failing - metadata is still useful
+        content_hash = compute_content_hash(output_file)
+        if content_hash is not None:
+            content_hashes[output_file.name] = content_hash
 
     metadata["file_hashes"] = file_hashes
+    metadata["content_hashes"] = content_hashes
 
     metadata_file_name = f"{batch.simulator_name}-{batch.batch_index}.metadata.json"
     metadata_file = metadata_directory / metadata_file_name

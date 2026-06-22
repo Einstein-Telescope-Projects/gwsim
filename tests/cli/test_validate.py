@@ -6,11 +6,12 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 import typer
 import yaml
 
-from gwmock.cli.utils.hash import compute_file_hash
+from gwmock.cli.utils.hash import compute_content_hash, compute_file_hash
 from gwmock.cli.validate import validate_command
 
 
@@ -236,6 +237,70 @@ def test_validate_command_outputs_in_subdirectory(temp_dir, capsys):
     # Exactly the two real files pass; nothing is reported as missing.
     assert "2/2 files passed validation" in captured.out
     assert "File not found" not in captured.out
+
+
+def _npy_output_with_metadata(temp_dir, *, file_hash: str, content_hash: str):
+    """Write an ``output/data.npy`` and a metadata file carrying the given hashes."""
+    out_dir = temp_dir / "output"
+    out_dir.mkdir(exist_ok=True)
+    data_file = out_dir / "data.npy"
+    np.save(data_file, np.arange(16, dtype="float64"))
+
+    metadata = {
+        "author": "test_user",
+        "email": "test@example.com",
+        "timestamp": "2023-01-01T00:00:00Z",
+        "outputs": [{"kind": "signal", "path": "output/data.npy", "sha256": file_hash, "content_sha256": content_hash}],
+        "file_hashes": {"data.npy": file_hash},
+        "content_hashes": {"data.npy": content_hash},
+        "globals_config": {"working-directory": str(temp_dir)},
+    }
+    meta_dir = temp_dir / "metadata"
+    meta_dir.mkdir(exist_ok=True)
+    meta_file = meta_dir / "orchestration-0.metadata.yaml"
+    with open(meta_file, "w") as f:
+        yaml.dump(metadata, f)
+    return data_file, meta_dir
+
+
+def test_validate_content_match_but_bytes_differ_is_repackaged(temp_dir, capsys):
+    """Content hash matches but the recorded file hash does not -> PASS (repackaged).
+
+    This is the normal reproduce-from-metadata case for GWF frames, whose
+    container bytes carry a write-time timestamp.
+    """
+    # Write the data file first, compute its real content hash, then record it
+    # alongside a deliberately wrong byte hash.
+    data_file, _ = _npy_output_with_metadata(temp_dir, file_hash="sha256:" + "0" * 64, content_hash="")
+    content_hash = compute_content_hash(data_file)
+    _, meta_dir = _npy_output_with_metadata(temp_dir, file_hash="sha256:" + "0" * 64, content_hash=content_hash)
+
+    with patch("os.getcwd", return_value=str(temp_dir)):
+        validate_command([str(temp_dir / "output")], metadata_paths=[str(meta_dir)])
+
+    captured = capsys.readouterr()
+    assert "repackaged" in captured.out
+    assert "1/1 files passed validation" in captured.out
+
+
+def test_validate_content_mismatch_fails(temp_dir, capsys):
+    """A wrong content hash fails validation regardless of the byte hash."""
+    data_file = temp_dir / "output" / "data.npy"
+    temp_dir.joinpath("output").mkdir(exist_ok=True)
+    np.save(data_file, np.arange(16, dtype="float64"))
+    real_file_hash = compute_file_hash(data_file)
+    _, meta_dir = _npy_output_with_metadata(
+        temp_dir,
+        file_hash=real_file_hash,  # bytes are fine...
+        content_hash="sha256:" + "f" * 64,  # ...but content hash is wrong
+    )
+
+    with patch("os.getcwd", return_value=str(temp_dir)), pytest.raises(typer.Exit):
+        validate_command([str(temp_dir / "output")], metadata_paths=[str(meta_dir)])
+
+    captured = capsys.readouterr()
+    assert "CONTENT MISMATCH" in captured.out
+    assert "0/1 files passed validation" in captured.out
 
 
 def test_validate_command_output_file_discovery(temp_dir, capsys):

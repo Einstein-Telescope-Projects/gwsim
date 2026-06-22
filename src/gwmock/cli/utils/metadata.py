@@ -11,7 +11,7 @@ import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 
@@ -61,6 +61,7 @@ class OutputRecord(BaseModel):
     t0: float | int | None = None
     duration: float | int | None = None
     sha256: str | None = None
+    content_sha256: str | None = None
 
 
 class HostRecord(BaseModel):
