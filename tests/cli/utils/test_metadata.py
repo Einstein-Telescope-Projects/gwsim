@@ -59,7 +59,7 @@ def test_metadata_record_uses_versioned_json_schema(tmp_path: Path) -> None:
     metadata_path = tmp_path / "metadata" / "mock-0.metadata.json"
     record = load_metadata_record(metadata_path)
 
-    assert record.schema_version == "1.0.0"
+    assert record.schema_version == "1.1.0"
     assert record.config_sha256 == compute_file_hash(config_file)
     assert record.seed == 42
     assert record.outputs[0].path == "output/data.json"

@@ -76,7 +76,7 @@ def validate_command(
     from rich.console import Console
     from rich.table import Table
 
-    from gwmock.cli.utils.hash import compute_file_hash
+    from gwmock.cli.utils.hash import compute_content_hash, compute_file_hash
     from gwmock.cli.utils.metadata import load_metadata_with_external_state
 
     logger = logging.getLogger("gwmock")
@@ -215,60 +215,116 @@ def validate_command(
         logger.error("Error: No metadata files found")
         raise typer.Exit(1)
 
-    # Create results table
+    # Create results table. The authoritative verdict is the *content* hash
+    # (decoded data); the raw-file byte hash is a secondary integrity signal.
+    # A file whose content matches but whose container bytes differ is reported
+    # as "same data, repackaged" -- this is the normal case for re-generated GWF
+    # frames, which embed a write-time timestamp and the frame-library version.
     table = Table(title="Validation Results")
     table.add_column("Metadata File", style="cyan")
     table.add_column("Output File", style="magenta")
-    table.add_column("Hash Match", style="green")
+    table.add_column("Content", style="green")
+    table.add_column("Bytes", style="green")
     table.add_column("Status", style="yellow")
 
     total_files = len(output_to_metadata)
     failed_files = 0
+    repackaged_files = 0
+
+    def _expected(metadata: dict, name: str, file_key: str, record_key: str) -> str | None:
+        """Look up an expected hash by filename, from the top-level map or outputs[]."""
+        top = metadata.get(file_key, {})
+        if name in top:
+            return top[name]
+        records = {Path(o["path"]).name: o for o in metadata.get("outputs", [])}
+        return records.get(name, {}).get(record_key)
 
     # Order output for consistent reporting
     for output_file in sorted(output_to_metadata.keys()):
         metadata_file = output_to_metadata[output_file]
+        name = output_file.name
         if metadata_file is None:
-            table.add_row("N/A", output_file.name, "N/A", "[red]No metadata found[/red]")
+            table.add_row("N/A", name, "N/A", "N/A", "[red]No metadata found[/red]")
             failed_files += 1
             continue
         try:
-            metadata: dict = load_metadata_with_external_state(metadata_file)
+            metadata = load_metadata_with_external_state(metadata_file)
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error("Error loading metadata %s: %s", metadata_file, e)
-            table.add_row(str(metadata_file.name), output_file.name, "N/A", "[red]Error loading metadata[/red]")
+            table.add_row(str(metadata_file.name), name, "N/A", "N/A", "[red]Error loading metadata[/red]")
             continue
-
-        file_hashes = metadata.get("file_hashes", {})
-        if file_hashes:
-            expected_hash = file_hashes.get(output_file.name)
-        else:
-            output_records = {Path(output["path"]).name: output for output in metadata.get("outputs", [])}
-            expected_hash = output_records.get(output_file.name, {}).get("sha256")
 
         if not output_file.exists():
-            table.add_row(str(metadata_file.name), output_file.name, "N/A", "[red]File not found[/red]")
+            table.add_row(str(metadata_file.name), name, "N/A", "N/A", "[red]File not found[/red]")
             failed_files += 1
             continue
 
-        if not expected_hash:
-            table.add_row(str(metadata_file.name), output_file.name, "N/A", "[yellow]No hash in metadata[/yellow]")
-            failed_files += 1
-            continue
+        expected_content = _expected(metadata, name, "content_hashes", "content_sha256")
+        expected_bytes = _expected(metadata, name, "file_hashes", "sha256")
 
         try:
-            actual_hash = compute_file_hash(output_file)
-            if actual_hash == expected_hash:
-                table.add_row(str(metadata_file.name), output_file.name, "[green]✓[/green]", "[green]PASS[/green]")
+            actual_bytes = compute_file_hash(output_file)
+            bytes_ok = None if not expected_bytes else (actual_bytes == expected_bytes)
+            bytes_cell = "[green]✓[/green]" if bytes_ok else ("[yellow]≠[/yellow]" if bytes_ok is False else "—")
+
+            if expected_content:
+                actual_content = compute_content_hash(output_file)
+                if actual_content is None:
+                    # Couldn't decode -- fall back to the byte hash as the verdict.
+                    if bytes_ok is None:
+                        table.add_row(
+                            str(metadata_file.name),
+                            name,
+                            "[yellow]?[/yellow]",
+                            bytes_cell,
+                            "[yellow]Could not read content[/yellow]",
+                        )
+                        failed_files += 1
+                    elif bytes_ok:
+                        table.add_row(str(metadata_file.name), name, "—", bytes_cell, "[green]PASS[/green]")
+                    else:
+                        table.add_row(str(metadata_file.name), name, "—", bytes_cell, "[red]BYTES MISMATCH[/red]")
+                        failed_files += 1
+                elif actual_content == expected_content:
+                    if bytes_ok is False:
+                        table.add_row(
+                            str(metadata_file.name),
+                            name,
+                            "[green]✓[/green]",
+                            bytes_cell,
+                            "[green]PASS[/green] [dim](same data, repackaged)[/dim]",
+                        )
+                        repackaged_files += 1
+                    else:
+                        table.add_row(
+                            str(metadata_file.name), name, "[green]✓[/green]", bytes_cell, "[green]PASS[/green]"
+                        )
+                else:
+                    table.add_row(
+                        str(metadata_file.name), name, "[red]✗[/red]", bytes_cell, "[red]CONTENT MISMATCH[/red]"
+                    )
+                    failed_files += 1
+            elif expected_bytes:
+                # Legacy metadata (no content hash): byte hash is the verdict.
+                if bytes_ok:
+                    table.add_row(str(metadata_file.name), name, "—", bytes_cell, "[green]PASS[/green]")
+                else:
+                    table.add_row(str(metadata_file.name), name, "—", bytes_cell, "[red]HASH MISMATCH[/red]")
+                    failed_files += 1
             else:
-                table.add_row(str(metadata_file.name), output_file.name, "[red]✗[/red]", "[red]HASH MISMATCH[/red]")
+                table.add_row(str(metadata_file.name), name, "N/A", "N/A", "[yellow]No hash in metadata[/yellow]")
                 failed_files += 1
         except Exception as e:  # pylint: disable=broad-exception-caught
-            table.add_row(str(metadata_file.name), output_file.name, "N/A", f"[red]Error: {e}[/red]")
+            table.add_row(str(metadata_file.name), name, "N/A", "N/A", f"[red]Error: {e}[/red]")
             failed_files += 1
 
     console.print(table)
     console.print(f"\n[bold]Summary:[/bold] {total_files - failed_files}/{total_files} files passed validation")
+    if repackaged_files:
+        console.print(
+            f"[dim]{repackaged_files} file(s): content matches but container bytes differ "
+            f"(same data, repackaged) — expected for re-generated GWF frames.[/dim]"
+        )
 
     if failed_files > 0:
         console.print(f"[red]{failed_files} files failed validation[/red]")
