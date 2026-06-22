@@ -186,6 +186,58 @@ def test_validate_command_metadata_discovery_priority(temp_dir, capsys):
     assert "1/1 files passed validation" in captured.out
 
 
+def test_validate_command_outputs_in_subdirectory(temp_dir, capsys):
+    """Outputs recorded with a sub-directory ``path`` must not be double-counted.
+
+    Regression test: metadata produced by ``simulate`` records each output under
+    ``outputs`` as a path relative to ``working-directory`` (e.g.
+    ``output/signal/foo.gwf``). Reconstructing the expected location from only
+    the basename dropped the sub-directory, so every file was reported once as
+    PASS (from the directory scan) and once as "File not found" (from the
+    metadata reconstruction) -- e.g. "3/6 files passed" on a clean run.
+    """
+    # Lay out files the way ``simulate`` does: <working-dir>/output/<kind>/<file>
+    signal_dir = temp_dir / "output" / "signal"
+    noise_dir = temp_dir / "output" / "noise"
+    signal_dir.mkdir(parents=True)
+    noise_dir.mkdir(parents=True)
+
+    signal_file = signal_dir / "sig.gwf"
+    noise_file = noise_dir / "noi.gwf"
+    signal_file.write_text("signal data")
+    noise_file.write_text("noise data")
+
+    metadata = {
+        "author": "test_user",
+        "email": "test@example.com",
+        "timestamp": "2023-01-01T00:00:00Z",
+        # New-style ``outputs`` records with sub-directory paths.
+        "outputs": [
+            {"path": "output/signal/sig.gwf", "sha256": compute_file_hash(signal_file)},
+            {"path": "output/noise/noi.gwf", "sha256": compute_file_hash(noise_file)},
+        ],
+        "file_hashes": {
+            "sig.gwf": compute_file_hash(signal_file),
+            "noi.gwf": compute_file_hash(noise_file),
+        },
+        "globals_config": {"working-directory": str(temp_dir)},
+    }
+
+    metadata_dir = temp_dir / "metadata"
+    metadata_dir.mkdir()
+    metadata_file = metadata_dir / "orchestration-0.metadata.yaml"
+    with open(metadata_file, "w") as f:
+        yaml.dump(metadata, f)
+
+    with patch("os.getcwd", return_value=str(temp_dir)):
+        validate_command([str(temp_dir / "output")], metadata_paths=[str(metadata_dir)])
+
+    captured = capsys.readouterr()
+    # Exactly the two real files pass; nothing is reported as missing.
+    assert "2/2 files passed validation" in captured.out
+    assert "File not found" not in captured.out
+
+
 def test_validate_command_output_file_discovery(temp_dir, capsys):
     """Test metadata discovery for output files when no metadata provided."""
     # Create output file
