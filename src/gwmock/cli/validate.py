@@ -143,7 +143,13 @@ def validate_command(
             continue
 
         outputs = metadata.get("outputs", [])
-        output_files_in_meta = [Path(output["path"]).name for output in outputs] or metadata.get("output_files", [])
+        # Use the full relative ``path`` recorded in ``outputs`` (e.g.
+        # ``output/signal/foo.gwf``) rather than just its basename. Joining only
+        # the basename to ``working-directory`` dropped the ``output/<kind>/``
+        # sub-directory, so the reconstructed path never existed on disk and the
+        # file was reported as "File not found" *in addition to* the real PASS
+        # found by the directory scan -- double-counting every output.
+        output_files_in_meta = [output["path"] for output in outputs] or metadata.get("output_files", [])
         config = metadata.get("config", {})
         globals_config = config.get("globals", metadata.get("globals_config", {}))
         if outputs:
