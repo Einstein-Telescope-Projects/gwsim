@@ -676,7 +676,7 @@ requires-dist = [
     { name = "gwmock-noise", specifier = ">=0.5.2" },
     { name = "gwmock-pop", specifier = ">=0.10.0" },
     { name = "gwmock-signal", specifier = ">=0.9.0" },
-    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.8.2" },
+    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.9.0" },
     { name = "h5py", specifier = ">=3.16.0" },
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pydantic", specifier = ">=2.13.4" },
@@ -738,7 +738,7 @@ wheels = [
 
 [[package]]
 name = "gwmock-signal"
-version = "0.9.1"
+version = "0.9.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "gwpy" },
@@ -746,9 +746,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fa/72/7c68d569259f990c43cdb831c70c32440d6612ad5585469da0a59774aa55/gwmock_signal-0.9.1.tar.gz", hash = "sha256:9836312fa279bef85bec9d20167074e0961460ec55286957152226c3b1b3a865", size = 319945, upload-time = "2026-06-22T13:51:53.64Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f7/5a/5c727c12f9e37eaf4604f3e1dd32089427b407eaee32d0eb0d9b42507a90/gwmock_signal-0.9.2.tar.gz", hash = "sha256:e96398631dde9ad9b455bb15d30da42a63975b202ddf950d2272961153f0af01", size = 319947, upload-time = "2026-06-23T03:55:57.869Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ae/62/d587cfd1c25f9785b835b7b936afa6182032355034a0718b10e0516a6e0e/gwmock_signal-0.9.1-py3-none-any.whl", hash = "sha256:39e08b68d6c790dbcd36b0537f10cc5af7c3fbd9a964eff35f6a658447631949", size = 99303, upload-time = "2026-06-22T13:51:52.384Z" },
+    { url = "https://files.pythonhosted.org/packages/45/ce/b7dda3ec7d54efbc86a674a91f193a3c5192c1b6086702787fa67abda247/gwmock_signal-0.9.2-py3-none-any.whl", hash = "sha256:4b996b688475f7184e82dff3f84dad7fc1d1005042bc73bac3368653c46f9dfc", size = 99303, upload-time = "2026-06-23T03:55:56.784Z" },
 ]
 
 [package.optional-dependencies]
