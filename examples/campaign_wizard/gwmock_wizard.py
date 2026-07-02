@@ -22,7 +22,9 @@ Stdlib only (json/argparse) so `generate` works even where gwmock is not
 installed. gwmock itself is only needed at *run* time (the launcher calls
 `gwmock simulate`), and it requires Python >= 3.12.
 """
+
 from __future__ import annotations
+
 import argparse
 import json
 import math
@@ -35,10 +37,10 @@ import textwrap
 # --------------------------------------------------------------------------- #
 GEOMETRIES = {
     # name              -> gwmock network detector identifier (single string)
-    "Triangle_EMR":      "ET-Triangle-EMR",
+    "Triangle_EMR": "ET-Triangle-EMR",
     "Triangle_Sardinia": "ET-Triangle-Sardinia",
-    "2L_Aligned":        "ET-2L-Aligned",
-    "2L_Misaligned":     "ET-2L-Misaligned",
+    "2L_Aligned": "ET-2L-Aligned",
+    "2L_Misaligned": "ET-2L-Misaligned",
 }
 PSDS = ["ET_10_full_cryo", "ET_15_full_cryo"]
 GOALS = ["noise", "signal", "glitch", "mixture", "efficiency_far"]
@@ -50,11 +52,11 @@ GLITCH_POP_PLACEHOLDER = "<<SET_GLITCH_POPULATION_FILE>>"
 
 DEFAULTS = {
     "sampling_frequency": 4096,
-    "frame_duration": 4096,        # seconds per output frame
-    "total_duration": "1 day",     # campaign length (signal/glitch/mixture)
-    "start_time": 1577491218,      # base GPS
-    "chunk_seconds": 4096,         # wall-clock length of one chunk (time-chunked goals)
-    "n_seeds": 1,                  # independent realizations (noise / efficiency_far)
+    "frame_duration": 4096,  # seconds per output frame
+    "total_duration": "1 day",  # campaign length (signal/glitch/mixture)
+    "start_time": 1577491218,  # base GPS
+    "chunk_seconds": 4096,  # wall-clock length of one chunk (time-chunked goals)
+    "n_seeds": 1,  # independent realizations (noise / efficiency_far)
     "base_seed": 42,
     "source_family": "bbh",
 }
@@ -77,9 +79,20 @@ def parse_duration(v) -> int:
         # singularize plurals (hours->hour) without nuking the bare "s" abbreviation
         if len(unit) > 1 and unit.endswith("s"):
             unit = unit[:-1]
-        mult = {"s": 1, "sec": 1, "second": 1, "min": 60, "minute": 60,
-                "hour": 3600, "hr": 3600, "h": 3600, "day": 86400, "d": 86400,
-                "week": 604800, "year": 31557600}.get(unit)
+        mult = {
+            "s": 1,
+            "sec": 1,
+            "second": 1,
+            "min": 60,
+            "minute": 60,
+            "hour": 3600,
+            "hr": 3600,
+            "h": 3600,
+            "day": 86400,
+            "d": 86400,
+            "week": 604800,
+            "year": 31557600,
+        }.get(unit)
         if mult:
             return int(n * mult)
     raise ValueError(f"cannot parse duration {v!r} (try '1 day', '6 hours', '3600 s', or an int)")
@@ -94,14 +107,16 @@ def default_psd(geometry: str) -> str:
 
 def build_glitches(spec):
     """One gengli glitch entry, emitted nested under noise.arguments.glitches."""
-    return [{
-        "kind": "gengli_blip",
-        "rate": spec.get("glitch_rate", 0.016666667),
-        "amplitude_distribution": {"distribution": "lognormal", "mean": 1.0, "std": 0.0},
-        "population_file": spec.get("glitch_population_file", GLITCH_POP_PLACEHOLDER),
-        "psd_file": f"{spec['psd']}_psd",
-        "low_frequency_cutoff": 5.0,
-    }]
+    return [
+        {
+            "kind": "gengli_blip",
+            "rate": spec.get("glitch_rate", 0.016666667),
+            "amplitude_distribution": {"distribution": "lognormal", "mean": 1.0, "std": 0.0},
+            "population_file": spec.get("glitch_population_file", GLITCH_POP_PLACEHOLDER),
+            "psd_file": f"{spec['psd']}_psd",
+            "low_frequency_cutoff": 5.0,
+        }
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -144,15 +159,15 @@ def _glitches_block(glitches, indent):
     lines = [f"{pad}glitches:"]
     for g in glitches:
         ad = g["amplitude_distribution"]
-        lines.append(f'{item}- kind: {g["kind"]}')
-        lines.append(f'{key}rate: {g["rate"]}')
+        lines.append(f"{item}- kind: {g['kind']}")
+        lines.append(f"{key}rate: {g['rate']}")
         lines.append(
-            f'{key}amplitude_distribution: {{ distribution: {ad["distribution"]}, '
-            f'mean: {ad["mean"]}, std: {ad["std"]} }}'
+            f"{key}amplitude_distribution: {{ distribution: {ad['distribution']}, "
+            f"mean: {ad['mean']}, std: {ad['std']} }}"
         )
-        lines.append(f'{key}population_file: {g["population_file"]}')
-        lines.append(f'{key}psd_file: {g["psd_file"]}')
-        lines.append(f'{key}low_frequency_cutoff: {g["low_frequency_cutoff"]}')
+        lines.append(f"{key}population_file: {g['population_file']}")
+        lines.append(f"{key}psd_file: {g['psd_file']}")
+        lines.append(f"{key}low_frequency_cutoff: {g['low_frequency_cutoff']}")
     return "\n".join(lines)
 
 
@@ -162,20 +177,19 @@ def signal_config(spec, workdir, start_time, total_dur):
     pop = spec["population_file"]
     net = GEOMETRIES[spec["geometry"]]
     fam_upper = fam.upper()
-    g = _globals_block(workdir, spec["sampling_frequency"], spec["frame_duration"],
-                       start_time, total_dur)
+    g = _globals_block(workdir, spec["sampling_frequency"], spec["frame_duration"], start_time, total_dur)
     return f"""{g}
 
 orchestration:
   population:
     backend: FilePopulationLoader
     source-type: {fam}
-    n-samples: {spec.get('n_samples', 1)}
+    n-samples: {spec.get("n_samples", 1)}
     arguments:
       path: {pop}
   signal:
     waveform-model: {wf_model}
-    minimum-frequency: {spec.get('minimum_frequency', fmin)}
+    minimum-frequency: {spec.get("minimum_frequency", fmin)}
     earth-rotation: true
     detectors:
 {_det_list([net], 6)}
@@ -190,8 +204,7 @@ orchestration:
 def noise_config(spec, workdir, start_time, seed, total_dur, glitches=None):
     net = GEOMETRIES[spec["geometry"]]
     psd = f"{spec['psd']}_psd"
-    g = _globals_block(workdir, spec["sampling_frequency"], spec["frame_duration"],
-                       start_time, total_dur)
+    g = _globals_block(workdir, spec["sampling_frequency"], spec["frame_duration"], start_time, total_dur)
     body = f"""{g}
 
 orchestration:
@@ -199,17 +212,17 @@ orchestration:
     arguments:
       psd_file: {psd}
       seed: {seed}
-      minimum_frequency: {spec.get('minimum_frequency', 20)}
+      minimum_frequency: {spec.get("minimum_frequency", 20)}
       detectors:
 {_det_list([net], 8)}"""
     if glitches:
         body += "\n" + _glitches_block(glitches, 6)
-    body += f"""
+    body += """
     output:
       output_directory: noise
-      file_name: 'E-{{{{ detectors }}}}_STRAIN_NOISE-{{{{ start_time }}}}-{{{{ duration }}}}.gwf'
+      file_name: 'E-{{ detectors }}_STRAIN_NOISE-{{ start_time }}-{{ duration }}.gwf'
       arguments:
-        channel: '{{{{ detectors }}}}:STRAIN'
+        channel: '{{ detectors }}:STRAIN'
 """
     return body
 
@@ -257,31 +270,38 @@ def generate(spec, out_root):
         configs.append((path, workdir))
 
     if goal in ("signal", "glitch", "mixture"):
-        for (k, st, dur) in plan_time_chunks(spec):
+        for k, st, dur in plan_time_chunks(spec):
             wd_base = os.path.join(camp_dir, "out", f"chunk_{k:04d}")
             if goal in ("signal", "mixture"):
-                emit(f"signal_{k:04d}.yaml",
-                     signal_config(spec, wd_base + "_signal", st, dur), wd_base + "_signal")
+                emit(f"signal_{k:04d}.yaml", signal_config(spec, wd_base + "_signal", st, dur), wd_base + "_signal")
             if goal in ("glitch", "mixture"):
                 # gwmock has no standalone glitch run: glitches ride inside a
                 # noise config, so a glitch goal also produces a noise floor.
-                emit(f"noise_{k:04d}.yaml",
-                     noise_config(spec, wd_base + "_noise", st,
-                                  int(spec["base_seed"]) + 10_000 + k, dur,
-                                  glitches=build_glitches(spec)), wd_base + "_noise")
+                emit(
+                    f"noise_{k:04d}.yaml",
+                    noise_config(
+                        spec,
+                        wd_base + "_noise",
+                        st,
+                        int(spec["base_seed"]) + 10_000 + k,
+                        dur,
+                        glitches=build_glitches(spec),
+                    ),
+                    wd_base + "_noise",
+                )
 
     elif goal == "noise":
-        for (k, st, seed, dur) in plan_seed_chunks(spec):
+        for k, st, seed, dur in plan_seed_chunks(spec):
             wd = os.path.join(camp_dir, "out", f"seed_{k:04d}")
             emit(f"noise_{k:04d}.yaml", noise_config(spec, wd, st, seed, dur), wd)
 
     elif goal == "efficiency_far":
         # background: noise seed-sweep
-        for (k, st, seed, dur) in plan_seed_chunks(spec):
+        for k, st, seed, dur in plan_seed_chunks(spec):
             wd = os.path.join(camp_dir, "out", f"bg_seed_{k:04d}")
             emit(f"bg_noise_{k:04d}.yaml", noise_config(spec, wd, st, seed, dur), wd)
         # foreground: time-chunked signal injections
-        for (k, st, dur) in plan_time_chunks(spec):
+        for k, st, dur in plan_time_chunks(spec):
             wd = os.path.join(camp_dir, "out", f"fg_chunk_{k:04d}_signal")
             emit(f"fg_signal_{k:04d}.yaml", signal_config(spec, wd, st, dur), wd)
     else:
@@ -329,16 +349,18 @@ echo "[gwmock-wizard] all chunks finished"
 def write_slurm_launcher(camp_dir, manifest, spec, n):
     sl = spec.get("slurm", {})
     extra = spec.get("simulate_extra_args", "")
-    directives = "\n".join([
-        f"#SBATCH --job-name=gwmock_{spec['name']}",
-        f"#SBATCH --array=0-{n-1}%{sl.get('max_concurrent', n)}",
-        f"#SBATCH --partition={sl.get('partition', '<<PARTITION>>')}",
-        f"#SBATCH --account={sl.get('account', '<<ACCOUNT>>')}",
-        f"#SBATCH --time={sl.get('time', '04:00:00')}",
-        f"#SBATCH --mem={sl.get('mem', '16G')}",
-        f"#SBATCH --cpus-per-task={sl.get('cpus', 4)}",
-        f"#SBATCH --output={os.path.abspath(camp_dir)}/logs/chunk_%a.out",
-    ])
+    directives = "\n".join(
+        [
+            f"#SBATCH --job-name=gwmock_{spec['name']}",
+            f"#SBATCH --array=0-{n - 1}%{sl.get('max_concurrent', n)}",
+            f"#SBATCH --partition={sl.get('partition', '<<PARTITION>>')}",
+            f"#SBATCH --account={sl.get('account', '<<ACCOUNT>>')}",
+            f"#SBATCH --time={sl.get('time', '04:00:00')}",
+            f"#SBATCH --mem={sl.get('mem', '16G')}",
+            f"#SBATCH --cpus-per-task={sl.get('cpus', 4)}",
+            f"#SBATCH --output={os.path.abspath(camp_dir)}/logs/chunk_%a.out",
+        ]
+    )
     sh = f"""#!/usr/bin/env bash
 {directives}
 # One array task per chunk. Resubmit to resume (gwmock checkpoints completed frames).
@@ -400,8 +422,7 @@ def interview():
         _, defpop, _ = WAVEFORMS[spec["source_family"]]
         spec["population_file"] = _ask("Population file (HDF5 path or URL)", defpop)
     if spec["goal"] in ("glitch", "mixture"):
-        spec["glitch_population_file"] = _ask(
-            "Glitch population file (HDF5 path or URL)", GLITCH_POP_PLACEHOLDER)
+        spec["glitch_population_file"] = _ask("Glitch population file (HDF5 path or URL)", GLITCH_POP_PLACEHOLDER)
     spec["sampling_frequency"] = int(_ask("Sampling frequency [Hz]", DEFAULTS["sampling_frequency"]))
     spec["frame_duration"] = int(_ask("Frame duration [s]", DEFAULTS["frame_duration"]))
     if spec["goal"] in ("signal", "glitch", "mixture", "efficiency_far"):
