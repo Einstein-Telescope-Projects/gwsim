@@ -22,9 +22,9 @@ classifiers = [
 requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
-  "gwmock-signal>=0.9.2",
-  "gwmock-noise>=0.5.3",
-  "gwmock-pop>=0.10.1",
+  "gwmock-signal>=0.9.3",
+  "gwmock-noise>=0.6.0",
+  "gwmock-pop>=0.10.2",
   "typer>=0.26.8",
   "tqdm>=4.68.3",
   "h5py>=3.16.0",

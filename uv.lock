@@ -673,9 +673,9 @@ release = [
 [package.metadata]
 requires-dist = [
     { name = "filelock", specifier = ">=3.29.4" },
-    { name = "gwmock-noise", specifier = ">=0.5.3" },
-    { name = "gwmock-pop", specifier = ">=0.10.1" },
-    { name = "gwmock-signal", specifier = ">=0.9.2" },
+    { name = "gwmock-noise", specifier = ">=0.6.0" },
+    { name = "gwmock-pop", specifier = ">=0.10.2" },
+    { name = "gwmock-signal", specifier = ">=0.9.3" },
     { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.9.3" },
     { name = "h5py", specifier = ">=3.16.0" },
     { name = "psutil", specifier = ">=7.2.2" },
@@ -703,7 +703,7 @@ release = [{ name = "git-cliff", specifier = ">=2.13.1" }]
 
 [[package]]
 name = "gwmock-noise"
-version = "0.5.3"
+version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -713,14 +713,14 @@ dependencies = [
     { name = "scipy" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5f/4d/bc31695eb9a9822084fde7c5fb0c19871e758a632f7d077bdd0e4c8fb198/gwmock_noise-0.5.3.tar.gz", hash = "sha256:7bf7825ab3c13974717c25023a270b05440c45ad87a1d431c7f922e4a93933a0", size = 751495, upload-time = "2026-06-23T02:47:12.644Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/1b/0f663d7d9b5a542588acb66fd66cb13ef528625d7b8cbc9713c90a5febb0/gwmock_noise-0.6.0.tar.gz", hash = "sha256:bf56ae3d87bf210cf3cceab9c4242ea00c415cda8e75435828420ac4f93cfab7", size = 754437, upload-time = "2026-06-30T02:52:26.318Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/55/73/ed7cf1ab6295032456816a60705b377bc2ee9f739e70b5a909f2fe5eb234/gwmock_noise-0.5.3-py3-none-any.whl", hash = "sha256:5ea3a75b2746ee0cd08d1f566fc90b984e43f48a5fb98d1aab8594a1262ef85d", size = 528386, upload-time = "2026-06-23T02:47:11.303Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/cc/441b67498d7a25da1b27b3baf35d801441211adb42a080a569d01606842b/gwmock_noise-0.6.0-py3-none-any.whl", hash = "sha256:67b287185c82df0e8b7b7b21b73bb1d02b0314b32e47bb37bb1919438a61f978", size = 530114, upload-time = "2026-06-30T02:52:25.022Z" },
 ]
 
 [[package]]
 name = "gwmock-pop"
-version = "0.10.1"
+version = "0.10.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -731,9 +731,9 @@ dependencies = [
     { name = "ruyaml" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/15/5e/aec65dedd7ad292f158960a429c74b70067cbe2f041d739ad67c8829ee7a/gwmock_pop-0.10.1.tar.gz", hash = "sha256:7d931e2da047a35ec8ade333f1d665d9d25ccad9cad274cda8948ba9987e2fdd", size = 242897, upload-time = "2026-06-23T03:38:36.234Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a5/07/6dd1e945e43286ecb4601468a9d1e0ad54f5fbbf2f70a0c95262e0e9e66b/gwmock_pop-0.10.2.tar.gz", hash = "sha256:8cd5e68e23dee95ed34181c0464211cc00ba730983c8471852a7bcfc34dda18b", size = 242879, upload-time = "2026-06-30T03:42:39.062Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/94/c7/1edbbc5fad31f53aadbc89cd6bc6b1c34dfd42ed3bad535193dc43f80847/gwmock_pop-0.10.1-py3-none-any.whl", hash = "sha256:0f89d71cbf7f0f05d4f46bd224daddf2034460ce9f68208ee13b4f335d483b1c", size = 104005, upload-time = "2026-06-23T03:38:35.117Z" },
+    { url = "https://files.pythonhosted.org/packages/55/5d/3a2a77f2117c4e94b4f7b696a1b1b4867f7a7b2e928b888b9c0eec51df94/gwmock_pop-0.10.2-py3-none-any.whl", hash = "sha256:704db8b2cd8e030d2496bb21e349960d0ff291a41c1ca7d72bed1343754bd4a2", size = 104005, upload-time = "2026-06-30T03:42:37.6Z" },
 ]
 
 [[package]]
