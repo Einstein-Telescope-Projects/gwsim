@@ -265,6 +265,31 @@ def _coerce(raw: str, target: type | str) -> Any:
     return target(raw)  # type: ignore[operator]
 
 
+# Range constraints: key -> (min, max, error message)
+_VALUE_CONSTRAINTS: dict[str, tuple[int | None, int | None, str]] = {
+    "chunks-n-chunks": (1, None, "chunks-n-chunks must be at least 1"),
+    "n-samples": (1, None, "n-samples must be at least 1"),
+    "seed": (0, None, "seed must be non-negative"),
+    "minimum-frequency": (0, None, "minimum-frequency must be non-negative"),
+    "sampling-frequency": (1, None, "sampling-frequency must be at least 1"),
+    "duration": (1, None, "duration must be at least 1"),
+}
+
+
+def _validate_value(key: str, value: Any) -> None:
+    """Validate *value* against known constraints for *key*."""
+    constraint = _VALUE_CONSTRAINTS.get(key)
+    if constraint is None:
+        return
+    min_val, max_val, error_msg = constraint
+    if not isinstance(value, (int, float)):
+        return
+    if min_val is not None and value < min_val:
+        raise ValueError(error_msg)
+    if max_val is not None and value > max_val:
+        raise ValueError(error_msg)
+
+
 # --------------------------------------------------------------------------- #
 # ConfigState
 # --------------------------------------------------------------------------- #
@@ -275,7 +300,7 @@ class ConfigState:
 
     def __init__(self, data: dict[str, Any] | None = None) -> None:
         self._data: dict[str, Any] = data if data is not None else {}
-        self._config_file: str | None = None
+        self.config_file: str | None = None
 
     # -- section access ----------------------------------------------------- #
 
@@ -291,6 +316,7 @@ class ConfigState:
         types_map = SECTION_TYPES.get(section, {})
         target = types_map.get(key, str)
         value = _coerce(raw_value, target)
+        _validate_value(key, value)
         _set(self._data, path, value)
 
     def get(self, section: str, key: str) -> Any:

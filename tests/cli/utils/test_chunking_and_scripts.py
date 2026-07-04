@@ -51,7 +51,7 @@ class TestChunkingConfiguration:
 
     @pytest.mark.asyncio
     async def test_chunks_n_chunks_validation(self, app):
-        """Test that chunks-n-chunks must be >= 1 during validation."""
+        """Test that chunks-n-chunks must be >= 1."""
         async with app.run_test() as pilot:
             input_widget = app.query_one("#command-input")
             input_widget.value = "/batch chunks-n-chunks 0"
@@ -59,20 +59,8 @@ class TestChunkingConfiguration:
 
             input_widget.post_message(Input.Submitted(input_widget, "/batch chunks-n-chunks 0"))
             await pilot.pause()
-            # Value is set in state, but validation will fail when saving
-            assert app._state.get("batch", "chunks-n-chunks") == 0
-
-            # Try to save - should fail validation
-            import tempfile
-            from pathlib import Path
-
-            with tempfile.TemporaryDirectory() as tmpdir:
-                config_file = Path(tmpdir) / "config.yaml"
-                input_widget.value = f"/save {config_file}"
-                input_widget.post_message(Input.Submitted(input_widget, f"/save {config_file}"))
-                await pilot.pause()
-                # File should not be created due to validation error
-                assert not config_file.exists()
+            # Should not be set due to early validation error
+            assert app._state.get("batch", "chunks-n-chunks") is None
 
 
 class TestTemplateCommands:

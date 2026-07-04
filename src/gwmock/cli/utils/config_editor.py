@@ -712,7 +712,7 @@ class ConfigEditorApp(App):  # type: ignore[misc]
             return
         self._state.load(path)
         # Track the loaded config file path
-        self._state._config_file = str(path)
+        self._state.config_file = str(path)
         out.write(f"[green]Loaded configuration from {path}[/green]")
 
     def _cmd_save(self, args: list[str]) -> None:
@@ -739,7 +739,7 @@ class ConfigEditorApp(App):  # type: ignore[misc]
                 yaml.safe_dump(config_dict, f, default_flow_style=False, sort_keys=False)
 
             # Track the saved config file path
-            self._state._config_file = str(path)
+            self._state.config_file = str(path)
 
             out.write(f"[green]Configuration saved to {path}[/green]")
             out.write("")
@@ -801,8 +801,8 @@ class ConfigEditorApp(App):  # type: ignore[misc]
 
         # Get the config file path (assume it's been saved)
         config_file = "config.yaml"  # Default
-        if self._state._config_file:
-            config_file = self._state._config_file
+        if self._state.config_file:
+            config_file = self._state.config_file
 
         if script_type == "slurm":
             script = f"""#!/bin/bash
