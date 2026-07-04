@@ -147,6 +147,76 @@ directory is used by default.
 gwmock config --get <label of the configuration file> --output <directory or file>
 ```
 
+#### Flag `--interactive` (optional)
+
+Launch an interactive terminal-based configuration editor with a live preview,
+autocomplete, and guided workflows:
+
+```bash
+gwmock config --interactive
+```
+
+The interactive editor provides:
+
+- **Live configuration preview**: See your configuration update in real-time as
+  you build it
+- **Autocomplete suggestions**: Type `/` to see available commands, then use Tab
+  to complete
+- **Command history**: Use Up/Down arrows to navigate through previously entered
+  commands
+- **Validation feedback**: Get immediate feedback on invalid values (e.g.,
+  negative seeds, invalid chunk counts)
+- **Templates**: Start with common configurations using `/template` commands
+- **Script generation**: Generate SLURM job scripts or local execution scripts
+  with `/generate-script`
+
+**Common commands:**
+
+| Command                             | Description                                             |
+| ----------------------------------- | ------------------------------------------------------- |
+| `/template <type>`                  | Load a preset (e.g., `noise`, `signal+noise`, `glitch`) |
+| `/psds`                             | List available power spectral densities                 |
+| `/geometries`                       | List available detector geometries                      |
+| `/noise psd <value>`                | Set noise PSD                                           |
+| `/noise detectors <list>`           | Set detector network                                    |
+| `/batch chunks-enabled true`        | Enable chunking for parallel execution                  |
+| `/batch chunks-n-chunks <n>`        | Set number of chunks                                    |
+| `/save <filename>`                  | Save configuration to file                              |
+| `/generate-script slurm <filename>` | Generate SLURM job script                               |
+| `/generate-script local <filename>` | Generate local execution script                         |
+| `/help`                             | Show all available commands                             |
+
+**Example workflow:**
+
+```bash
+# Start interactive editor
+gwmock config --interactive
+
+# Inside the editor:
+/template noise
+/noise psd ET_10_full_cryo_psd
+/noise detectors ET-Triangle-EMR
+/batch chunks-enabled true
+/batch chunks-n-chunks 4
+/save my_config.yaml
+/generate-script slurm submit.sh
+```
+
+#### Flag `--load` (optional)
+
+Load an existing configuration file into the interactive editor for
+modification:
+
+```bash
+gwmock config --interactive --load existing_config.yaml
+```
+
+This is useful for:
+
+- Modifying existing configurations without manually editing YAML
+- Exploring what settings are in a configuration file
+- Generating job scripts for existing configurations
+
 ## Configuration File Structure
 
 The configuration file uses YAML format. It consists of a shared `globals`

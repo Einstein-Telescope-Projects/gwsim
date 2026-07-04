@@ -75,6 +75,30 @@ uv sync
 gwmock simulate config.yaml
 ```
 
+### Interactive Configuration Editor
+
+For an easier configuration experience, use the interactive editor:
+
+```bash
+gwmock config --interactive
+```
+
+The interactive editor provides:
+
+- Live configuration preview with real-time updates
+- Autocomplete suggestions for commands and values
+- Command history navigation (Up/Down arrows)
+- Built-in templates for common simulation types
+- Script generation for SLURM and local execution
+- Immediate validation feedback
+
+Use `/help` inside the editor to see all available commands, or `/template` to
+start with a preset configuration. To modify an existing configuration:
+
+```bash
+gwmock config --interactive --load existing_config.yaml
+```
+
 ## Configuration
 
 gwmock uses YAML configuration files for reproducible simulations. New runs use

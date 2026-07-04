@@ -282,6 +282,23 @@ class GlobalsConfig(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
+class ChunkConfig(BaseModel):
+    """Configuration for splitting simulations into parallel chunks."""
+
+    enabled: bool = Field(default=False, description="Enable chunking for parallel execution")
+    n_chunks: int = Field(default=1, alias="n-chunks", description="Number of chunks to split the simulation into")
+    parallel: bool = Field(default=True, description="Run chunks in parallel (local) or submit as array job (SLURM)")
+
+    @field_validator("n_chunks")
+    @classmethod
+    def validate_n_chunks(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("n-chunks must be at least 1")
+        return v
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
 class BatchConfig(BaseModel):
     """Batch configuration applying to all simulators."""
 
@@ -304,6 +321,7 @@ class BatchConfig(BaseModel):
         alias="extra_lines",
         description="Custom lines to insert into the submit script before the simulation command (e.g., module loads, conda activate)",  # pylint: disable=line-too-long
     )
+    chunks: ChunkConfig | None = Field(default=None, description="Chunking configuration for parallel execution")
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -389,8 +407,8 @@ def save_config(
     # Atomic write
     temp_file = file_name.with_suffix(f"{file_name.suffix}.tmp")
     try:
-        # Convert to dict, excluding internal fields
-        config_dict = config.model_dump(by_alias=True, exclude_none=True)
+        # Convert to dict, excluding internal fields and defaults
+        config_dict = config.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
 
         with temp_file.open("w", encoding=encoding) as f:
             yaml.safe_dump(config_dict, f, default_flow_style=False, sort_keys=False)
