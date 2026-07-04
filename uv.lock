@@ -675,8 +675,8 @@ release = [
 [package.metadata]
 requires-dist = [
     { name = "filelock", specifier = ">=3.29.4" },
-    { name = "gwmock-noise", specifier = ">=0.6.0" },
-    { name = "gwmock-pop", specifier = ">=0.10.2" },
+    { name = "gwmock-noise", specifier = ">=0.6.1" },
+    { name = "gwmock-pop", specifier = ">=0.10.3" },
     { name = "gwmock-signal", specifier = ">=0.9.3" },
     { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.9.3" },
     { name = "h5py", specifier = ">=3.16.0" },
