@@ -281,7 +281,7 @@ class Simulator(ABC):
     def save_data(
         self,
         data: Any,
-        file_name: str | Path,
+        file_name: str | Path | list[str] | np.ndarray[Any, np.dtype[np.object_]],
         output_directory: str | Path | None = None,
         overwrite: bool = False,
         **kwargs: Any,
@@ -292,16 +292,35 @@ class Simulator(ABC):
 
         Args:
             data: Data to save.
-            file_name: Output file path.
+            file_name: Output file path template, or a list/array of already-expanded
+                literal paths (one per detector) as carried by metadata written for a
+                multi-detector template — reproduction from metadata replays those
+                literal lists.
             output_directory: Optional output directory to prepend to the file name.
             overwrite: Whether to overwrite existing files.
             **kwargs: Additional arguments for specific file formats.
         """
-        file_name_resolved = get_file_name_from_template(
-            template=str(file_name),
-            instance=self,
-            output_directory=output_directory,
-        )
+        if isinstance(file_name, (list, tuple, np.ndarray)):
+            resolved_entries: list[Path] = []
+            for single_name in np.asarray(file_name, dtype=object).flatten():
+                single_resolved = get_file_name_from_template(
+                    template=str(single_name),
+                    instance=self,
+                    output_directory=output_directory,
+                )
+                if isinstance(single_resolved, Path):
+                    resolved_entries.append(single_resolved)
+                else:
+                    resolved_entries.extend(single_resolved.flatten())
+            file_name_resolved: Path | np.ndarray[Any, np.dtype[np.object_]] = np.asarray(
+                resolved_entries, dtype=object
+            )
+        else:
+            file_name_resolved = get_file_name_from_template(
+                template=str(file_name),
+                instance=self,
+                output_directory=output_directory,
+            )
 
         if not overwrite:
             if isinstance(file_name_resolved, Path):

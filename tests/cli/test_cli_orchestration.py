@@ -342,6 +342,107 @@ def test_simulate_command_runs_adapter_orchestration(monkeypatch, tmp_path: Path
     ]
 
 
+def _fake_multi_detector_config(working_directory: str) -> Config:
+    """Orchestration config whose signal file_name uses a multi-detector template.
+
+    ``{{ detectors }}`` renders to one file per detector, so the metadata sidecar
+    records ``file_name`` (and ``channel``) as per-detector lists.
+    """
+    return Config(
+        globals=GlobalsConfig(
+            working_directory=working_directory,
+            output_directory="output",
+            metadata_directory="metadata",
+            simulator_arguments={
+                "sampling-frequency": 4,
+                "duration": 4,
+                "start-time": 100,
+                "max-samples": 2,
+            },
+        ),
+        orchestration=OrchestrationConfig(
+            population=PopulationConfig(
+                backend=FAKE_POPULATION_BACKEND,
+                source_type="bbh",
+                n_samples=2,
+                arguments={"path": "population.h5", "source_type": "bbh"},
+            ),
+            signal=SignalConfig(
+                backend=FAKE_SIGNAL_BACKEND,
+                waveform_model="IMRPhenomD",
+                detectors=["H1", "L1"],
+                output=SimulatorOutputConfig(
+                    file_name="E-{{ detectors }}_BBH-{{ counter }}.gwf",
+                    output_directory="signal",
+                    arguments={"channel": "{{ detectors }}:STRAIN"},
+                ),
+            ),
+            noise=NoiseAdapterConfig(
+                backend=FAKE_NOISE_BACKEND,
+                arguments={"seed": 7, "detectors": ["H1", "L1"], "duration": 4.0, "sampling_frequency": 4.0},
+                output=SimulatorOutputConfig(
+                    file_name="E-{{ detectors }}_NOISE-{{ counter }}.npy",
+                    output_directory="noise",
+                ),
+            ),
+        ),
+    )
+
+
+def test_simulate_reproduces_metadata_with_multi_detector_signal_template(monkeypatch, tmp_path: Path):
+    """Replay: metadata from a multi-detector ``{{ detectors }}`` signal template re-runs cleanly.
+
+    The metadata sidecar stores the rendered per-detector ``file_name`` list rather than
+    the template. Regression: the replay path stringified that list into a single bogus
+    path (suffix ``.gwf']``), failing the signal output-format check; with a noise section
+    the retried batch then collided with its own freshly written noise outputs.
+    """
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    monkeypatch.setattr("gwmock.cli.adapter_orchestration.DetectorStrainStack.write", _write_signal_file)
+    monkeypatch.chdir(run_dir)
+
+    config = _fake_multi_detector_config(".")
+    config_file = run_dir / "config.yaml"
+    config_file.write_text(yaml.safe_dump(config.model_dump(by_alias=True, exclude_none=True), sort_keys=False))
+
+    _simulate_impl(str(config_file), overwrite=True, metadata=True)
+
+    expected_signal_names = [
+        "E-H1_BBH-0.gwf",
+        "E-L1_BBH-0.gwf",
+        "E-H1_BBH-1.gwf",
+        "E-L1_BBH-1.gwf",
+    ]
+    for name in expected_signal_names:
+        assert (run_dir / "output" / "signal" / name).exists()
+
+    metadata_file = run_dir / "metadata" / "orchestration-0.metadata.json"
+    metadata = yaml.safe_load(metadata_file.read_text())
+    # Lock in the serialization this regression test relies on: the sidecar carries the
+    # rendered per-detector list, not the original template.
+    assert metadata["config"]["orchestration"]["signal"]["output"]["file_name"] == [
+        "E-H1_BBH-0.gwf",
+        "E-L1_BBH-0.gwf",
+    ]
+
+    repro_dir = tmp_path / "repro"
+    repro_dir.mkdir()
+    for metadata_name in ("orchestration-0.metadata.json", "orchestration-1.metadata.json"):
+        (repro_dir / metadata_name).write_text((run_dir / "metadata" / metadata_name).read_text())
+    monkeypatch.chdir(repro_dir)
+
+    _simulate_impl(
+        [str(repro_dir / "orchestration-0.metadata.json"), str(repro_dir / "orchestration-1.metadata.json")],
+        metadata=False,
+    )
+
+    for name in expected_signal_names:
+        assert (repro_dir / "output" / "signal" / name).exists()
+    for name in ("E-H1_NOISE-0.npy", "E-L1_NOISE-0.npy", "E-H1_NOISE-1.npy", "E-L1_NOISE-1.npy"):
+        assert (repro_dir / "output" / "noise" / name).exists()
+
+
 def test_simulate_command_runs_signal_only_sgwb_orchestration(monkeypatch, tmp_path: Path):
     """The CLI should generate stationary SGWB segments without a population catalogue."""
     config = _fake_sgwb_config(tmp_path)

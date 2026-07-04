@@ -389,8 +389,8 @@ def save_config(
     # Atomic write
     temp_file = file_name.with_suffix(f"{file_name.suffix}.tmp")
     try:
-        # Convert to dict, excluding internal fields
-        config_dict = config.model_dump(by_alias=True, exclude_none=True)
+        # Convert to dict, excluding internal fields and defaults
+        config_dict = config.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
 
         with temp_file.open("w", encoding=encoding) as f:
             yaml.safe_dump(config_dict, f, default_flow_style=False, sort_keys=False)

@@ -22,9 +22,9 @@ classifiers = [
 requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
-  "gwmock-signal>=0.9.2",
-  "gwmock-noise>=0.5.3",
-  "gwmock-pop>=0.10.1",
+  "gwmock-signal>=0.9.3",
+  "gwmock-noise>=0.6.0",
+  "gwmock-pop>=0.10.2",
   "typer>=0.26.8",
   "tqdm>=4.68.3",
   "h5py>=3.16.0",
@@ -32,17 +32,19 @@ dependencies = [
   "pymap3d>=3.2.0",
   "psutil>=7.2.2",
   "filelock>=3.29.4",
+  "textual>=4.0.0",
 ]
 
 [project.optional-dependencies]
-sgwb = ["gwmock-signal[sgwb]>=0.9.2"]
+sgwb = ["gwmock-signal[sgwb]>=0.9.3"]
 
 [dependency-groups]
 dev = [
-  "prek>=0.4.5",
+  "prek>=0.4.6",
   "pytest-cov>=7.1.0",
   "pytest-mock>=3.15.1",
   "pytest>=9.1.1",
+  "pytest-asyncio>=0.24.0",
   "pytest-github-actions-annotate-failures>=0.4.2",
 ]
 docs = ["zensical>=0.0.46", "mkdocstrings-python>=2.0.5"]

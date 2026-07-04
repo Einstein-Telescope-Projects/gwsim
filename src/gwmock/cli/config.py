@@ -99,7 +99,8 @@ def _config_command_impl(  # pylint: disable=too-many-locals,too-many-branches,t
 
     logger.error(
         "No action specified. Please provide one of [bold green]--init[/bold green], "
-        "[bold green]--list[/bold green], or [bold green]--get[/bold green]."
+        "[bold green]--list[/bold green], [bold green]--get[/bold green], "
+        "or [bold green]--interactive[/bold green]."
     )
     logger.error("Use [bold green]--help[/bold green] for more information.")
     raise typer.Exit(1)
@@ -118,6 +119,14 @@ def config_command(
     init: Annotated[Path | None, typer.Option("--init", help="Generate a default configuration file")] = None,
     list_: Annotated[bool, typer.Option("--list", help="List the available example configuration files")] = False,
     overwrite: Annotated[bool, typer.Option("--overwrite", help="Overwrite existing files")] = False,
+    interactive: Annotated[
+        bool,
+        typer.Option("--interactive", "-i", help="Open interactive configuration editor"),
+    ] = False,
+    load: Annotated[
+        Path | None,
+        typer.Option("--load", help="Load an existing config file into the interactive editor"),
+    ] = None,
 ) -> None:
     """
     Manage default and example configuration files.
@@ -149,6 +158,14 @@ def config_command(
           Overwrite existing files in the output directory. If not set,
             the command fails when a target file already exists.
 
+    - `--interactive` / `-i`
+          Open an interactive TUI editor to build a configuration file
+            step-by-step with live previews and dynamic option discovery.
+
+    - `--load <PATH>`
+          Load an existing configuration file into the interactive editor.
+            Only used with ``--interactive``.
+
     Examples:
         List available example configuration files:
 
@@ -170,6 +187,14 @@ def config_command(
 
             gwmock config --get basic.yaml --overwrite
 
+        Open the interactive configuration editor:
+
+            gwmock config --interactive
+
+        Open the interactive editor with an existing config pre-loaded:
+
+            gwmock config --interactive --load config.yaml
+
     Args:
         output: Path to the output directory for --init or --get operations.
             Defaults to the current directory ('.'). Created if it doesn't exist.
@@ -183,6 +208,13 @@ def config_command(
         FileExistsError: If a target file already exists during copy/init (use --force if added later).
         ValueError: If invalid example names are specified in --get or output path is invalid.
     """
+    if interactive:
+        from gwmock.cli.utils.config_editor import ConfigEditorApp
+
+        app = ConfigEditorApp(load_path=load)
+        app.run()
+        return
+
     _config_command_impl(
         output=output,
         get=get,
