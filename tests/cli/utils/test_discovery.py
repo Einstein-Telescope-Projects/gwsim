@@ -54,16 +54,15 @@ def test_discover_waveform_models_returns_list():
 
 
 def test_discover_geometries_fallback(monkeypatch):
-    """Discovery returns empty list when the import fails."""
+    """Discovery returns empty list when the underlying import fails."""
+    from gwmock_signal.network import Network
+
     from gwmock.cli.utils import discovery
 
-    def patched():
-        try:
-            raise ImportError("mocked")
-        except Exception:
-            return []
+    # Patch Network.list_names to raise an exception
+    def mock_list_names():
+        raise RuntimeError("Mocked failure")
 
-    original = discovery.discover_geometries
-    monkeypatch.setattr(discovery, "discover_geometries", patched)
-    assert discovery.discover_geometries() == []
-    monkeypatch.setattr(discovery, "discover_geometries", original)
+    monkeypatch.setattr(Network, "list_names", mock_list_names)
+    result = discovery.discover_geometries()
+    assert result == []

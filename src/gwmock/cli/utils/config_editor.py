@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import shlex
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -179,7 +179,7 @@ class ConfigEditorApp(App):  # type: ignore[misc]
         self._history_index: int = -1  # -1 means not navigating history
         self._current_input: str = ""  # Store current input when navigating history
         self._navigating_history: bool = False  # Flag to prevent suggestions during history navigation
-        self._handlers: dict[str, Any] = {
+        self._handlers: dict[str, Callable[[list[str]], None]] = {
             "help": self._cmd_help,
             "config": self._cmd_config,
             "geometries": self._cmd_geometries,
@@ -221,10 +221,11 @@ class ConfigEditorApp(App):  # type: ignore[misc]
         out.write("This editor helps you build a configuration file step by step.")
         out.write("")
         out.write("[bold]Typical workflow:[/bold]")
-        out.write("  1. Choose your detector geometry and noise model")
-        out.write("  2. Optionally add signal injections (gravitational wave sources)")
-        out.write("  3. Set global simulation parameters (duration, sampling rate)")
-        out.write("  4. Save your configuration")
+        out.write("  1. Start with a template: /template <type>")
+        out.write("  2. Customize settings: /noise, /signal, etc.")
+        out.write("  3. Configure execution: /batch")
+        out.write("  4. Save your configuration: /save <filename>")
+        out.write("  5. Generate scripts: /generate-script <type> <file>")
         out.write("")
         out.write("Type [bold]/help[/bold] to see all available commands.")
         out.write("Type [bold]/psds[/bold] or [bold]/geometries[/bold] to explore options.")
@@ -537,9 +538,9 @@ class ConfigEditorApp(App):  # type: ignore[misc]
         out.write("─" * 40)
         out.write("\n[bold]Available settings:[/bold]")
         for key, desc in descs.items():
-            out.write(f"  [bold]{key}[/bold]".ljust(32) + desc)
+            out.write(f"  [bold]{key.ljust(24)}[/bold] {desc}")
         for sub, desc in extra:
-            out.write(f"  [bold]{sub}[/bold]".ljust(32) + desc)
+            out.write(f"  [bold]{sub.ljust(24)}[/bold] {desc}")
 
         if examples:
             out.write("\n[bold]Examples:[/bold]")
@@ -793,7 +794,6 @@ class ConfigEditorApp(App):  # type: ignore[misc]
 
         batch_config = config_data["batch"]
         job_name = batch_config.get("job-name", "gwmock_job")
-        scheduler = batch_config.get("scheduler", "slurm")
         chunks = batch_config.get("chunks", {})
         chunks_enabled = chunks.get("enabled", False)
         n_chunks = chunks.get("n-chunks", 1)
@@ -821,7 +821,7 @@ class ConfigEditorApp(App):  # type: ignore[misc]
                 for key, value in submit.items():
                     script += f"#SBATCH --{key}={value}\n"
 
-            script += "\n"
+            script += "\nset -euo pipefail\n"
 
             # Add extra lines
             extra_lines = batch_config.get("extra-lines", [])
@@ -845,6 +845,7 @@ class ConfigEditorApp(App):  # type: ignore[misc]
 
         elif script_type == "local":
             script = f"""#!/bin/bash
+set -euo pipefail
 # Local execution script
 """
             # Add extra lines
