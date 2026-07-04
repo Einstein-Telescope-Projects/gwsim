@@ -196,6 +196,8 @@ class ConfigEditorApp(App):  # type: ignore[misc]
             "reset": self._cmd_reset,
             "load": self._cmd_load,
             "save": self._cmd_save,
+            "generate-script": self._cmd_generate_script,
+            "template": self._cmd_template,
             "quit": self._cmd_quit,
         }
 
@@ -397,6 +399,23 @@ class ConfigEditorApp(App):  # type: ignore[misc]
             return [c for c in all_commands if c.startswith(prefix)]
 
         cmd = parts[0]
+
+        # Handle /template suggestions
+        if cmd == "template":
+            if len(parts) == 1:
+                return ["noise", "signal", "glitch"]
+            prefix = parts[1].lower()
+            return [t for t in ["noise", "signal", "glitch"] if t.startswith(prefix)]
+
+        # Handle /generate-script suggestions
+        if cmd == "generate-script":
+            if len(parts) == 1:
+                return ["slurm", "local"]
+            if len(parts) == 2 and not has_trailing_space:
+                prefix = parts[1].lower()
+                return [t for t in ["slurm", "local"] if t.startswith(prefix)]
+            return []
+
         if cmd not in SECTION_KEYS:
             return []
 
@@ -634,12 +653,16 @@ class ConfigEditorApp(App):  # type: ignore[misc]
         out.write("  Build your config step by step using the commands below.")
         out.write("")
         out.write("[bold]Suggested workflow:[/bold]")
-        out.write("  1. [bold]/psds[/bold] then [bold]/noise psd <name>[/bold]")
-        out.write("  2. [bold]/geometries[/bold] then [bold]/noise detectors <name>[/bold]")
-        out.write("  3. [bold]/noise seed <number>[/bold]")
-        out.write("  4. Optionally add signals: [bold]/signal[/bold] and [bold]/population[/bold]")
-        out.write("  5. Set simulation parameters: [bold]/globals[/bold]")
-        out.write("  6. [bold]/save <filename>[/bold]")
+        out.write("  1. Start with a template: [bold]/template <type>[/bold]")
+        out.write("  2. Customize settings: [bold]/noise[/bold], [bold]/signal[/bold], etc.")
+        out.write("  3. Configure execution: [bold]/batch[/bold]")
+        out.write("  4. [bold]/save <filename>[/bold]")
+        out.write("  5. Generate scripts: [bold]/generate-script <type> <file>[/bold]")
+        out.write("")
+        out.write("[bold]Templates:[/bold]")
+        out.write("  [bold]/template noise[/bold]".ljust(36) + "Pure noise simulation")
+        out.write("  [bold]/template signal[/bold]".ljust(36) + "Signal + noise + population")
+        out.write("  [bold]/template glitch[/bold]".ljust(36) + "Noise with glitches")
         out.write("")
         out.write("[bold]Discover available options:[/bold]")
         out.write("  [bold]/geometries[/bold]".ljust(36) + "Detector network configurations")
@@ -661,6 +684,7 @@ class ConfigEditorApp(App):  # type: ignore[misc]
         out.write("  [bold]/config[/bold]".ljust(36) + "Show full current configuration")
         out.write("  [bold]/load <file>[/bold]".ljust(36) + "Load an existing config")
         out.write("  [bold]/save <file>[/bold]".ljust(36) + "Validate and save config")
+        out.write("  [bold]/generate-script <type> <file>[/bold]".ljust(36) + "Generate SLURM or local scripts")
         out.write("  [bold]/reset [section|all][/bold]".ljust(36) + "Clear settings")
         out.write("  [bold]/help[/bold]".ljust(36) + "Show this help")
         out.write("  [bold]/quit[/bold]".ljust(36) + "Exit the editor")
@@ -687,6 +711,8 @@ class ConfigEditorApp(App):  # type: ignore[misc]
             out.write(f"[red]File not found: {path}[/red]")
             return
         self._state.load(path)
+        # Track the loaded config file path
+        self._state._config_file = str(path)
         out.write(f"[green]Loaded configuration from {path}[/green]")
 
     def _cmd_save(self, args: list[str]) -> None:
@@ -711,6 +737,10 @@ class ConfigEditorApp(App):  # type: ignore[misc]
                 backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
             with path.open("w", encoding="utf-8") as f:
                 yaml.safe_dump(config_dict, f, default_flow_style=False, sort_keys=False)
+
+            # Track the saved config file path
+            self._state._config_file = str(path)
+
             out.write(f"[green]Configuration saved to {path}[/green]")
             out.write("")
             out.write("[bold]Next steps:[/bold]")
@@ -718,15 +748,9 @@ class ConfigEditorApp(App):  # type: ignore[misc]
             out.write("  [cyan]Run locally:[/cyan]")
             out.write(f"    gwmock simulate {path}")
             out.write("")
-            out.write("  [cyan]Submit to cluster (SLURM):[/cyan]")
-            out.write("    1. Configure batch settings with [bold]/batch[/bold]")
-            out.write("    2. Create a submission script:")
-            out.write(f"       #!/bin/bash")
-            out.write(f"       #SBATCH --job-name=gwmock_job")
-            out.write(f"       #SBATCH --output=gwmock_%j.out")
-            out.write(f"       #SBATCH --error=gwmock_%j.err")
-            out.write(f"       gwmock simulate {path}")
-            out.write("    3. Submit with: sbatch submit.sh")
+            out.write("  [cyan]Generate execution script:[/cyan]")
+            out.write("    /generate-script slurm submit.sh")
+            out.write("    /generate-script local run.sh")
             out.write("")
             out.write("  [cyan]View documentation:[/cyan]")
             out.write("    https://leuven-gravity-institute.github.io/gwmock/")
@@ -750,6 +774,160 @@ class ConfigEditorApp(App):  # type: ignore[misc]
         else:
             out.write(f"[red]Unknown section: {section}[/red]")
             out.write(f"Valid sections: {', '.join(SECTION_KEYS)}")
+
+    def _cmd_generate_script(self, args: list[str]) -> None:
+        out = self._out()
+        if not args:
+            out.write("[yellow]Usage: /generate-script <type> <output-file>[/yellow]")
+            out.write("Types: slurm, local")
+            out.write("Example: /generate-script slurm submit.sh")
+            return
+
+        script_type = args[0]
+        output_file = args[1] if len(args) > 1 else "submit.sh"
+        config_data = self._state.to_dict()
+
+        if "batch" not in config_data:
+            out.write("[red]No batch configuration found. Use /batch to configure.[/red]")
+            return
+
+        batch_config = config_data["batch"]
+        job_name = batch_config.get("job-name", "gwmock_job")
+        scheduler = batch_config.get("scheduler", "slurm")
+        chunks = batch_config.get("chunks", {})
+        chunks_enabled = chunks.get("enabled", False)
+        n_chunks = chunks.get("n-chunks", 1)
+        chunks_parallel = chunks.get("parallel", True)
+
+        # Get the config file path (assume it's been saved)
+        config_file = "config.yaml"  # Default
+        if self._state._config_file:
+            config_file = self._state._config_file
+
+        if script_type == "slurm":
+            script = f"""#!/bin/bash
+#SBATCH --job-name={job_name}
+#SBATCH --output={job_name}_%j.out
+#SBATCH --error={job_name}_%j.err
+"""
+            # Add resources
+            resources = batch_config.get("resources", {})
+            for key, value in resources.items():
+                script += f"#SBATCH --{key}={value}\n"
+
+            # Add submit options
+            submit = batch_config.get("submit", {})
+            if submit:
+                for key, value in submit.items():
+                    script += f"#SBATCH --{key}={value}\n"
+
+            script += "\n"
+
+            # Add extra lines
+            extra_lines = batch_config.get("extra-lines", [])
+            if extra_lines:
+                for line in extra_lines:
+                    script += f"{line}\n"
+                script += "\n"
+
+            # Add simulation command
+            if chunks_enabled and n_chunks > 1:
+                if chunks_parallel:
+                    script += f"# Array job for {n_chunks} chunks\n"
+                    script += f"#SBATCH --array=0-{n_chunks - 1}\n\n"
+                    script += f"gwmock simulate {config_file} --chunk ${{SLURM_ARRAY_TASK_ID}}\n"
+                else:
+                    script += f"# Sequential execution of {n_chunks} chunks\n"
+                    for i in range(n_chunks):
+                        script += f"gwmock simulate {config_file} --chunk {i}\n"
+            else:
+                script += f"gwmock simulate {config_file}\n"
+
+        elif script_type == "local":
+            script = f"""#!/bin/bash
+# Local execution script
+"""
+            # Add extra lines
+            extra_lines = batch_config.get("extra-lines", [])
+            if extra_lines:
+                for line in extra_lines:
+                    script += f"{line}\n"
+                script += "\n"
+
+            # Add simulation command
+            if chunks_enabled and n_chunks > 1:
+                if chunks_parallel:
+                    script += f"# Parallel execution of {n_chunks} chunks\n"
+                    for i in range(n_chunks):
+                        script += f"gwmock simulate {config_file} --chunk {i} &\n"
+                    script += "wait\n"
+                else:
+                    script += f"# Sequential execution of {n_chunks} chunks\n"
+                    for i in range(n_chunks):
+                        script += f"gwmock simulate {config_file} --chunk {i}\n"
+            else:
+                script += f"gwmock simulate {config_file}\n"
+        else:
+            out.write(f"[red]Unknown script type: {script_type}[/red]")
+            out.write("Valid types: slurm, local")
+            return
+
+        try:
+            with open(output_file, "w") as f:
+                f.write(script)
+            out.write(f"[green]Script generated: {output_file}[/green]")
+            if script_type == "slurm":
+                out.write(f"Submit with: [bold]sbatch {output_file}[/bold]")
+            else:
+                out.write(f"Run with: [bold]bash {output_file}[/bold]")
+        except Exception as exc:  # noqa: BLE001
+            out.write(f"[red]Failed to generate script: {exc}[/red]")
+
+    def _cmd_template(self, args: list[str]) -> None:
+        out = self._out()
+        if not args:
+            out.write("[yellow]Usage: /template <type>[/yellow]")
+            out.write("Available templates:")
+            out.write("  [bold]noise[/bold]       - Pure noise simulation")
+            out.write("  [bold]signal[/bold]      - Signal + noise + population")
+            out.write("  [bold]glitch[/bold]      - Noise with glitches")
+            return
+
+        template_type = args[0]
+        self._state.reset()
+
+        if template_type == "noise":
+            self._state.set("noise", "psd", "ET_10_full_cryo_psd")
+            self._state.set("noise", "seed", "42")
+            self._state.set("noise", "detectors", "ET-Triangle-EMR")
+            out.write("[green]Template loaded: noise[/green]")
+            out.write("Configure PSD with /noise psd <value>")
+            out.write("Configure detectors with /noise detectors <value>")
+
+        elif template_type == "signal":
+            self._state.set("noise", "psd", "ET_10_full_cryo_psd")
+            self._state.set("noise", "seed", "42")
+            self._state.set("noise", "detectors", "ET-Triangle-EMR")
+            self._state.set("signal", "source-type", "bbh")
+            self._state.set("signal", "detectors", "ET-Triangle-EMR")
+            self._state.set("population", "backend", "file")
+            out.write("[green]Template loaded: signal[/green]")
+            out.write("Configure population path with /population path <file>")
+
+        elif template_type == "glitch":
+            self._state.set("noise", "psd", "ET_10_full_cryo_psd")
+            self._state.set("noise", "seed", "42")
+            self._state.set("noise", "detectors", "ET-Triangle-EMR")
+            # Add a glitch using the proper method
+            self._state.add_glitch("gengli_blip")
+            out.write("[green]Template loaded: glitch[/green]")
+            out.write("Configure glitch parameters with /noise glitches")
+
+        else:
+            out.write(f"[red]Unknown template: {template_type}[/red]")
+            out.write("Valid templates: noise, signal, glitch")
+
+        self._refresh_panel()
 
     def _cmd_quit(self, _args: list[str]) -> None:
         self.exit()

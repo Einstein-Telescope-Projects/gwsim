@@ -112,6 +112,9 @@ GLOBALS_KEYS: dict[str, list[str]] = {
 BATCH_KEYS: dict[str, list[str]] = {
     "scheduler": ["batch", "scheduler"],
     "job-name": ["batch", "job-name"],
+    "chunks-enabled": ["batch", "chunks", "enabled"],
+    "chunks-n-chunks": ["batch", "chunks", "n-chunks"],
+    "chunks-parallel": ["batch", "chunks", "parallel"],
 }
 
 SECTION_KEYS: dict[str, dict[str, list[str]]] = {
@@ -161,6 +164,9 @@ GLOBALS_TYPES: dict[str, type | str] = {
 BATCH_TYPES: dict[str, type | str] = {
     "scheduler": str,
     "job-name": str,
+    "chunks-enabled": bool,
+    "chunks-n-chunks": int,
+    "chunks-parallel": bool,
 }
 
 SECTION_TYPES: dict[str, dict[str, type | str]] = {
@@ -210,6 +216,9 @@ GLOBALS_DESC: dict[str, str] = {
 BATCH_DESC: dict[str, str] = {
     "scheduler": "Scheduler name (default: slurm)",
     "job-name": "Job name",
+    "chunks-enabled": "Enable chunking for parallel execution (true/false)",
+    "chunks-n-chunks": "Number of chunks to split the simulation into",
+    "chunks-parallel": "Run chunks in parallel (local) or as array job (SLURM)",
 }
 
 SECTION_DESC: dict[str, dict[str, str]] = {
@@ -266,6 +275,7 @@ class ConfigState:
 
     def __init__(self, data: dict[str, Any] | None = None) -> None:
         self._data: dict[str, Any] = data if data is not None else {}
+        self._config_file: str | None = None
 
     # -- section access ----------------------------------------------------- #
 
