@@ -319,6 +319,37 @@ class TestSimulatorSaveData:
             with open(f"{temp_dir}/L1-8.yaml", encoding="utf-8") as f:
                 assert yaml.safe_load(f) == data[1, 1]
 
+    def test_save_data_literal_list_file_names(self, simulator: MockSimulator):
+        """Metadata reproduction: save_data accepts an already-expanded literal list.
+
+        Metadata written for a multi-detector ``{{ detectors }}`` template stores the
+        rendered per-detector file names as a list. Replaying such metadata must not
+        stringify the list into a single bogus path (regression: ``str(list)`` produced
+        a name ending in ``.gwf']`` which failed the output-format check).
+        """
+        data = np.array([1, 2], dtype=object)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            file_names = ["E-H1_BBH-100-4.yaml", "E-L1_BBH-100-4.yaml"]
+            simulator.save_data(data, file_names, output_directory=temp_dir)
+
+            for name, expected in zip(file_names, [1, 2], strict=True):
+                path = Path(temp_dir) / name
+                assert path.exists()
+                with path.open(encoding="utf-8") as f:
+                    assert yaml.safe_load(f) == expected
+
+    def test_save_data_literal_list_overwrite_false_raises(self, simulator: MockSimulator):
+        """Literal-list file names still honour the overwrite=False existence check."""
+        data = np.array([1, 2], dtype=object)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            file_names = ["E-H1_BBH-100-4.yaml", "E-L1_BBH-100-4.yaml"]
+            (Path(temp_dir) / file_names[1]).write_text("existing")
+
+            with pytest.raises(FileExistsError, match=r"E-L1_BBH-100-4\.yaml"):
+                simulator.save_data(data, file_names, output_directory=temp_dir)
+
     def test_save_data_array_shape_mismatch(self, simulator_with_attrs: MockSimulator):
         """Test save_data with mismatched data shape raises ValueError."""
         sim = simulator_with_attrs
