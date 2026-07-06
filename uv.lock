@@ -674,7 +674,7 @@ release = [
 
 [package.metadata]
 requires-dist = [
-    { name = "filelock", specifier = ">=3.29.4" },
+    { name = "filelock", specifier = ">=3.29.5" },
     { name = "gwmock-noise", specifier = ">=0.6.1" },
     { name = "gwmock-pop", specifier = ">=0.10.3" },
     { name = "gwmock-signal", specifier = ">=0.9.3" },
