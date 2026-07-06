@@ -22,8 +22,8 @@ generation.
   configuration options
 - **Waveform Generation**: Integrates with PyCBC and LALSuite for accurate
   signal simulation
-- **Noise Models**: Supports colored and correlated noise generation
-  (In-Progress)
+- **Noise Models**: Colored and correlated noise, spectral lines, and detector
+  glitches via the `gwmock-noise` package
 - **Population Models**: Handles injection populations for signals and glitches
 - **Data Formats**: Outputs in standard GW formats (GWF frames)
 - **CLI**: Command-line tools for easy simulation workflows
