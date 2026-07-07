@@ -40,7 +40,7 @@ sgwb = ["gwmock-signal[sgwb]>=0.9.3"]
 
 [dependency-groups]
 dev = [
-  "prek>=0.4.6",
+  "prek>=0.4.8",
   "pytest-cov>=7.1.0",
   "pytest-mock>=3.15.1",
   "pytest>=9.1.1",
