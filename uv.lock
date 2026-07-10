@@ -676,15 +676,15 @@ release = [
 requires-dist = [
     { name = "filelock", specifier = ">=3.29.6" },
     { name = "gwmock-noise", specifier = ">=0.6.2" },
-    { name = "gwmock-pop", specifier = ">=0.10.3" },
-    { name = "gwmock-signal", specifier = ">=0.9.4" },
+    { name = "gwmock-pop", specifier = ">=0.10.4" },
+    { name = "gwmock-signal", specifier = ">=0.9.5" },
     { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.9.5" },
     { name = "h5py", specifier = ">=3.16.0" },
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pymap3d", specifier = ">=3.2.0" },
     { name = "textual", specifier = ">=8.2.8" },
-    { name = "tqdm", specifier = ">=4.68.3" },
+    { name = "tqdm", specifier = ">=4.68.4" },
     { name = "typer", specifier = ">=0.26.8" },
 ]
 provides-extras = ["sgwb"]
@@ -724,7 +724,7 @@ wheels = [
 
 [[package]]
 name = "gwmock-pop"
-version = "0.10.3"
+version = "0.10.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -735,9 +735,9 @@ dependencies = [
     { name = "ruyaml" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/94/4a/397b4e7394fc1a3f0f0fc2ab46846ec130637fc7fe37da0f9d482f5d9570/gwmock_pop-0.10.3.tar.gz", hash = "sha256:95ddb86d5b119ea3920f612449ed86768a9f635327fd26b2f983bd6351ff8a7e", size = 241445, upload-time = "2026-07-04T13:08:07.126Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/56/5b/f39c13780d00173cd5df9335be14868ef9af99231776d09d55fae265a765/gwmock_pop-0.10.4.tar.gz", hash = "sha256:6322ef17796c69ed2672dd3d6585ba33737284626dd68a3081c8f0049ffd4f0c", size = 244251, upload-time = "2026-07-07T03:26:31.155Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/96/c6/0e731054de3e62937e9cf48e89415f65f19643d4bd29bbf95bf4fc02650a/gwmock_pop-0.10.3-py3-none-any.whl", hash = "sha256:a08e8dd95fbe47f63e3c0e56a189defb4695c92c9290944ce21b377109d566b1", size = 105569, upload-time = "2026-07-04T13:08:05.84Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/99/15cbc87be5021a6c1f4557bbd12044f9e0e7c97505dc122364d59ba4c2f3/gwmock_pop-0.10.4-py3-none-any.whl", hash = "sha256:1be93632d0823cd6d62599c30dadf31ef68ee65e38f5e4415d5f6bbc2a97ee6f", size = 105568, upload-time = "2026-07-07T03:26:29.963Z" },
 ]
 
 [[package]]
@@ -2523,14 +2523,14 @@ wheels = [
 
 [[package]]
 name = "tqdm"
-version = "4.68.3"
+version = "4.68.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "colorama", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/87/d7/0535a28b1f5f24f6612fb3ff1e89fb1a8d160fee0f976e0aa6803862134b/tqdm-4.68.3.tar.gz", hash = "sha256:00dfa48452b6b6cfae3dd9885636c23d3422d1ec97c66d96818cbd5e0821d482", size = 170596, upload-time = "2026-06-17T07:36:52.105Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ae/5f/57ff8b434839e70dab45601284ea413e947a63799891b7553e5960a793a8/tqdm-4.68.4.tar.gz", hash = "sha256:19829c9673638f2a0b8617da4cdcb927e831cd88bcfcb6e78d42a4d1af131520", size = 792418, upload-time = "2026-07-07T09:58:18.369Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/8e/bb97bb0c71802080bfc8952937d174e49cfc50de5c951dd47b2496f0dcdb/tqdm-4.68.3-py3-none-any.whl", hash = "sha256:39832cc2def2789a6f29df83f172db7416cea70052c0907a57801c5f2fdccb03", size = 78337, upload-time = "2026-06-17T07:36:50.132Z" },
+    { url = "https://files.pythonhosted.org/packages/22/2a/5e5e750890ada51017d18d0d4c30da696e5b5bd3180947729927628fc3cb/tqdm-4.68.4-py3-none-any.whl", hash = "sha256:5168118b2368f48c561afda8020fd79195b1bdb0bdf8086b88442c267a315dc2", size = 676612, upload-time = "2026-07-07T09:58:16.256Z" },
 ]
 
 [[package]]
