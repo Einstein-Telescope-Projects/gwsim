@@ -1,0 +1,64 @@
+name: Support floor update
+
+on:
+    schedule:
+        - cron: '0 6 1 * *' # monthly, 1st at 06:00 UTC
+    workflow_dispatch:
+
+concurrency:
+    group: support-floor-update
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    update-floors:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+              with:
+                  persist-credentials: false
+
+            - name: Apply support policy (spec0, from pyproject tool table)
+              id: policy
+              uses: isaac-cf-wong/dependency-support-policy-action@47e04ce9b6fd130812d05c31412e15a14ee9781e # v0.1.0
+              with:
+                  mode: update
+
+            # PRs created with the default GITHUB_TOKEN do not trigger CI, so
+            # the PR is created with a GitHub App installation token instead.
+            - name: Mint app token
+              if: steps.policy.outputs.changed == 'true'
+              id: app-token
+              uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+              with:
+                  app-id: ${{ vars.APP_ID }}
+                  private-key: ${{ secrets.APP_PRIVATE_KEY }}
+                  permission-contents: write
+                  permission-pull-requests: write
+
+            - name: Create or update pull request
+              if: steps.policy.outputs.changed == 'true'
+              id: pr
+              uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  branch: dependency-support-policy/update
+                  title: 'chore(deps): raise minimum supported versions'
+                  commit-message:
+                      'chore(deps): raise minimum supported versions'
+                  body: |
+                      Automated rolling support-floor update (SPEC 0).
+
+                      ```json
+                      ${{ steps.policy.outputs.dependency-floors-changed }}
+                      ```
+                  labels: dependencies
+
+            - name: Enable auto-merge
+              if: steps.pr.outputs.pull-request-number
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR_NUMBER: ${{ steps.pr.outputs.pull-request-number }}
+              run: gh pr merge --squash --auto "$PR_NUMBER"

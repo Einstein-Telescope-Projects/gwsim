@@ -11,8 +11,17 @@ jobs:
     test:
         strategy:
             matrix:
+                # Latest resolutions run everywhere; the SPEC 0 minimum
+                # (lowest-direct) runs on ubuntu with the oldest supported
+                # Python, since floor versions predate newer interpreters'
+                # wheels.
                 python-version: ['3.12', '3.13', '3.14']
                 os: [ubuntu-latest, macos-latest]
+                resolution: [highest]
+                include:
+                    - os: ubuntu-latest
+                      python-version: '3.12'
+                      resolution: lowest-direct
         runs-on: ${{ matrix.os }}
         steps:
             - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -24,10 +33,17 @@ jobs:
                   enable-cache: 'true'
 
             - name: Install dependencies
-              run: uv sync --group dev --frozen
+              env:
+                  RESOLUTION: ${{ matrix.resolution }}
+              run: |
+                  if [ "$RESOLUTION" = "lowest-direct" ]; then
+                      uv sync --group dev --upgrade --resolution lowest-direct
+                  else
+                      uv sync --group dev --upgrade
+                  fi
 
             - name: Run tests with pytest
-              run: uv run --frozen pytest
+              run: uv run --no-sync pytest
 
             - name: Upload coverage to Codecov
               if: ${{ !cancelled() }}

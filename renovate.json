@@ -17,6 +17,20 @@
     "packageRules": [
         {
             "matchManagers": ["pep621"],
+            "matchDepTypes": [
+                "project.dependencies",
+                "project.optional-dependencies"
+            ],
+            "matchPackageNames": [
+                "!gwmock-signal",
+                "!gwmock-noise",
+                "!gwmock-pop"
+            ],
+            "description": "Runtime lower bounds are owned by the dependency-support-policy (SPEC 0) workflow; gwmock-* siblings stay Renovate-bumped to latest.",
+            "enabled": false
+        },
+        {
+            "matchManagers": ["pep621"],
             "matchUpdateTypes": ["patch", "minor"],
             "groupName": "runtime minor & patch",
             "minimumReleaseAge": "3 days",
@@ -27,14 +41,6 @@
         {
             "matchUpdateTypes": ["major"],
             "enabled": false
-        },
-        {
-            "matchManagers": ["pep621"],
-            "matchDepTypes": ["project.optional-dependencies"],
-            "groupName": "test/dev/docs/build tools",
-            "automerge": true,
-            "automergeType": "pr",
-            "automergeStrategy": "squash"
         },
         {
             "matchManagers": ["github-actions"],
