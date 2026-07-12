@@ -178,6 +178,14 @@ class SignalConfig(BaseModel):
         alias="waveform-arguments",
         description="Fixed waveform arguments passed to gwmock-signal",
     )
+    waveform_options: dict[str, Any] = Field(
+        default_factory=dict,
+        alias="waveform-options",
+        description=(
+            "Extra waveform options (e.g. LAL dictionary entries such as ModeArray) "
+            "passed to gwmock-signal as its waveform_arguments parameter"
+        ),
+    )
     detectors: list[str] = Field(..., description="Detector names or detector config paths")
     minimum_frequency: float = Field(default=5.0, alias="minimum-frequency", description="Minimum waveform frequency")
     earth_rotation: bool = Field(

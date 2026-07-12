@@ -191,3 +191,25 @@ def test_config_output_file(runner, temp_examples_dir, tmp_path):
     print(content)
     assert "orchestration:" in content
     assert "backend: example1" in content
+
+
+def test_signal_config_parses_waveform_options() -> None:
+    """The waveform-options alias populates SignalConfig.waveform_options."""
+    from gwmock.cli.utils.config import SignalConfig
+
+    config = SignalConfig.model_validate(
+        {
+            "source-type": "bbh",
+            "detectors": ["H1"],
+            "waveform-options": {"ModeArray": [[2, 2], [2, -2]], "PhenomXPrecVersion": 320},
+        }
+    )
+    assert config.waveform_options == {"ModeArray": [[2, 2], [2, -2]], "PhenomXPrecVersion": 320}
+
+
+def test_signal_config_waveform_options_default_empty() -> None:
+    """waveform_options defaults to an empty mapping."""
+    from gwmock.cli.utils.config import SignalConfig
+
+    config = SignalConfig.model_validate({"source-type": "bbh", "detectors": ["H1"]})
+    assert config.waveform_options == {}

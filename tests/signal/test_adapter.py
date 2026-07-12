@@ -340,3 +340,92 @@ class TestSimulateStackUnsupportedParams:
 
         with pytest.raises(ValueError, match="mass_1 must be positive"):
             adapter.simulate_stack({"mass_1": -1.0}, sampling_frequency=4.0, minimum_frequency=20.0)
+
+
+class RecordingBackend:
+    """Backend stub that records the parameters it receives."""
+
+    def __init__(self, *, waveform_model: str) -> None:
+        self.waveform_model = waveform_model
+        self.required_params = frozenset({"coa_time"})
+        self.received_params: list[dict] = []
+
+    def simulate(
+        self,
+        params,
+        detector_names,
+        background=None,
+        *,
+        sampling_frequency,
+        minimum_frequency,
+        earth_rotation=True,
+        interpolate_if_offset=True,
+    ):
+        self.received_params.append(dict(params))
+        names = tuple(d if isinstance(d, str) else d.name for d in detector_names)
+        from gwpy.timeseries import TimeSeries as GWpyTimeSeries
+
+        return DetectorStrainStack.from_mapping(
+            names,
+            {name: GWpyTimeSeries([1.0, 2.0], t0=0.0, sample_rate=sampling_frequency) for name in names},
+        )
+
+
+class WaveformArgumentsRejectingBackend(RecordingBackend):
+    """Backend stub predating gwmock-signal's waveform_arguments parameter."""
+
+    def simulate(self, params, detector_names, background=None, **kwargs):
+        if "waveform_arguments" in params:
+            raise ValueError("Unsupported LAL waveform parameters: waveform_arguments")
+        return super().simulate(params, detector_names, background=background, **kwargs)
+
+
+class TestWaveformOptions:
+    def test_options_forwarded_as_waveform_arguments_parameter(self):
+        """waveform_options reach the backend nested, not flattened."""
+        backend = RecordingBackend(waveform_model="IMRPhenomXHM")
+        adapter = _make_adapter_with_backend(backend)
+        options = {"ModeArray": [(2, 2), (2, -2)]}
+        adapter.simulate_stack(
+            {"mass_1": 30.0, "coa_time": 0.0},
+            sampling_frequency=4.0,
+            minimum_frequency=20.0,
+            waveform_options=options,
+        )
+        received = backend.received_params[0]
+        assert received["waveform_arguments"] == options
+        assert "ModeArray" not in received
+
+    def test_options_and_parameter_conflict_raises(self):
+        """Specifying options both ways is rejected."""
+        adapter = _make_adapter_with_backend(RecordingBackend(waveform_model="IMRPhenomXHM"))
+        with pytest.raises(ValueError, match="not both"):
+            adapter.simulate_stack(
+                {"mass_1": 30.0, "coa_time": 0.0, "waveform_arguments": {"ModeArray": [(2, 2)]}},
+                sampling_frequency=4.0,
+                minimum_frequency=20.0,
+                waveform_options={"ModeArray": [(3, 3)]},
+            )
+
+    def test_old_backend_raises_instead_of_dropping_options(self):
+        """A gwmock-signal without waveform_arguments support must not silently drop options."""
+        adapter = _make_adapter_with_backend(WaveformArgumentsRejectingBackend(waveform_model="IMRPhenomXHM"))
+        with pytest.raises(ValueError, match="upgrade gwmock-signal"):
+            adapter.simulate_stack(
+                {"mass_1": 30.0, "coa_time": 0.0},
+                sampling_frequency=4.0,
+                minimum_frequency=20.0,
+                waveform_options={"ModeArray": [(2, 2)]},
+            )
+
+    def test_empty_options_change_nothing(self):
+        """No waveform_arguments key is injected when options are empty."""
+        backend = RecordingBackend(waveform_model="IMRPhenomXHM")
+        adapter = _make_adapter_with_backend(backend)
+        adapter.simulate_stack(
+            {"mass_1": 30.0, "coa_time": 0.0},
+            sampling_frequency=4.0,
+            minimum_frequency=20.0,
+            waveform_options={},
+        )
+        assert "waveform_arguments" not in backend.received_params[0]
