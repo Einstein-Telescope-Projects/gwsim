@@ -311,7 +311,7 @@ class BatchConfig(BaseModel):
     """Batch configuration applying to all simulators."""
 
     scheduler: str = Field(
-        default="slurm", alias="scheduler", description="Name of the scheduler (only `slurm` currently supported)"
+        default="slurm", alias="scheduler", description="Name of the scheduler (`slurm` or `htcondor`)"
     )
     job_name: str = Field(default="gwmock_job", alias="job-name", description="Name of the job")
     resources: dict[str, Any] = Field(

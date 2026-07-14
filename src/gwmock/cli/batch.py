@@ -1,19 +1,109 @@
 # ruff: noqa PLC0415
 
 """
-Command-line tool for creating and submitting batch jobs (Slurm) for gwmock simulations.
+Command-line tool for creating and submitting batch jobs (Slurm, HTCondor) for gwmock simulations.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 import typer
 
-SchedulerType = Literal["slurm"]
+SchedulerType = Literal["slurm", "htcondor"]
+
+#: Schedulers this command can generate submit files for (derived from
+#: ``SchedulerType`` so there is a single source of truth).
+VALID_SCHEDULERS: tuple[str, ...] = get_args(SchedulerType)
+
+#: Command used to submit a generated file to each scheduler.
+_SUBMIT_COMMANDS: dict[str, str] = {"slurm": "sbatch", "htcondor": "condor_submit"}
 
 # pylint: disable=no-member
+
+
+def _default_resources(scheduler: str) -> dict[str, object]:
+    """Return the default resource request block for a scheduler.
+
+    The keys are scheduler-native so they can be emitted verbatim: Slurm uses
+    ``sbatch`` long options, HTCondor uses ``request_*`` submit commands.
+    """
+    if scheduler == "htcondor":
+        return {"request_cpus": 1, "request_memory": "16GB", "request_disk": "4GB"}
+    return {"nodes": 1, "ntasks-per-node": 1, "cpus-per-task": 1, "mem": "16GB"}
+
+
+def _slurm_submit_content(
+    *,
+    job_name: str,
+    out_dir: Path,
+    err_dir: Path,
+    resources: dict,
+    submit_options: dict | None,
+    extra_lines: list[str] | None,
+    config_path: Path,
+) -> str:
+    """Build the contents of a Slurm ``sbatch`` submit script."""
+    lines = [
+        "#!/bin/bash",
+        f"#SBATCH --job-name={job_name}",
+        f"#SBATCH --output={out_dir}/{job_name}.output",
+        f"#SBATCH --error={err_dir}/{job_name}.error",
+        "",
+    ]
+    for key, val in resources.items():
+        lines.append(f"#SBATCH --{key}={val}")
+    if submit_options:
+        for key, val in submit_options.items():
+            lines.append(f"#SBATCH --{key}={val}")
+    lines.append("")
+    if extra_lines:
+        lines.extend(extra_lines)
+        lines.append("")
+    lines.append(f"gwmock simulate {config_path.resolve()}")
+    return "\n".join(lines) + "\n"
+
+
+def _htcondor_wrapper_content(*, extra_lines: list[str] | None, config_path: Path) -> str:
+    """Build the executable wrapper HTCondor runs on the execute node.
+
+    HTCondor submit files cannot carry shell setup, so environment preparation
+    (module loads, ``conda activate``) and the simulation command live in this
+    wrapper, mirroring where ``extra_lines`` sit in the Slurm script.
+    """
+    lines = ["#!/bin/bash"]
+    if extra_lines:
+        lines.extend(extra_lines)
+    lines.append(f"gwmock simulate {config_path.resolve()}")
+    return "\n".join(lines) + "\n"
+
+
+def _htcondor_submit_content(
+    *,
+    job_name: str,
+    wrapper_path: Path,
+    out_dir: Path,
+    err_dir: Path,
+    log_dir: Path,
+    resources: dict,
+    submit_options: dict | None,
+) -> str:
+    """Build the contents of an HTCondor submit description file."""
+    lines = [
+        "universe = vanilla",
+        f"executable = {wrapper_path}",
+        f"output = {out_dir}/{job_name}.output",
+        f"error = {err_dir}/{job_name}.error",
+        f"log = {log_dir}/{job_name}.log",
+    ]
+    for key, val in resources.items():
+        lines.append(f"{key} = {val}")
+    if submit_options:
+        for key, val in submit_options.items():
+            lines.append(f"{key} = {val}")
+    lines.append("queue")
+    return "\n".join(lines) + "\n"
 
 
 def _batch_command_impl(
@@ -56,7 +146,7 @@ def _batch_command_impl(
         Args:
             src_path: Source file path.
             dst_path: Destination file path.
-            scheduler: Name of the scheduler (only `slurm` currently supported).
+            scheduler: Name of the scheduler (`slurm` or `htcondor`).
             job_name: Name of the job.
             account: Cluster account to charge.
             cluster: Cluster or partition to run on.
@@ -72,16 +162,12 @@ def _batch_command_impl(
         # Convert to dict
         config_dict = config.model_dump(by_alias=True, exclude_none=True)
 
-        # Add/override the batch section with default resources and chosen scheduler
+        # Add/override the batch section with default resources and chosen scheduler.
+        # Resource keys are scheduler-native (sbatch options vs HTCondor request_* commands).
         batch_section = {
             "scheduler": scheduler,
             "job-name": job_name,
-            "resources": {
-                "nodes": 1,
-                "ntasks-per-node": 1,
-                "cpus-per-task": 1,
-                "mem": "16GB",
-            },
+            "resources": _default_resources(scheduler),
         }
 
         submit_options = {}
@@ -139,7 +225,9 @@ def _batch_command_impl(
         logger.info("Scheduler set to: %s", scheduler)
         return
 
-    # Regular case: use provided config.yaml to generate submit file
+    # Regular case: use provided config.yaml to generate submit file.
+    # batch_command guarantees config is provided when --get is not used.
+    assert config is not None  # noqa: S101
     if not config.exists():
         logger.error("Configuration file not found: %s", config)
         raise typer.Exit(1)
@@ -154,13 +242,19 @@ def _batch_command_impl(
     batch_section = config_data.batch
 
     scheduler = batch_section.scheduler
-    if scheduler not in ["slurm"]:
-        logger.error("Invalid or missing scheduler in 'batch.scheduler'. Must be 'slurm'.")
+    if scheduler not in VALID_SCHEDULERS:
+        logger.error(
+            "Invalid or missing scheduler in 'batch.scheduler'. Must be one of: %s.",
+            ", ".join(VALID_SCHEDULERS),
+        )
         raise typer.Exit(1)
 
     job_name = batch_section.job_name
 
-    working_dir = Path(config_data.globals.working_directory)
+    # Resolve to an absolute path so the generated submit files (and, for
+    # HTCondor, the executable wrapper path) stay valid regardless of the
+    # directory a later `--submit` invocation runs from.
+    working_dir = Path(config_data.globals.working_directory).resolve()
     job_dir = working_dir / scheduler
     job_dir.mkdir(parents=True, exist_ok=True)
 
@@ -171,65 +265,80 @@ def _batch_command_impl(
     err_dir.mkdir(parents=True, exist_ok=True)
     submit_dir.mkdir(parents=True, exist_ok=True)
 
-    submit_file = submit_dir / f"{job_name}.submit"
+    resources = batch_section.resources
+    submit_options = batch_section.submit
+    extra_lines = batch_section.extra_lines
 
-    # Generate submit file content
+    # Generate submit file content. HTCondor also needs an executable wrapper,
+    # since its submit file cannot carry shell setup (extra_lines) or the command.
+    wrapper_file: Path | None = None
     if scheduler == "slurm":
-        lines = [
-            "#!/bin/bash",
-            f"#SBATCH --job-name={job_name}",
-            f"#SBATCH --output={out_dir}/{job_name}.output",
-            f"#SBATCH --error={err_dir}/{job_name}.error",
-            "",
-        ]
-        resources = batch_section.resources
-        for key, val in resources.items():
-            lines.append(f"#SBATCH --{key}={val}")
-
-        if batch_section.submit:
-            submit_options = batch_section.submit
-            for key, val in submit_options.items():
-                lines.append(f"#SBATCH --{key}={val}")
-
-        lines.append("")
-
-        # Add user-defined extra lines (e.g. conda setup)
-        if batch_section.extra_lines:
-            lines.extend(batch_section.extra_lines)
-            lines.append("")
-
-        lines.append(f"gwmock simulate {config.resolve()}")
-
-    content = "\n".join(lines) + "\n"
+        submit_file = submit_dir / f"{job_name}.submit"
+        content = _slurm_submit_content(
+            job_name=job_name,
+            out_dir=out_dir,
+            err_dir=err_dir,
+            resources=resources,
+            submit_options=submit_options,
+            extra_lines=extra_lines,
+            config_path=config,
+        )
+    elif scheduler == "htcondor":
+        log_dir = job_dir / "log"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        wrapper_file = submit_dir / f"{job_name}.sh"
+        submit_file = submit_dir / f"{job_name}.sub"
+        content = _htcondor_submit_content(
+            job_name=job_name,
+            wrapper_path=wrapper_file,
+            out_dir=out_dir,
+            err_dir=err_dir,
+            log_dir=log_dir,
+            resources=resources,
+            submit_options=submit_options,
+        )
+    else:  # pragma: no cover - unreachable; VALID_SCHEDULERS check above guards this
+        logger.error("Unsupported scheduler: %s", scheduler)
+        raise typer.Exit(1)
 
     if submit_file.exists() and not overwrite:
         raise FileExistsError(f"Submit file already exists: {submit_file}. Use --overwrite to overwrite.")
-    submit_file.write_text(content)
-    logger.info("Generated SLURM submit file: %s", submit_file)
+    if wrapper_file is not None:
+        if wrapper_file.exists() and not overwrite:
+            raise FileExistsError(f"Wrapper script already exists: {wrapper_file}. Use --overwrite to overwrite.")
+        wrapper_file.write_text(_htcondor_wrapper_content(extra_lines=extra_lines, config_path=config))
+        wrapper_file.chmod(0o755)
 
-    # Optional detailed logging
+    submit_file.write_text(content)
+
     logger.info("Generated %s submit file: %s", scheduler.upper(), submit_file)
     logger.info("\tscheduler: %s", scheduler)
     logger.info("\tjob-name: %s", job_name)
-    if batch_section.submit:
+    if submit_options:
         for key, val in submit_options.items():
             logger.info("\t%s: %s", key, val)
     for key, val in resources.items():
         logger.info("\t%s: %s", key, val)
-    if batch_section.extra_lines:
-        for line in batch_section.extra_lines:
+    if extra_lines:
+        for line in extra_lines:
             logger.info("\textra-line: %s", line)
 
     # Submit file
     if submit:
-        import subprocess  # pylint: disable=import-outside-toplevel    # nosec B404 # B404: subprocess import is required for job submission to Slurm
+        import subprocess  # pylint: disable=import-outside-toplevel    # nosec B404 # B404: subprocess import is required for job submission
 
-        result = subprocess.run(  # pylint: disable=line-too-long # nosec B603 B607     # B603/B607: sbatch is a trusted system command     # submit_file path is generated and controlled by this tool — no injection risk
-            ["sbatch", str(submit_file)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        submit_program = _SUBMIT_COMMANDS[scheduler]
+        try:
+            result = subprocess.run(  # pylint: disable=line-too-long # nosec B603 B607     # B603/B607: sbatch/condor_submit are trusted system commands     # submit_file path is generated and controlled by this tool — no injection risk
+                [submit_program, str(submit_file)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("Submission command '%s' timed out after 60s.", submit_program)
+            raise typer.Exit(1) from None
 
         if result.returncode == 0:
             logger.info("Job submitted successfully.")
@@ -257,7 +366,7 @@ def batch_command(
     ] = None,
     scheduler: Annotated[
         SchedulerType,
-        typer.Option("--scheduler", "-s", help="Batch system (only 'slurm' supported)"),
+        typer.Option("--scheduler", "-s", help="Batch system ('slurm' or 'htcondor')"),
     ] = "slurm",
     job_name: Annotated[
         str,
@@ -301,7 +410,7 @@ def batch_command(
     overwrite: Annotated[bool, typer.Option("--overwrite", help="Overwrite existing files")] = False,
 ) -> None:
     """
-    Prepare and optionally submit gwmock simulations as Slurm batch jobs.
+    Prepare and optionally submit gwmock simulations as Slurm or HTCondor batch jobs.
 
     Two mutually exclusive modes:
 
@@ -323,27 +432,33 @@ def batch_command(
          - batch.submit: account, cluster, time (if provided)
          - batch.extra_lines: custom lines (if provided)
 
-    2. Generate and optionally submit a Slurm job from an existing config:
+    2. Generate and optionally submit a Slurm or HTCondor job from an existing config:
 
        gwmock batch config.yaml
        gwmock batch config.yaml --submit
 
        The config must contain a valid `batch` section with at least:
 
-         - batch.scheduler: slurm
+         - batch.scheduler: slurm | htcondor
          - batch.job-name: <name>
          - globals.working-directory
 
        Optional fields:
 
-         - batch.resources: resource requests (nodes, mem, etc.)
-         - batch.submit: additional sbatch options (account, cluster, time,  etc.)
-         - batch.extra_lines: custom shell lines (environment setup, modules, etc.)
+         - batch.resources: resource requests. Keys are scheduler-native:
+           sbatch options (nodes, mem, ...) for slurm; request_cpus/request_memory/... for htcondor.
+         - batch.submit: extra scheduler-native options (slurm: sbatch --options; htcondor: submit commands).
+         - batch.extra_lines: custom shell lines (environment setup, modules, etc.).
+           For htcondor these go into the executable wrapper the job runs.
+
+       For htcondor a submit description (.sub) plus an executable wrapper (.sh) are written,
+       and submission uses `condor_submit`; for slurm an sbatch script (.submit) is written and
+       submitted with `sbatch`.
 
     Args:
         config: Path to the input config.yaml (ignored when --get is used).
         get: Label of example config to copy (triggers config creation mode).
-        scheduler: Name of the scheduler (only `slurm` currently supported). Only allowed with --get.
+        scheduler: Name of the scheduler (`slurm` or `htcondor`). Only allowed with --get.
         job_name: Name of the job. Only allowed with --get.
         account: Cluster account to charge (passed via --account to sbatch and stored in batch.submit).
             Only allowed with --get.
