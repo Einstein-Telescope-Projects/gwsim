@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
@@ -13,6 +14,12 @@ from gwmock_signal import CustomDetector, DetectorStrainStack, Network, resolve_
 from gwmock.data.time_series.time_series import TimeSeries
 
 logger = logging.getLogger("gwmock")
+
+#: gwmock-signal raises ``ValueError("Unsupported <backend> waveform parameters: a, b")``
+#: when a backend rejects parameters it does not recognise. The backend token varies
+#: (``LAL``, ``ripple``, ``PyCBC``), so match any of them and capture the comma-separated
+#: parameter list that follows.
+_UNSUPPORTED_PARAMS_RE = re.compile(r"^Unsupported .+? waveform parameters:\s*(.*)$")
 
 _DEFAULT_WAVEFORM_MODEL = "IMRPhenomXPHM"
 _LEGACY_SINGLE_DETECTOR_ALIASES = {
@@ -382,11 +389,10 @@ class SignalAdapter:
                 earth_rotation=earth_rotation,
             )
         except ValueError as exc:
-            _prefix = "Unsupported LAL waveform parameters:"
-            msg = str(exc)
-            if not msg.startswith(_prefix):
+            match = _UNSUPPORTED_PARAMS_RE.match(str(exc))
+            if match is None:
                 raise
-            extras = {k.strip() for k in msg[len(_prefix) :].split(",")}
+            extras = {token.strip() for token in match.group(1).split(",") if token.strip()}
             if "waveform_arguments" in extras:
                 raise ValueError(
                     "The installed gwmock-signal does not support the waveform_arguments "
