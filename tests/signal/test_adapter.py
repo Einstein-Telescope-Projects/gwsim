@@ -243,10 +243,11 @@ class TestSignalAdapter:
 
 
 class FailingBackend:
-    """Backend that raises 'Unsupported LAL waveform parameters' on the first call."""
+    """Backend that raises 'Unsupported <backend> waveform parameters' on the first call."""
 
-    def __init__(self, *, waveform_model: str) -> None:
+    def __init__(self, *, waveform_model: str, backend_label: str = "LAL") -> None:
         self.waveform_model = waveform_model
+        self.backend_label = backend_label
         self.required_params = frozenset({"coa_time"})
         self.call_count = 0
         self.received_params: list[dict] = []
@@ -265,7 +266,7 @@ class FailingBackend:
         self.call_count += 1
         self.received_params.append(dict(params))
         if "redshift" in params or "lambda_1" in params:
-            raise ValueError("Unsupported LAL waveform parameters: lambda_1, redshift")
+            raise ValueError(f"Unsupported {self.backend_label} waveform parameters: lambda_1, redshift")
         names = tuple(d if isinstance(d, str) else d.name for d in detector_names)
         from gwpy.timeseries import TimeSeries as GWpyTimeSeries
 
@@ -289,9 +290,13 @@ def _make_adapter_with_backend(backend):
 class TestSimulateStackUnsupportedParams:
     """Verify catch-parse-retry for 'Unsupported LAL waveform parameters' errors."""
 
-    def test_unsupported_params_trigger_warning_and_retry(self):
-        """On first failure the adapter logs a WARNING and retries without bad keys."""
-        backend = FailingBackend(waveform_model="IMRPhenomXPHM")
+    @pytest.mark.parametrize("backend_label", ["LAL", "ripple", "PyCBC"])
+    def test_unsupported_params_trigger_warning_and_retry(self, backend_label):
+        """On first failure the adapter logs a WARNING and retries without bad keys.
+
+        The parse works for every backend's error prefix, not only LAL.
+        """
+        backend = FailingBackend(waveform_model="IMRPhenomXPHM", backend_label=backend_label)
         adapter = _make_adapter_with_backend(backend)
 
         params = {"mass_1": 1.4, "redshift": 0.05, "lambda_1": 300.0, "coa_time": 0.0}
@@ -374,9 +379,13 @@ class RecordingBackend:
 class WaveformArgumentsRejectingBackend(RecordingBackend):
     """Backend stub predating gwmock-signal's waveform_arguments parameter."""
 
+    def __init__(self, *, waveform_model: str, backend_label: str = "LAL") -> None:
+        super().__init__(waveform_model=waveform_model)
+        self.backend_label = backend_label
+
     def simulate(self, params, detector_names, background=None, **kwargs):
         if "waveform_arguments" in params:
-            raise ValueError("Unsupported LAL waveform parameters: waveform_arguments")
+            raise ValueError(f"Unsupported {self.backend_label} waveform parameters: waveform_arguments")
         return super().simulate(params, detector_names, background=background, **kwargs)
 
 
@@ -407,9 +416,15 @@ class TestWaveformOptions:
                 waveform_options={"ModeArray": [(3, 3)]},
             )
 
-    def test_old_backend_raises_instead_of_dropping_options(self):
-        """A gwmock-signal without waveform_arguments support must not silently drop options."""
-        adapter = _make_adapter_with_backend(WaveformArgumentsRejectingBackend(waveform_model="IMRPhenomXHM"))
+    @pytest.mark.parametrize("backend_label", ["LAL", "ripple", "PyCBC"])
+    def test_old_backend_raises_instead_of_dropping_options(self, backend_label):
+        """A gwmock-signal without waveform_arguments support must not silently drop options.
+
+        The upgrade error is raised regardless of which backend rejected it.
+        """
+        adapter = _make_adapter_with_backend(
+            WaveformArgumentsRejectingBackend(waveform_model="IMRPhenomXHM", backend_label=backend_label)
+        )
         with pytest.raises(ValueError, match="upgrade gwmock-signal"):
             adapter.simulate_stack(
                 {"mass_1": 30.0, "coa_time": 0.0},
