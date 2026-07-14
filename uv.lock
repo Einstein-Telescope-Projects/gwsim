@@ -693,8 +693,8 @@ requires-dist = [
     { name = "filelock", specifier = ">=3.16.0" },
     { name = "gwmock-noise", specifier = ">=0.7.1" },
     { name = "gwmock-pop", specifier = ">=0.11.1" },
-    { name = "gwmock-signal", specifier = ">=0.10.0" },
-    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.10.0" },
+    { name = "gwmock-signal", specifier = ">=0.11.0" },
+    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.11.0" },
     { name = "h5py", specifier = ">=3.12.1" },
     { name = "psutil", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.9.0" },
@@ -758,7 +758,7 @@ wheels = [
 
 [[package]]
 name = "gwmock-signal"
-version = "0.10.0"
+version = "0.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "gwpy" },
@@ -766,9 +766,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6b/25/d8b5832ab2464de1c09069b7ce76d9aff3206e9452f600131afdad03e24d/gwmock_signal-0.10.0.tar.gz", hash = "sha256:c4d3d969c1004f0fac17e4c58f100fbf5b059ef2ceab3ab3a8eb40007d2e0a13", size = 318133, upload-time = "2026-07-11T20:51:00.925Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/32/4e/7515e12bd1ab820b73b6d00664bcf185fc4f0a017a367e658d72a5f95882/gwmock_signal-0.11.0.tar.gz", hash = "sha256:2ec31a03319078b42172c7b3849a5e12d35139a6eac1ef6a426a9b5fe21de3e9", size = 327935, upload-time = "2026-07-13T11:50:40.471Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/2d/2b4cda2f32a595fc4707d4941e487e2b4d3bcb787546068b5d89b0f1f89e/gwmock_signal-0.10.0-py3-none-any.whl", hash = "sha256:bb9305a0ab3eb661a8883f5eab087db4a3a5f479a471057c9e4998078932432b", size = 103503, upload-time = "2026-07-11T20:50:59.92Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/f2/dbf9e8acc427937d51ab8b817acf83153c46b46d6065ecc8d9d323baf332/gwmock_signal-0.11.0-py3-none-any.whl", hash = "sha256:b2a765745a497744594f0473295d70b805786a76e4a9644c08a0f40147cd87e9", size = 109428, upload-time = "2026-07-13T11:50:39.022Z" },
 ]
 
 [package.optional-dependencies]

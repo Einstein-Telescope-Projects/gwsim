@@ -76,6 +76,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         detector_resolution: dict[str, Any],
         waveform_model: str | None,
         waveform_arguments: dict[str, Any],
+        waveform_options: dict[str, Any],
         signal_parameters: dict[str, Any],
         detectors: list[str],
         duration: float,
@@ -99,6 +100,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         self._population_seed = population_seed
         self.waveform_model = waveform_model
         self.waveform_arguments = waveform_arguments
+        self.waveform_options = waveform_options
         self.signal_parameters = signal_parameters
         self.minimum_frequency = minimum_frequency
         self.earth_rotation = earth_rotation
@@ -169,6 +171,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         source_detector_specs: list[str] = []
         waveform_model: str | None = None
         waveform_arguments: dict[str, Any] = {}
+        waveform_options: dict[str, Any] = {}
         signal_parameters: dict[str, Any] = {}
         minimum_frequency = 5.0
         earth_rotation = True
@@ -193,6 +196,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             source_detector_specs = list(orchestration_config.signal.detectors)  # type: ignore[union-attr]
             waveform_model = orchestration_config.signal.waveform_model  # type: ignore[union-attr]
             waveform_arguments = orchestration_config.signal.waveform_arguments  # type: ignore[union-attr]
+            waveform_options = orchestration_config.signal.waveform_options  # type: ignore[union-attr]
             signal_parameters = orchestration_config.signal.parameters  # type: ignore[union-attr]
             minimum_frequency = orchestration_config.signal.minimum_frequency  # type: ignore[union-attr]
             earth_rotation = orchestration_config.signal.earth_rotation  # type: ignore[union-attr]
@@ -211,6 +215,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             detector_resolution=detector_resolution,
             waveform_model=waveform_model,
             waveform_arguments=waveform_arguments,
+            waveform_options=waveform_options,
             signal_parameters=signal_parameters,
             detectors=resolved_detectors,
             duration=duration,
@@ -355,6 +360,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 "signal": {
                     "waveform_model": self.waveform_model,
                     "waveform_arguments": self.waveform_arguments,
+                    "waveform_options": self.waveform_options,
                     "parameters": self.signal_parameters,
                     "minimum_frequency": self.minimum_frequency,
                     "earth_rotation": self.earth_rotation,
@@ -417,6 +423,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 sampling_frequency=float(self.sampling_frequency.value),
                 minimum_frequency=self.minimum_frequency,
                 waveform_arguments=self.waveform_arguments,
+                waveform_options=self.waveform_options,
                 earth_rotation=self.earth_rotation,
             )
             strain.metadata.update({"injection_parameters": dict(parameters)})
@@ -447,6 +454,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             parameters,
             sampling_frequency=float(self.sampling_frequency.value),
             minimum_frequency=self.minimum_frequency,
+            waveform_options=self.waveform_options,
             background=background,
             earth_rotation=self.earth_rotation,
         )

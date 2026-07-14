@@ -341,6 +341,7 @@ class SignalAdapter:
         sampling_frequency: float,
         minimum_frequency: float,
         waveform_arguments: Mapping[str, Any] | None = None,
+        waveform_options: Mapping[str, Any] | None = None,
         background: Mapping[str, Any] | None = None,
         earth_rotation: bool = True,
     ) -> DetectorStrainStack:
@@ -350,7 +351,11 @@ class SignalAdapter:
             parameters: The parameters to use for the simulation.
             sampling_frequency: The sampling frequency to use for the simulation.
             minimum_frequency: The minimum frequency to use for the simulation.
-            waveform_arguments: The waveform arguments to use for the simulation.
+            waveform_arguments: Fixed waveform parameters merged (flat) into the
+                per-event parameters; per-event values win.
+            waveform_options: Extra waveform options (e.g. LAL dictionary
+                entries) forwarded to the backend as its ``waveform_arguments``
+                parameter, without flattening.
             background: Optional background mapping forwarded to the signal backend.
             earth_rotation: Whether to include earth rotation in the simulation.
 
@@ -358,6 +363,13 @@ class SignalAdapter:
             A DetectorStrainStack instance.
         """
         backend_parameters = {**(waveform_arguments or {}), **dict(parameters)}
+        if waveform_options:
+            if "waveform_arguments" in backend_parameters:
+                raise ValueError(
+                    "Specify extra waveform options either via waveform_options or as a "
+                    "waveform_arguments parameter, not both"
+                )
+            backend_parameters["waveform_arguments"] = dict(waveform_options)
         if self._unsupported_params:
             backend_parameters = {k: v for k, v in backend_parameters.items() if k not in self._unsupported_params}
         try:
@@ -375,6 +387,11 @@ class SignalAdapter:
             if not msg.startswith(_prefix):
                 raise
             extras = {k.strip() for k in msg[len(_prefix) :].split(",")}
+            if "waveform_arguments" in extras:
+                raise ValueError(
+                    "The installed gwmock-signal does not support the waveform_arguments "
+                    "parameter required by waveform_options; upgrade gwmock-signal"
+                ) from exc
             new = extras - self._unsupported_params
             if new:
                 logger.warning(
@@ -401,6 +418,7 @@ class SignalAdapter:
         sampling_frequency: float,
         minimum_frequency: float,
         waveform_arguments: Mapping[str, Any] | None = None,
+        waveform_options: Mapping[str, Any] | None = None,
         background: Mapping[str, Any] | None = None,
         earth_rotation: bool = True,
     ) -> TimeSeries:
@@ -410,7 +428,11 @@ class SignalAdapter:
             parameters: The parameters to use for the simulation.
             sampling_frequency: The sampling frequency to use for the simulation.
             minimum_frequency: The minimum frequency to use for the simulation.
-            waveform_arguments: The waveform arguments to use for the simulation.
+            waveform_arguments: Fixed waveform parameters merged (flat) into the
+                per-event parameters; per-event values win.
+            waveform_options: Extra waveform options (e.g. LAL dictionary
+                entries) forwarded to the backend as its ``waveform_arguments``
+                parameter, without flattening.
             background: Optional background mapping forwarded to the signal backend.
             earth_rotation: Whether to include earth rotation in the simulation.
 
@@ -422,6 +444,7 @@ class SignalAdapter:
             sampling_frequency=sampling_frequency,
             minimum_frequency=minimum_frequency,
             waveform_arguments=waveform_arguments,
+            waveform_options=waveform_options,
             background=background,
             earth_rotation=earth_rotation,
         )
