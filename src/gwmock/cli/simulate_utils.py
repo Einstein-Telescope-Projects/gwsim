@@ -9,7 +9,9 @@ import copy
 import json
 import logging
 import platform
+import shutil
 import signal
+import subprocess
 import time
 from collections.abc import Callable
 from importlib import import_module
@@ -90,7 +92,7 @@ def _to_plain_number(value: Any) -> float | int | None:
 
 def _get_host_metadata() -> dict[str, Any]:
     """Collect stable host metadata for provenance reporting."""
-    git_sha = _get_distribution_git_sha()
+    git_sha = _get_distribution_git_sha() or _get_source_tree_git_sha()
     return {
         "platform": platform.platform(),
         "python": platform.python_version(),
@@ -113,6 +115,45 @@ def _get_distribution_git_sha() -> str | None:
         if git_sha is not None:
             return git_sha
     return None
+
+
+def _get_source_tree_git_sha() -> str | None:
+    """Return the working-tree git commit for a source checkout, else ``None``.
+
+    Complements :func:`_get_distribution_git_sha`: editable/source installs carry no
+    PEP 610 VCS metadata, so read the commit directly from the repository that
+    contains this module. A ``-dirty`` suffix marks an uncommitted working tree, so a
+    downstream lineage system can tell the output was not built from a clean commit.
+    Returns ``None`` when git is unavailable or the source is not a repository (e.g. a
+    released wheel unpacked into site-packages).
+    """
+    git_exe = shutil.which("git")
+    if git_exe is None:
+        return None
+    repo_dir = str(Path(__file__).resolve().parent)
+    try:
+        head = subprocess.run(  # noqa: S603
+            [git_exe, "-C", repo_dir, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if head.returncode != 0 or not head.stdout.strip():
+            return None
+        sha = head.stdout.strip()
+        status = subprocess.run(  # noqa: S603
+            [git_exe, "-C", repo_dir, "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if status.returncode == 0 and status.stdout.strip():
+            sha = f"{sha}-dirty"
+        return sha
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def _extract_git_sha_from_direct_url(direct_url: str | None) -> str | None:

@@ -7,6 +7,7 @@ import tempfile
 import time
 from importlib import metadata as stdlib_metadata
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,7 @@ from gwmock.cli.simulate import (
 )
 from gwmock.cli.simulate_utils import (
     _get_host_metadata,
+    _get_source_tree_git_sha,
     execute_plan,
     instantiate_simulator,
     process_batch,
@@ -1684,11 +1686,104 @@ class TestHostMetadata:
         assert host["git_sha"] == "abc123def"
 
     def test_get_host_metadata_sets_git_sha_none_when_distribution_missing(self):
-        """Missing package metadata should not raise and should return git_sha=None."""
-        with patch(
-            "gwmock.cli.simulate_utils.importlib_metadata.distribution",
-            side_effect=stdlib_metadata.PackageNotFoundError,
+        """With no distribution VCS metadata and no source repo, git_sha is None."""
+        with (
+            patch(
+                "gwmock.cli.simulate_utils.importlib_metadata.distribution",
+                side_effect=stdlib_metadata.PackageNotFoundError,
+            ),
+            patch("gwmock.cli.simulate_utils._get_source_tree_git_sha", return_value=None),
         ):
             host = _get_host_metadata()
 
         assert host["git_sha"] is None
+
+    def test_get_host_metadata_falls_back_to_source_tree_git_sha(self):
+        """When the distribution carries no VCS metadata, the source-tree commit is used."""
+        with (
+            patch(
+                "gwmock.cli.simulate_utils.importlib_metadata.distribution",
+                side_effect=stdlib_metadata.PackageNotFoundError,
+            ),
+            patch("gwmock.cli.simulate_utils._get_source_tree_git_sha", return_value="deadbeef-dirty"),
+        ):
+            host = _get_host_metadata()
+
+        assert host["git_sha"] == "deadbeef-dirty"
+
+    def test_get_host_metadata_prefers_distribution_over_source_tree(self):
+        """A distribution VCS commit wins; the source-tree fallback is not consulted."""
+
+        class _DistributionStub:
+            metadata: ClassVar[dict[str, Any]] = {}
+
+            @staticmethod
+            def read_text(path: str) -> str | None:
+                if path == "direct_url.json":
+                    return '{"url":"https://example.invalid/repo","vcs_info":{"vcs":"git","commit_id":"abc123def"}}'
+                return None
+
+        with (
+            patch("gwmock.cli.simulate_utils.importlib_metadata.distribution", return_value=_DistributionStub()),
+            patch("gwmock.cli.simulate_utils._get_source_tree_git_sha") as mock_source,
+        ):
+            host = _get_host_metadata()
+
+        assert host["git_sha"] == "abc123def"
+        mock_source.assert_not_called()
+
+
+class TestSourceTreeGitSha:
+    """Tests for the source-checkout git-commit fallback."""
+
+    def test_returns_none_when_git_missing(self):
+        """No git executable on PATH yields None rather than raising."""
+        with patch("gwmock.cli.simulate_utils.shutil.which", return_value=None):
+            assert _get_source_tree_git_sha() is None
+
+    def test_returns_commit_from_clean_tree(self):
+        """A clean working tree returns the bare commit hash."""
+
+        def _run(cmd, **kwargs):
+            out = "cafe1234\n" if "rev-parse" in cmd else ""
+            return SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+        with (
+            patch("gwmock.cli.simulate_utils.shutil.which", return_value="/usr/bin/git"),
+            patch("gwmock.cli.simulate_utils.subprocess.run", side_effect=_run),
+        ):
+            assert _get_source_tree_git_sha() == "cafe1234"
+
+    def test_marks_dirty_tree(self):
+        """Uncommitted changes append a -dirty suffix."""
+
+        def _run(cmd, **kwargs):
+            if "rev-parse" in cmd:
+                return SimpleNamespace(returncode=0, stdout="cafe1234\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout=" M src/gwmock/foo.py\n", stderr="")
+
+        with (
+            patch("gwmock.cli.simulate_utils.shutil.which", return_value="/usr/bin/git"),
+            patch("gwmock.cli.simulate_utils.subprocess.run", side_effect=_run),
+        ):
+            assert _get_source_tree_git_sha() == "cafe1234-dirty"
+
+    def test_returns_none_when_not_a_repository(self):
+        """A non-repository source directory (rev-parse fails) yields None."""
+
+        def _run(cmd, **kwargs):
+            return SimpleNamespace(returncode=128, stdout="", stderr="not a git repository")
+
+        with (
+            patch("gwmock.cli.simulate_utils.shutil.which", return_value="/usr/bin/git"),
+            patch("gwmock.cli.simulate_utils.subprocess.run", side_effect=_run),
+        ):
+            assert _get_source_tree_git_sha() is None
+
+    def test_returns_none_on_subprocess_error(self):
+        """A subprocess failure (e.g. timeout) is swallowed to None."""
+        with (
+            patch("gwmock.cli.simulate_utils.shutil.which", return_value="/usr/bin/git"),
+            patch("gwmock.cli.simulate_utils.subprocess.run", side_effect=OSError("boom")),
+        ):
+            assert _get_source_tree_git_sha() is None
