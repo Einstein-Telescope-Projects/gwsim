@@ -112,7 +112,7 @@ def _make_batch_config(tmp_path: Path, scheduler: str, work_dir: Path) -> Path:
     return cfg_path
 
 
-def _generate(cfg_path: Path, *, submit: bool = False) -> None:
+def _generate(cfg_path: Path, *, submit: bool = False, overwrite: bool = True) -> None:
     _batch_command_impl(
         config=cfg_path,
         get=None,
@@ -124,7 +124,7 @@ def _generate(cfg_path: Path, *, submit: bool = False) -> None:
         extra_lines=None,
         submit=submit,
         output=Path("config.yaml"),
-        overwrite=True,
+        overwrite=overwrite,
     )
 
 
@@ -201,6 +201,29 @@ def test_slurm_submit_uses_sbatch(tmp_path):
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "sbatch"
     assert cmd[1].endswith("test_job.submit")
+
+
+def test_existing_submit_file_without_overwrite_raises(tmp_path):
+    """A pre-existing .sub is not clobbered without --overwrite."""
+    work_dir = tmp_path / "work"
+    cfg_path = _make_batch_config(tmp_path, "htcondor", work_dir)
+    submit_dir = work_dir / "htcondor" / "submit"
+    submit_dir.mkdir(parents=True)
+    (submit_dir / "test_job.sub").write_text("old")
+    with pytest.raises(FileExistsError, match="Submit file already exists"):
+        _generate(cfg_path, overwrite=False)
+
+
+def test_existing_wrapper_without_overwrite_raises(tmp_path):
+    """A pre-existing HTCondor wrapper .sh is not clobbered without --overwrite."""
+    work_dir = tmp_path / "work"
+    cfg_path = _make_batch_config(tmp_path, "htcondor", work_dir)
+    submit_dir = work_dir / "htcondor" / "submit"
+    submit_dir.mkdir(parents=True)
+    # Only the wrapper exists, so the .sub guard passes and the wrapper guard fires.
+    (submit_dir / "test_job.sh").write_text("old")
+    with pytest.raises(FileExistsError, match="Wrapper script already exists"):
+        _generate(cfg_path, overwrite=False)
 
 
 def test_invalid_scheduler_exits(tmp_path):

@@ -7,14 +7,15 @@ Command-line tool for creating and submitting batch jobs (Slurm, HTCondor) for g
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 import typer
 
 SchedulerType = Literal["slurm", "htcondor"]
 
-#: Schedulers this command can generate submit files for.
-VALID_SCHEDULERS: tuple[str, ...] = ("slurm", "htcondor")
+#: Schedulers this command can generate submit files for (derived from
+#: ``SchedulerType`` so there is a single source of truth).
+VALID_SCHEDULERS: tuple[str, ...] = get_args(SchedulerType)
 
 #: Command used to submit a generated file to each scheduler.
 _SUBMIT_COMMANDS: dict[str, str] = {"slurm": "sbatch", "htcondor": "condor_submit"}
@@ -250,7 +251,10 @@ def _batch_command_impl(
 
     job_name = batch_section.job_name
 
-    working_dir = Path(config_data.globals.working_directory)
+    # Resolve to an absolute path so the generated submit files (and, for
+    # HTCondor, the executable wrapper path) stay valid regardless of the
+    # directory a later `--submit` invocation runs from.
+    working_dir = Path(config_data.globals.working_directory).resolve()
     job_dir = working_dir / scheduler
     job_dir.mkdir(parents=True, exist_ok=True)
 
@@ -279,7 +283,7 @@ def _batch_command_impl(
             extra_lines=extra_lines,
             config_path=config,
         )
-    else:  # htcondor
+    elif scheduler == "htcondor":
         log_dir = job_dir / "log"
         log_dir.mkdir(parents=True, exist_ok=True)
         wrapper_file = submit_dir / f"{job_name}.sh"
@@ -293,6 +297,9 @@ def _batch_command_impl(
             resources=resources,
             submit_options=submit_options,
         )
+    else:  # pragma: no cover - unreachable; VALID_SCHEDULERS check above guards this
+        logger.error("Unsupported scheduler: %s", scheduler)
+        raise typer.Exit(1)
 
     if submit_file.exists() and not overwrite:
         raise FileExistsError(f"Submit file already exists: {submit_file}. Use --overwrite to overwrite.")
@@ -321,12 +328,17 @@ def _batch_command_impl(
         import subprocess  # pylint: disable=import-outside-toplevel    # nosec B404 # B404: subprocess import is required for job submission
 
         submit_program = _SUBMIT_COMMANDS[scheduler]
-        result = subprocess.run(  # pylint: disable=line-too-long # nosec B603 B607     # B603/B607: sbatch/condor_submit are trusted system commands     # submit_file path is generated and controlled by this tool — no injection risk
-            [submit_program, str(submit_file)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            result = subprocess.run(  # pylint: disable=line-too-long # nosec B603 B607     # B603/B607: sbatch/condor_submit are trusted system commands     # submit_file path is generated and controlled by this tool — no injection risk
+                [submit_program, str(submit_file)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("Submission command '%s' timed out after 60s.", submit_program)
+            raise typer.Exit(1) from None
 
         if result.returncode == 0:
             logger.info("Job submitted successfully.")
