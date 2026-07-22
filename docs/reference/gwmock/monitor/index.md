@@ -9,3 +9,7 @@
       members_order: source
       filters:
         - '!^_'
+
+## Modules
+
+- [`gwmock.monitor.resource`](resource.md)

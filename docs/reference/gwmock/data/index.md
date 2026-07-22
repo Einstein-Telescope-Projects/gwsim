@@ -9,3 +9,8 @@
       members_order: source
       filters:
         - '!^_'
+
+## Modules
+
+- [`gwmock.data.serialize`](serialize/index.md)
+- [`gwmock.data.time_series`](time_series/index.md)

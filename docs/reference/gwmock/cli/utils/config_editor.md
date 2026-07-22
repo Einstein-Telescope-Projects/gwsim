@@ -1,6 +1,6 @@
-# `gwmock.mixin`
+# `gwmock.cli.utils.config_editor`
 
-::: gwmock.mixin
+::: gwmock.cli.utils.config_editor
     options:
       docstring_style: google
       show_source: true
@@ -9,8 +9,3 @@
       members_order: source
       filters:
         - '!^_'
-
-## Modules
-
-- [`gwmock.mixin.randomness`](randomness.md)
-- [`gwmock.mixin.time_series`](time_series.md)

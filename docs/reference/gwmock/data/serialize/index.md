@@ -9,3 +9,9 @@
       members_order: source
       filters:
         - '!^_'
+
+## Modules
+
+- [`gwmock.data.serialize.decoder`](decoder.md)
+- [`gwmock.data.serialize.encoder`](encoder.md)
+- [`gwmock.data.serialize.serializable`](serializable.md)
