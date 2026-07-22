@@ -58,16 +58,21 @@ Benefits:
 ```text
 gwmock/
 ├── __init__.py
+├── __main__.py
 ├── cli/
 │   ├── __init__.py
 │   ├── main.py              # Typer CLI entry point
 │   ├── simulate.py          # Simulation command
+│   ├── simulate_utils.py
+│   ├── validate.py          # Output-vs-metadata hash validation command
 │   ├── batch.py             # Batch helpers
 │   ├── merge.py             # Merge helpers
-│   ├── config.py            # Configuration utilities
-│   ├── validate.py         # Validation helpers
+│   ├── config.py            # Configuration command (fetch/interactive editor)
 │   ├── adapter_orchestration.py
-│   └── simulate_utils.py
+│   ├── repository/          # Zenodo commands (create/upload/publish/…)
+│   └── utils/               # Config loading & resolution, templating,
+│                            # backend resolver, checkpointing, metadata,
+│                            # simulation plan, hashing, retry
 ├── simulator/
 │   ├── __init__.py
 │   ├── base.py              # Base Simulator class
@@ -84,20 +89,29 @@ gwmock/
 │   └── adapter.py           # Population adapter
 ├── data/
 │   ├── __init__.py
-│   └── ...                  # Data utilities
+│   ├── serialize/           # Encoder/decoder for serializable objects
+│   └── time_series/         # Time-series containers and signal injection
+├── mixin/
+│   ├── __init__.py
+│   ├── randomness.py        # Randomness mixin for simulators
+│   └── time_series.py       # Time-series mixin for simulators
 ├── monitor/
 │   ├── __init__.py
 │   └── resource.py          # Resource monitoring helpers
 ├── repository/
 │   ├── __init__.py
-│   └── zenodo.py            # Repository metadata helpers
+│   └── zenodo.py            # Zenodo REST client
 ├── utils/
 │   ├── __init__.py
 │   ├── io.py                # File I/O utilities
 │   ├── log.py               # Logging setup
 │   ├── random.py            # Random number management
 │   ├── download.py          # Download helpers
-│   └── validation.py        # Configuration validation
+│   ├── retry.py             # Retry helpers
+│   ├── datetime_parser.py   # Human-friendly duration/date parsing
+│   ├── population.py        # Population utilities
+│   ├── et_2l_geometry.py    # ET 2L detector geometry
+│   └── triangular_et_geometry.py  # Triangular ET detector geometry
 └── version.py               # Version information
 ```
 
