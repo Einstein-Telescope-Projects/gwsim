@@ -9,3 +9,9 @@
       members_order: source
       filters:
         - '!^_'
+
+## Modules
+
+- [`gwmock.data.time_series.inject`](inject.md)
+- [`gwmock.data.time_series.time_series`](time_series.md)
+- [`gwmock.data.time_series.time_series_list`](time_series_list.md)

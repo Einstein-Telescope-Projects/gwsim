@@ -46,20 +46,28 @@ Copyright &copy; 2026 Leuven Gravity Institute
 # Read more: https://zensical.org/docs/setup/navigation/
 nav = [
   { "Home" = "index.md" },
-  { "Installation" = "user-guide/installation.md" },
   { "User Guide" = [
+    { "Package Walkthrough" = "user-guide/walkthrough.md" },
+    { "Design Walkthrough" = "user-guide/design.md" },
+    { "Maintenance & Quality" = "user-guide/maintenance.md" },
+    { "Installation" = "user-guide/installation.md" },
     { "Quick Start" = "user-guide/quickstart.md" },
     { "Generating Data" = "user-guide/generating-data.md" },
     { "Reading Data" = "user-guide/reading-data.md" },
-    { "Orchestration" = "user-guide/orchestration.md" },
     { "Configuration Files" = "user-guide/configuration.md" },
+    { Examples = "user-guide/examples.md" },
+  ] },
+  { "Advanced User Guide" = [
+    { "Orchestration" = "user-guide/orchestration.md" },
     { "Protocol Contracts" = "user-guide/protocols.md" },
+    { "Extensibility" = "user-guide/extensibility.md" },
     { "Metadata Files" = "user-guide/metadata.md" },
     { "Reproducibility" = "user-guide/reproducibility.md" },
-    { Examples = "user-guide/examples.md" },
+    { "Validating Output Files" = "user-guide/validate.md" },
     { "Publishing Data to Zenodo" = "user-guide/repository.md" },
     { "Running Simulations on a Cluster" = "user-guide/cluster.md" },
   ] },
+  { "Workshops" = "workshops.md" },
   { "API Reference" = [
     { "Overview" = "reference/index.md" },
     { "gwmock" = "reference/gwmock/index.md" },

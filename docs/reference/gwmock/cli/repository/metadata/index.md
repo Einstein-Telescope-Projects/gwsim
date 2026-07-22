@@ -9,3 +9,8 @@
       members_order: source
       filters:
         - '!^_'
+
+## Modules
+
+- [`gwmock.cli.repository.metadata.main`](main.md)
+- [`gwmock.cli.repository.metadata.update`](update.md)
