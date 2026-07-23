@@ -155,7 +155,15 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
             logger.info("Setting max_samples to %s based on total_duration and duration.", self.max_samples)
         else:
             self._total_duration = self.duration * self.max_samples
-            logger.info("total_duration not set, using duration * max_samples = %s seconds.", self.total_duration.value)
+            # total_duration was not passed to this simulator directly. That does
+            # not mean the user never set it: the orchestrator resolves a config
+            # total_duration into max_samples upstream and forwards only that, so
+            # claiming "total_duration not set" here misleads. Report the derived
+            # value factually instead.
+            logger.info(
+                "Resolved total_duration to %s seconds (duration * max_samples).",
+                self.total_duration.value,
+            )
 
     @property
     def end_time(self) -> Quantity:

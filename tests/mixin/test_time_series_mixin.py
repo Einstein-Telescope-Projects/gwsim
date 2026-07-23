@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -66,6 +67,30 @@ class TestTimeSeriesMixin:
         assert simulator.sampling_frequency == Quantity(2048, unit="Hz")
         assert simulator.num_of_channels == num_of_channels
         assert simulator.dtype == np.float32
+
+    def test_total_duration_derived_message_is_not_misleading(self, caplog):
+        """Deriving total_duration from max_samples must not claim it was 'not set'.
+
+        Regression for #133: orchestration resolves a config total_duration into
+        max_samples and forwards only that, so this simulator receives no
+        total_duration and derives it here. The log must report the derived value
+        factually rather than asserting the user never set it.
+        """
+        with caplog.at_level(logging.INFO, logger="gwmock"):
+            simulator = MockTimeSeriesSimulator(max_samples=3, duration=2, sampling_frequency=100)
+
+        assert simulator.total_duration == Quantity(6, unit="s")
+        assert "total_duration not set" not in caplog.text
+        assert "Resolved total_duration to 6" in caplog.text
+
+    def test_total_duration_explicit_reports_set(self, caplog):
+        """An explicitly provided total_duration is reported as set and pins max_samples."""
+        with caplog.at_level(logging.INFO, logger="gwmock"):
+            simulator = MockTimeSeriesSimulator(duration=2, total_duration=8, sampling_frequency=100)
+
+        assert simulator.total_duration == Quantity(8, unit="s")
+        assert "Total duration set to" in caplog.text
+        assert "total_duration not set" not in caplog.text
 
     def test_init_with_detectors(self):
         """Test initialization with detectors list."""
