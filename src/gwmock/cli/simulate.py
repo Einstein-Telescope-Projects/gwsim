@@ -10,6 +10,111 @@ from typing import Annotated
 import typer
 
 
+def _resolve_recorded_environment(config_file_names_list: list[str]) -> dict | None:
+    """Return the single environment freeze recorded across the given metadata.
+
+    Globs JSON and YAML metadata for directories and parses either form. Returns
+    ``None`` when no metadata records an environment. Raises ``ValueError`` when
+    the metadata span more than one distinct environment, since a single
+    isolated environment cannot reproduce them all.
+    """
+    import yaml  # pylint: disable=import-outside-toplevel
+    from pathlib import Path  # pylint: disable=import-outside-toplevel
+
+    from gwmock.cli.utils.environment import environment_key  # pylint: disable=import-outside-toplevel
+
+    candidates: list[Path] = []
+    for name in config_file_names_list:
+        path = Path(name)
+        if path.is_dir():
+            candidates.extend(sorted(path.glob("*.metadata.json")) + sorted(path.glob("*.metadata.yaml")))
+        else:
+            candidates.append(path)
+
+    environments: dict[str, dict] = {}
+    for candidate in candidates:
+        try:
+            with candidate.open(encoding="utf-8") as handle:
+                metadata = yaml.safe_load(handle)  # also parses JSON
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(metadata, dict):
+            continue
+        environment = metadata.get("environment")
+        if environment:
+            environments[environment_key(environment)] = environment
+
+    if len(environments) > 1:
+        raise ValueError(
+            "The provided metadata span multiple recorded environments; "
+            "reproduce each environment's metadata separately with --isolate."
+        )
+    return next(iter(environments.values()), None)
+
+
+def _maybe_isolate(
+    config_file_names_list: list[str],
+    *,
+    isolate: bool,
+    output_dir: str | None,
+    overwrite: bool,
+    author: str | None,
+    email: str | None,
+    dry_run: bool = False,
+) -> None:
+    """Recreate the recorded environment and re-run inside it when it differs.
+
+    No-op unless ``--isolate`` is set and we are not already the re-executed
+    child. Runs in place (with a note) when no environment was recorded or the
+    current one already matches. Otherwise builds the isolated environment,
+    re-runs the reproduction there, and exits with the child's status.
+    """
+    import logging  # pylint: disable=import-outside-toplevel
+    import os  # pylint: disable=import-outside-toplevel
+
+    import typer  # pylint: disable=import-outside-toplevel
+
+    from gwmock.cli.utils.environment import (  # pylint: disable=import-outside-toplevel
+        ISOLATION_ENV_VAR,
+        capture_environment,
+        environments_match,
+        reproduce_in_isolated_environment,
+    )
+
+    logger = logging.getLogger("gwmock")
+    if not isolate or os.environ.get(ISOLATION_ENV_VAR):
+        return
+
+    try:
+        recorded = _resolve_recorded_environment(config_file_names_list)
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
+    if recorded is None:
+        logger.warning(
+            "--isolate: the metadata records no environment freeze (older run); running in the current environment."
+        )
+        return
+    if environments_match(recorded, capture_environment()):
+        logger.info("--isolate: current environment already matches the recorded one; running in place.")
+        return
+
+    child_args = ["simulate", *config_file_names_list]
+    if output_dir:
+        child_args += ["--output-dir", output_dir]
+    if overwrite:
+        child_args.append("--overwrite")
+    if author:
+        child_args += ["--author", author]
+    if email:
+        child_args += ["--email", email]
+    if dry_run:
+        child_args.append("--dry-run")
+
+    logger.info("--isolate: recreating the recorded environment and re-running the reproduction inside it.")
+    exit_code = reproduce_in_isolated_environment(recorded, child_args)
+    raise typer.Exit(exit_code)
+
+
 def _simulate_impl(  # pylint: disable=too-many-locals, too-many-branches, too-many-statements
     config_file_names: str | list[str],
     output_dir: str | None = None,
@@ -19,6 +124,7 @@ def _simulate_impl(  # pylint: disable=too-many-locals, too-many-branches, too-m
     author: str | None = None,
     email: str | None = None,
     dry_run: bool = False,
+    isolate: bool = False,
 ) -> None:
     """Internal implementation of simulate command that accepts both str and list[str].
 
@@ -84,6 +190,18 @@ def _simulate_impl(  # pylint: disable=too-many-locals, too-many-branches, too-m
         # ===== Create plan (unified approach: both modes create same data structure) =====
         if is_metadata:
             logger.info("Reproduction mode: %d metadata file(s)", len(config_file_names_list))
+
+            # Optionally recreate the recorded environment and re-run inside it
+            # before doing any work in the (possibly mismatched) current one.
+            _maybe_isolate(
+                config_file_names_list,
+                isolate=isolate,
+                output_dir=output_dir,
+                overwrite=overwrite,
+                author=author,
+                email=email,
+                dry_run=dry_run,
+            )
 
             metadata_paths = [Path(f) for f in config_file_names_list]
 
@@ -197,6 +315,14 @@ def simulate_command(
     author: Annotated[str | None, typer.Option("--author", help="Author name for the simulation.")] = None,
     email: Annotated[str | None, typer.Option("--email", help="Author email for the simulation.")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Validate the plan without executing.")] = False,
+    isolate: Annotated[
+        bool,
+        typer.Option(
+            "--isolate",
+            help="Reproduction mode: recreate the metadata's recorded environment in an "
+            "isolated (uv) virtualenv and re-run inside it for exact-dependency reproducibility.",
+        ),
+    ] = False,
 ) -> None:
     """Generate gravitational wave simulation data using specified simulators.
 
@@ -241,4 +367,5 @@ def simulate_command(
         author=author,
         email=email,
         dry_run=dry_run,
+        isolate=isolate,
     )
