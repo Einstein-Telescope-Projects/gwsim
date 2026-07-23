@@ -277,6 +277,11 @@ class NoiseAdapter:
         # config-shaped state (e.g. a pinned dataset revision) can be reported
         # for replayable metadata. None until a stream with glitches is opened.
         self._glitch_models: list[Any] | None = None
+        # Memoized resolved_config() payload for the active stream, so per-batch
+        # metadata writes across one open_stream() reuse a single resolution
+        # (and one pinned revision) instead of re-resolving every batch. Reset
+        # whenever the stream is (re)configured.
+        self._resolved_config_cache: dict[str, Any] | None = None
 
     @classmethod
     def from_backend(cls, backend: BaseNoiseSimulator | NoiseSimulator | Any | None = None) -> NoiseAdapter:
@@ -698,6 +703,7 @@ class NoiseAdapter:
         # never reports stale models when this adapter is reused for a later
         # stream that has no glitches.
         self._glitch_models = None
+        self._resolved_config_cache = None
 
         normalized_psd_files = _coerce_path_mapping(psd_files)
         normalized_csd_files = _coerce_path_mapping(csd_files)
@@ -770,13 +776,18 @@ class NoiseAdapter:
         re-serialized, so the returned entries round-trip back through
         ``normalize_glitch_models`` on replay and reproduce the exact resources
         the run used. Returns an empty mapping when the active stream has no
-        glitches, so a caller can treat "nothing resolved" uniformly.
+        glitches, so a caller can treat "nothing resolved" uniformly. The result
+        is memoized for the active stream so repeated per-batch metadata writes
+        do not re-resolve.
         """
+        if self._resolved_config_cache is not None:
+            return self._resolved_config_cache
         if not self._glitch_models:
             return {}
         for model in self._glitch_models:
             model.resolve()
-        return {"glitches": [model.serialize() for model in self._glitch_models]}
+        self._resolved_config_cache = {"glitches": [model.serialize() for model in self._glitch_models]}
+        return self._resolved_config_cache
 
 
 class _ChunkNoiseSimulator:

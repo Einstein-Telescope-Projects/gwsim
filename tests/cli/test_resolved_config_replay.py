@@ -64,6 +64,24 @@ def test_noise_adapter_resolved_config_resolves_and_serializes_glitches() -> Non
     assert resolved == {"glitches": [{"kind": "deepextractor", "rate": 0.5, "revision": COMMIT_SHA}]}
 
 
+def test_noise_adapter_resolved_config_is_memoized_per_stream() -> None:
+    """Repeated calls reuse one resolution; reconfiguring the stream invalidates it."""
+    adapter = NoiseAdapter.from_backend()
+    model = _FakeGlitchModel(resolved=COMMIT_SHA)
+    adapter._glitch_models = [model]
+
+    first = adapter.resolved_config()
+    second = adapter.resolved_config()
+
+    assert first is second  # same cached object, no recomputation
+    assert model.resolve_calls == 1
+
+    # Reconfiguring a stream clears the cache (mirrors _configure_default_stream_backend).
+    adapter._glitch_models = None
+    adapter._resolved_config_cache = None
+    assert adapter.resolved_config() == {}
+
+
 def test_noise_adapter_resolved_config_empty_without_glitches() -> None:
     """A stream with no glitches resolves to an empty mapping, not an error."""
     adapter = NoiseAdapter.from_backend()
