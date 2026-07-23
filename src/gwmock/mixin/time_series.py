@@ -122,7 +122,7 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
         return self._total_duration
 
     @total_duration.setter
-    def total_duration(self, value: int | float | str | None) -> None:
+    def total_duration(self, value: float | str | None) -> None:
         """Set the total duration of the simulation.
 
         Args:

@@ -34,7 +34,7 @@ class Simulator(ABC):
     # State attributes using StateAttribute descriptor
     counter = StateAttribute(default=0)
 
-    def __init__(self, max_samples: int | float | None = None, **kwargs: Any):
+    def __init__(self, max_samples: float | None = None, **kwargs: Any):
         """Initialize the base simulator.
 
         Args:
@@ -62,7 +62,7 @@ class Simulator(ABC):
         return self._max_samples
 
     @max_samples.setter
-    def max_samples(self, value: int | float) -> None:
+    def max_samples(self, value: float) -> None:
         """Set the maximum number of samples.
 
         Args:

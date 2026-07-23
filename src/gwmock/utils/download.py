@@ -93,8 +93,7 @@ def download_file_with_lock(url: str, dest_path: Path | str, lock_path: Path | s
 
             Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
             with Path(dest_path).open("wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                f.writelines(response.iter_content(chunk_size=8192))
 
         logger.info("File downloaded successfully to: %s", dest_path)
     return dest_path
