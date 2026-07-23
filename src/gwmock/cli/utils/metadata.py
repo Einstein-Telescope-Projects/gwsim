@@ -11,7 +11,7 @@ import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 
@@ -41,6 +41,11 @@ class SignalSection(BaseModel):
     backend: str
     waveform_model: str | None = None
     detector_network: list[str] = Field(default_factory=list)
+    # Source parameters of the signals that merge in this batch's frame(s), in
+    # injection order: [{"event_id": int, "parameters": {...}}]. An event is
+    # attributed to the frame its coa_time falls in; content extending into
+    # adjacent frames is not cross-listed. Empty for stationary/SGWB segments.
+    injections: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

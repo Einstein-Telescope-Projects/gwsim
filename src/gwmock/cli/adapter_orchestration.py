@@ -133,6 +133,11 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         self._active_overwrite = False
         self._noise_stream: Iterator[dict[str, Any]] | None = None
         self._noise_stream_position = 0
+        # Source parameters of the signals that merge in the current batch, in
+        # injection order: [{"event_id": <population index>, "parameters": {...}}].
+        # An event is attributed to the batch whose segment contains its coa_time.
+        # Recorded into per-batch metadata so a frame's sources are self-describing.
+        self._batch_injections: list[dict[str, Any]] = []
         self._pending_noise_chunk: dict[str, Any] | None = None
 
         super().__init__(
@@ -368,6 +373,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                     "detectors": self.detectors,
                     "network_resolution": self._detector_resolution,
                     "segment_seed": signal_segment_seed,
+                    "injections": list(self._batch_injections),
                 },
                 "noise": {
                     "arguments": self.noise_arguments,
@@ -428,8 +434,10 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             return self._simulate_stationary_signal_segment()
 
         chunks = TimeSeriesList()
+        self._batch_injections = []
         while self.population_index < len(self._population_events):
-            parameters = dict(self._population_events[int(self.population_index)])
+            event_id = int(self.population_index)
+            parameters = dict(self._population_events[event_id])
             coa_time = parameters.get("coa_time")
             end_time_value = float(getattr(self.end_time, "value", self.end_time))
             if coa_time is not None and float(coa_time) >= end_time_value:
@@ -443,6 +451,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 earth_rotation=self.earth_rotation,
             )
             strain.metadata.update({"injection_parameters": dict(parameters)})
+            self._batch_injections.append({"event_id": event_id, "parameters": dict(parameters)})
             chunks.append(strain)
             self.population_index = cast(int, self.population_index) + 1
             if strain.start_time >= self.end_time:
@@ -453,6 +462,8 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         """Generate one stationary signal chunk spanning the active segment."""
         if self.signal_adapter is None:
             return TimeSeriesList()
+        # A stationary (e.g. SGWB) segment has no discrete source events.
+        self._batch_injections = []
         segment_seed = self._signal_segment_seed()
         self.signal_adapter.set_seed(segment_seed)
         n_samples = round(float(self.duration.value) * float(self.sampling_frequency.value))

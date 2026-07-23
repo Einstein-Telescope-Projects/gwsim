@@ -313,7 +313,7 @@ def test_simulate_command_runs_adapter_orchestration(monkeypatch, tmp_path: Path
     assert (tmp_path / "output" / "signal" / "signal-1.gwf").exists()
     _assert_noise_outputs_exist(tmp_path / "output" / "noise")
     metadata = yaml.safe_load((tmp_path / "metadata" / "orchestration-0.metadata.json").read_text())
-    assert metadata["schema_version"] == "1.1.0"
+    assert metadata["schema_version"] == "1.2.0"
     assert metadata["config"]["orchestration"]["population"]["backend"] == FAKE_POPULATION_BACKEND
     assert metadata["config"]["orchestration"]["signal"]["backend"] == FAKE_SIGNAL_BACKEND
     assert metadata["config"]["orchestration"]["noise"]["backend"] == FAKE_NOISE_BACKEND
@@ -340,6 +340,46 @@ def test_simulate_command_runs_adapter_orchestration(monkeypatch, tmp_path: Path
             "seed": derive_seed(7, "noise", "stream"),
         }
     ]
+
+
+def test_orchestration_records_injections_and_signal_lookup(monkeypatch, tmp_path: Path):
+    """End-to-end: source parameters are recorded per frame and are looked up (#12)."""
+    from gwmock.cli.utils.signal_lookup import find_signals, parse_param_filter
+
+    FakeNoiseAdapter.stream_open_calls.clear()
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.safe_dump(config.model_dump(by_alias=True, exclude_none=True), sort_keys=False))
+    monkeypatch.setattr("gwmock.cli.adapter_orchestration.DetectorStrainStack.write", _write_signal_file)
+
+    _simulate_impl(str(config_file), overwrite=True, metadata=True)
+
+    metadata_dir = tmp_path / "metadata"
+
+    # Part A: each batch's metadata records the source parameters of its signal(s).
+    batch0 = yaml.safe_load((metadata_dir / "orchestration-0.metadata.json").read_text())
+    injections0 = batch0["signal"]["injections"]
+    assert [inj["event_id"] for inj in injections0] == [0]
+    assert injections0[0]["parameters"]["detector_frame_mass_1"] == 30.0
+    assert injections0[0]["parameters"]["coa_time"] == 100.5
+
+    batch1 = yaml.safe_load((metadata_dir / "orchestration-1.metadata.json").read_text())
+    assert [inj["event_id"] for inj in batch1["signal"]["injections"]] == [1]
+
+    # Part B: signal_index.yaml maps each event id to its containing frame(s).
+    index = yaml.safe_load((metadata_dir / "signal_index.yaml").read_text())
+    assert set(index) == {"0", "1"}
+    assert any("signal-0.gwf" in frame for frame in index["0"]["frames"])
+
+    # Lookup by id (fast path) resolves to the right frame.
+    by_id = find_signals(metadata_dir, event_id=1)
+    assert len(by_id) == 1
+    assert any("signal-1.gwf" in frame for frame in by_id[0]["frames"])
+
+    # Lookup by parameter filter scans the recorded injections.
+    heavy = find_signals(metadata_dir, param_filters=[parse_param_filter("detector_frame_mass_1>=31")])
+    assert [match["event_id"] for match in heavy] == [1]
+    assert any("signal-1.gwf" in frame for frame in heavy[0]["frames"])
 
 
 def _fake_multi_detector_config(working_directory: str) -> Config:
