@@ -338,6 +338,10 @@ def _build_signal_section(simulator: Simulator, batch: SimulationBatch) -> dict[
             "backend": _backend_path_from_object(simulator.signal_adapter._backend),
             "waveform_model": simulator.waveform_model,
             "detector_network": list(simulator.detectors),
+            # Source parameters of the signals that merge in this batch's frame(s),
+            # in injection order (empty for stationary/SGWB segments). This makes each
+            # frame self-describing and backs the signal->frame lookup.
+            "injections": list(simulator_metadata["orchestration"]["signal"].get("injections", [])),
             "metadata": simulator_metadata["orchestration"]["signal"],
         }
 
@@ -564,6 +568,67 @@ def update_metadata_index(
         raise
 
 
+def update_signal_index(
+    metadata_directory: Path,
+    metadata: dict[str, Any],
+    metadata_file_name: str,
+    encoding: str = "utf-8",
+) -> None:
+    """Update the signal index mapping each injected event to its frame file(s).
+
+    The index (``signal_index.yaml``) maps a signal's ``event_id`` to the signal
+    frame file(s) that contain it plus the batch metadata file, enabling O(1)
+    signal->frame lookup by id. Parameter-based lookup reads the injections
+    recorded in the batch metadata files (their source of truth); this index is
+    only the id shortcut. A batch with no injected signals writes nothing.
+
+    Args:
+        metadata_directory: Directory where metadata and the index live.
+        metadata: The batch metadata record just written.
+        metadata_file_name: File name of that batch metadata record.
+        encoding: File encoding for reading/writing the index file.
+    """
+    injections = (metadata.get("signal") or {}).get("injections") or []
+    index_file = metadata_directory / "signal_index.yaml"
+    if not injections and not index_file.exists():
+        return
+
+    if index_file.exists():
+        try:
+            with index_file.open(encoding=encoding) as f:
+                index = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError) as e:
+            logger.warning("Failed to load signal index: %s. Creating new index.", e)
+            index = {}
+    else:
+        index = {}
+
+    # Drop any entries this batch wrote previously so a re-run or overwrite (which
+    # may now inject different or no events) cannot leave stale id -> frame rows
+    # that the id fast-path would trust.
+    index = {event_id: entry for event_id, entry in index.items() if entry.get("metadata") != metadata_file_name}
+
+    signal_frames = [
+        output["path"] for output in metadata.get("outputs", []) if output.get("kind") == "signal" and "path" in output
+    ]
+    for injection in injections:
+        event_id = injection.get("event_id")
+        if event_id is None:
+            continue
+        index[str(event_id)] = {
+            "frames": signal_frames,
+            "metadata": metadata_file_name,
+            "coa_time": (injection.get("parameters") or {}).get("coa_time"),
+        }
+
+    try:
+        with index_file.open("w") as f:
+            yaml.safe_dump(index, f, default_flow_style=False, sort_keys=True)
+    except (OSError, yaml.YAMLError) as e:
+        logger.error("Failed to save signal index: %s", e)
+        raise
+
+
 def instantiate_simulator(
     simulator_config: SimulatorConfig | OrchestrationConfig,
     simulator_name: str | None = None,
@@ -777,6 +842,9 @@ def save_batch_metadata(
 
     # Update the metadata index for quick lookup
     update_metadata_index(metadata_directory, output_files, metadata_file_name)
+
+    # Update the signal index (event id -> containing frame file(s)) for signal->frame lookup
+    update_signal_index(metadata_directory, metadata, metadata_file_name)
 
 
 def process_batch(

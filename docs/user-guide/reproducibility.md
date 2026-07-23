@@ -5,12 +5,12 @@
 
 ## Schema
 
-Each record is validated at write time and uses schema version `1.0.0`.
+Each record is validated at write time and uses schema version `1.2.0`.
 Consumers must reject unknown major versions.
 
 ```json
 {
-    "schema_version": "1.0.0",
+    "schema_version": "1.2.0",
     "gwmock_version": "x.y.z",
     "subpackage_versions": {
         "gwmock_signal": "x.y.z",
@@ -34,6 +34,12 @@ Consumers must reject unknown major versions.
         "backend": "module:Class",
         "waveform_model": "IMRPhenomXPHM",
         "detector_network": ["ET1_SARD", "ET2_SARD", "ET3_SARD"],
+        "injections": [
+            {
+                "event_id": 0,
+                "parameters": { "mass_1": 30.0, "coa_time": 1577491218.5 }
+            }
+        ],
         "metadata": {}
     },
     "noise": {
@@ -81,8 +87,38 @@ recorded once and noise continuation no longer appears as one derived seed per
 batch. The subpackage `metadata` objects are preserved as JSON objects without
 gwmock rewriting their internal structure.
 
+`signal.injections` records the source parameters of the signals attributed to
+that batch's frame(s), in injection order. Each entry is
+`{"event_id": <index in the population>, "parameters": {...}}`. A signal is
+attributed to the frame in which it **merges** (its `coa_time` falls inside that
+frame's time segment); a long waveform whose inspiral or ringdown extends into
+adjacent frames is listed only under its merger frame. `event_id` is the event's
+index in the population as ordered for the run (by `coa_time` under the default
+ordering), so it is stable for a fixed configuration. Stationary/SGWB segments
+have no discrete events and record an empty list.
+
 For the config shape that feeds this record, see
 [Orchestration](orchestration.md) and [Protocol Contracts](protocols.md).
+
+## Finding which frame contains a signal
+
+Alongside the per-file `index.yaml`, a run writes `signal_index.yaml` mapping
+each signal's `event_id` to the frame file(s) that contain it. Use
+`gwmock find-signal` to resolve a signal to its frame:
+
+```bash
+# By id (fast path via signal_index.yaml)
+gwmock find-signal --metadata-dir metadata/ --id 42
+
+# By parameter filters (scans the recorded injections); combine with AND
+gwmock find-signal --metadata-dir metadata/ --param mass_1>=30 --param coa_time<1577491300
+
+# Machine-readable
+gwmock find-signal --metadata-dir metadata/ --id 42 --json
+```
+
+Filters accept `==`, `!=`, `>`, `<`, `>=`, `<=`; numeric values are compared
+numerically. The command exits non-zero when no signal matches.
 
 ## Reproducing a run
 
