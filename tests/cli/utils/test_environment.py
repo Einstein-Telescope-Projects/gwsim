@@ -38,6 +38,17 @@ def test_environment_requirements_are_sorted_pins() -> None:
     assert reqs == ["astropy==6.1.0", "numpy==2.0.0"]
 
 
+def test_environment_requirements_reject_option_shaped_names() -> None:
+    """A tampered metadata pin that looks like an installer option is refused."""
+    with pytest.raises(ValueError, match="invalid package name"):
+        environment_requirements({"packages": {"--index-url": "http://evil.example"}})
+
+
+def test_environment_requirements_reject_bad_version() -> None:
+    with pytest.raises(ValueError, match="invalid version"):
+        environment_requirements({"packages": {"numpy": "2.0.0; rm -rf /"}})
+
+
 def test_diff_environment_reports_mismatch_and_missing_only() -> None:
     recorded = _snapshot(numpy="2.0.0", astropy="6.1.0")
     installed = _snapshot(numpy="1.26.0", scipy="1.14.0")  # numpy differs, astropy missing, scipy extra
@@ -89,6 +100,9 @@ def test_build_isolated_environment_creates_and_installs(tmp_path: Path, monkeyp
     install_call = next(c for c in calls if "install" in c)
     assert "numpy==2.0.0" in install_call
     assert "astropy==6.1.0" in install_call
+    # Pins follow a "--" so uv can never parse a pin as an option.
+    assert "--" in install_call
+    assert install_call.index("--") < install_call.index("numpy==2.0.0")
 
 
 def test_build_isolated_environment_reuses_cached(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

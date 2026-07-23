@@ -14,6 +14,7 @@ import importlib.metadata
 import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -52,10 +53,32 @@ def capture_environment() -> dict[str, Any]:
     }
 
 
+# A recorded pin must be a plain distribution name and version — never an
+# option like ``--index-url``. Metadata files are shared for reproduction, so
+# their contents are untrusted input that ends up as `uv pip install` arguments.
+_DIST_NAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$")
+_VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+!-]*$")
+
+
 def environment_requirements(snapshot: dict[str, Any]) -> list[str]:
-    """Return sorted ``name==version`` requirement strings for a snapshot."""
+    """Return sorted, validated ``name==version`` requirement strings for a snapshot.
+
+    Every package name and version is checked against strict distribution-name
+    and version syntax; a pin that does not match (e.g. an option-shaped key such
+    as ``--index-url``) raises ``ValueError`` rather than being forwarded to the
+    installer, so a tampered metadata file cannot inject installer options.
+    """
     packages = snapshot.get("packages") or {}
-    return [f"{name}=={version}" for name, version in sorted(packages.items())]
+    requirements: list[str] = []
+    for name, version in sorted(packages.items()):
+        if not (isinstance(name, str) and _DIST_NAME_RE.match(name)):
+            raise ValueError(f"Refusing to reproduce: invalid package name {name!r} in recorded environment.")
+        if not (isinstance(version, str) and _VERSION_RE.match(version)):
+            raise ValueError(
+                f"Refusing to reproduce: invalid version {version!r} for package {name!r} in recorded environment."
+            )
+        requirements.append(f"{name}=={version}")
+    return requirements
 
 
 def diff_environment(recorded: dict[str, Any], installed: dict[str, Any]) -> list[tuple[str, str, str | None]]:
@@ -164,8 +187,10 @@ def build_isolated_environment(
         requirements = environment_requirements(snapshot)
         if requirements:
             logger.info("Installing %d recorded package versions into the reproduction environment", len(requirements))
+            # The trailing "--" makes uv treat every requirement as a positional
+            # package spec, never an option, as a second guard against injection.
             subprocess.run(  # noqa: S603
-                [uv_executable, "pip", "install", "--python", str(python_bin), *requirements], check=True
+                [uv_executable, "pip", "install", "--python", str(python_bin), "--", *requirements], check=True
             )
 
         marker.write_text("ready\n")
