@@ -378,6 +378,22 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             },
         }
 
+    def resolved_config(self) -> dict[str, Any]:
+        """Return runtime-resolved config overrides, shaped like OrchestrationConfig.
+
+        Aggregates each sub-adapter's ``resolved_config()`` (only noise today)
+        into an ``OrchestrationConfig``-shaped fragment — e.g.
+        ``{"noise": {"arguments": {"glitches": [...]}}}`` — that a caller deep-
+        merges over the input config to obtain a fully-resolved, replayable
+        config. Returns an empty mapping when nothing needed resolving, so
+        callers can skip writing a resolved layer for a purely parametric run.
+        """
+        resolved: dict[str, Any] = {}
+        noise_resolved = self.noise_adapter.resolved_config() if self.noise_adapter is not None else {}
+        if noise_resolved:
+            resolved["noise"] = {"arguments": noise_resolved}
+        return resolved
+
     def set_batch_context(self, *, batch: Any, output_directory: Path, overwrite: bool) -> None:
         """Resolve per-batch output directories and runtime arguments."""
         if batch.simulator_config.signal is not None:

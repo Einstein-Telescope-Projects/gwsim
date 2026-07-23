@@ -9,6 +9,7 @@ import copy
 import json
 import logging
 import platform
+import re
 import shutil
 import signal
 import subprocess
@@ -39,6 +40,10 @@ from gwmock.cli.utils.utils import handle_signal
 from gwmock.simulator.base import Simulator
 
 logger = logging.getLogger("gwmock")
+
+# A full git commit SHA (SHA-1): the only revision form that immutably pins a
+# downloaded dataset. Branches, tags, and None can all move upstream.
+_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 logger.setLevel(logging.DEBUG)
 
 
@@ -191,6 +196,84 @@ def _build_config_payload(batch: SimulationBatch, simulator: Simulator) -> dict[
         simulators[batch.simulator_name] = batch.simulator_config.model_dump(by_alias=True, exclude_none=True)
 
     return cast(dict[str, Any], expand_template_variables(base_payload, simulator))
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
+    """Recursively merge ``override`` into ``base`` in place.
+
+    Nested mappings merge key-by-key; every other value (including lists)
+    replaces wholesale, so a resolved ``glitches`` list supersedes the input
+    one rather than being concatenated with it.
+    """
+    for key, value in override.items():
+        existing = base.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            _deep_merge(existing, value)
+        else:
+            base[key] = value
+
+
+def _unresolved_external_inputs(fragment: dict[str, Any]) -> list[str]:
+    """Return labels for resolved entries not pinned to an immutable version.
+
+    A glitch entry that carries a ``revision`` key names a dataset-backed model.
+    It is only reproducible when that revision is a full commit SHA: ``None``
+    means resolution failed (e.g. an offline Hub with no cache), and a symbolic
+    ref such as a branch or tag (``"main"``) still moves upstream. Both are
+    reported as unresolved so the run is marked non-replayable.
+    """
+    unresolved: list[str] = []
+    noise_arguments = fragment.get("noise", {}).get("arguments", {})
+    for entry in noise_arguments.get("glitches", []) or []:
+        if isinstance(entry, dict) and "revision" in entry and not _is_pinned_revision(entry["revision"]):
+            unresolved.append(f"glitch:{entry.get('kind', 'unknown')}")
+    return unresolved
+
+
+def _is_pinned_revision(revision: Any) -> bool:
+    """Return whether a dataset revision is an immutable full commit SHA.
+
+    A 40-character hex string is a git commit SHA and cannot move; anything else
+    — ``None`` or a symbolic ref like a branch or tag — can point at different
+    content later, so it does not pin the run.
+    """
+    return isinstance(revision, str) and _COMMIT_SHA_RE.fullmatch(revision) is not None
+
+
+def _build_resolved_config(
+    simulator: Simulator,
+    input_payload: dict[str, Any],
+) -> tuple[dict[str, Any] | None, bool]:
+    """Build the fully-resolved, replayable config for this batch.
+
+    Overlays each adapter's runtime-resolved values (e.g. a pinned dataset
+    revision) onto the template-expanded input config. Returns
+    ``(resolved_payload, replayable)`` — ``resolved_payload`` is ``None`` when
+    nothing needed resolving (a purely parametric run), and ``replayable`` is
+    ``False`` when a declared external-mutable input could not be pinned.
+    """
+    resolved_config_fn = getattr(simulator, "resolved_config", None)
+    if not callable(resolved_config_fn):
+        return None, True
+    fragment = cast(dict[str, Any], resolved_config_fn())
+    if not fragment:
+        return None, True
+
+    orchestration = input_payload.get("orchestration")
+    if not isinstance(orchestration, dict):
+        return None, True
+
+    unresolved = _unresolved_external_inputs(fragment)
+    if unresolved:
+        logger.warning(
+            "Could not pin external-mutable input(s) %s to an immutable version; "
+            "this run's metadata is marked non-replayable and is not bit-reproducible.",
+            ", ".join(unresolved),
+        )
+
+    resolved_payload = copy.deepcopy(input_payload)
+    _deep_merge(resolved_payload["orchestration"], fragment)
+    return resolved_payload, not unresolved
 
 
 def _resolve_seed(simulator: Simulator, batch: SimulationBatch) -> int | None:
@@ -636,6 +719,8 @@ def save_batch_metadata(
     state_to_save = pre_batch_state if pre_batch_state is not None else simulator.state
 
     seed = _resolve_seed(simulator, batch)
+    config_payload = _build_config_payload(batch, simulator)
+    resolved_config, replayable = _build_resolved_config(simulator, config_payload)
     metadata = create_batch_metadata(
         simulator_name=batch.simulator_name,
         batch_index=batch.batch_index,
@@ -646,7 +731,9 @@ def save_batch_metadata(
         source=batch.source,
         author=batch.author,
         email=batch.email,
-        config_payload=_build_config_payload(batch, simulator),
+        config_payload=config_payload,
+        resolved_config=resolved_config,
+        replayable=replayable,
         config_sha256=batch.config_sha256,
         seed=seed,
         segment_seeds=_resolve_segment_seeds(simulator, batch, seed),
