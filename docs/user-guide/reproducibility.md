@@ -18,6 +18,8 @@ Consumers must reject unknown major versions.
         "gwmock_pop": "x.y.z"
     },
     "config": {},
+    "resolved_config": {},
+    "replayable": true,
     "config_sha256": "...",
     "seed": 42,
     "segment_seeds": [123456789, 987654321],
@@ -58,7 +60,20 @@ Consumers must reject unknown major versions.
 }
 ```
 
-`config` stores the resolved configuration snapshot for that run.
+`config` stores the input configuration snapshot for that run (template
+variables expanded). `resolved_config` stores the same config with every
+runtime-resolved external value folded in — for example a `DeepExtractorGlitch`
+whose dataset was downloaded at the repository default is recorded here pinned
+to the concrete Hugging Face commit it actually used. It is `null` when nothing
+needed resolving (a purely parametric run). **Replay prefers `resolved_config`
+over `config`**, so a run that did not explicitly pin its external inputs still
+reproduces the exact resources it used.
+
+`replayable` is `true` unless a declared external-mutable input could not be
+pinned to an immutable version (e.g. an offline dataset with no local cache); a
+`false` run is not bit-for-bit reproducible from its metadata, and replaying it
+emits a warning.
+
 `segment_seeds` stores the deterministic per-segment seeds that `gwmock` derives
 locally. Adapter-backed noise now consumes one shared
 `gwmock_noise.open_stream(...)` iterator per run, so the top-level `seed` is
@@ -81,7 +96,11 @@ gwmock simulate config.yaml
 
 In batch reproduction workflows, pass the generated `*.metadata.json` files
 directly to `gwmock simulate`. Each metadata file carries the exact config
-snapshot and per-segment seeds needed to reproduce that batch independently:
+snapshot and per-segment seeds needed to reproduce that batch independently.
+Because replay reads `resolved_config`, any downloaded dataset (e.g. a
+DeepExtractor glitch dataset) is refetched at the exact version the original run
+used, even if the config never pinned it and the upstream dataset has since
+moved:
 
 ```bash
 # Reproduce specific batches from their metadata files

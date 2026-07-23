@@ -245,6 +245,8 @@ def create_batch_metadata(  # noqa: PLR0913
     timestamp: datetime.datetime | None = None,
     *,
     config_payload: dict[str, Any] | None = None,
+    resolved_config: dict[str, Any] | None = None,
+    replayable: bool = True,
     config_sha256: str | None = None,
     seed: int | None = None,
     segment_seeds: list[int] | None = None,
@@ -303,6 +305,15 @@ def create_batch_metadata(  # noqa: PLR0913
             "gwmock_pop": dependency_versions.get("gwmock-pop") or dependency_versions.get("gwmock_pop"),
         },
         "config": base_config,
+        # Fully-resolved, replayable config: the input config with every runtime-
+        # resolved external value (e.g. a pinned dataset revision) folded in.
+        # Replay prefers this over "config" so an unpinned run still reproduces
+        # the exact resources it used. None when nothing needed resolving.
+        "resolved_config": resolved_config,
+        # False when a declared external-mutable input could not be pinned to an
+        # immutable id (e.g. an offline dataset with no cache); such a run is not
+        # bit-reproducible from its metadata.
+        "replayable": replayable,
         "config_sha256": derived_config_sha256,
         "seed": seed,
         "segment_seeds": segment_seeds or [],
@@ -438,7 +449,17 @@ def create_plan_from_metadata_files(
 
         metadata = parse_batch_metadata(metadata_file)
 
-        metadata_config = metadata.get("config")
+        # Prefer the fully-resolved config so an unpinned run replays to the exact
+        # external resources it used (e.g. a pinned dataset revision); fall back to
+        # the raw input config when no resolved layer was recorded.
+        resolved_config = metadata.get("resolved_config")
+        metadata_config = resolved_config if isinstance(resolved_config, dict) else metadata.get("config")
+        if metadata.get("replayable") is False:
+            logger.warning(
+                "Metadata %s is marked non-replayable (an external-mutable input could not be "
+                "pinned to an immutable version); reproduction is not bit-for-bit.",
+                metadata_file,
+            )
 
         # Reconstruct configs from metadata
         try:

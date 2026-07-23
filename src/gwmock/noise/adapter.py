@@ -273,6 +273,10 @@ class NoiseAdapter:
             backend: The backend to use.
         """
         self._backend = backend
+        # Glitch models built for the active stream, retained so their resolved,
+        # config-shaped state (e.g. a pinned dataset revision) can be reported
+        # for replayable metadata. None until a stream with glitches is opened.
+        self._glitch_models: list[Any] | None = None
 
     @classmethod
     def from_backend(cls, backend: BaseNoiseSimulator | NoiseSimulator | Any | None = None) -> NoiseAdapter:
@@ -690,6 +694,11 @@ class NoiseAdapter:
         Returns:
             The protocol-compatible backend.
         """
+        # Reset any glitch models from a previous stream so resolved_config()
+        # never reports stale models when this adapter is reused for a later
+        # stream that has no glitches.
+        self._glitch_models = None
+
         normalized_psd_files = _coerce_path_mapping(psd_files)
         normalized_csd_files = _coerce_path_mapping(csd_files)
         normalized_psd_schedule = _coerce_path_schedule(psd_schedule)
@@ -746,9 +755,28 @@ class NoiseAdapter:
                     sampling_frequency=sampling_frequency,
                     seed=seed,
                 )
-            simulator = InjectGlitches(simulator, normalize_glitch_models(resolved_glitches))
+            glitch_models = normalize_glitch_models(resolved_glitches)
+            self._glitch_models = glitch_models
+            simulator = InjectGlitches(simulator, glitch_models)
 
         return simulator
+
+    def resolved_config(self) -> dict[str, Any]:
+        """Return the runtime-resolved, config-shaped noise arguments.
+
+        Currently reports the glitch models with every external, mutable
+        dependency pinned to an immutable id (e.g. a DeepExtractor dataset
+        pinned to a concrete Hugging Face commit). Each model is resolved and
+        re-serialized, so the returned entries round-trip back through
+        ``normalize_glitch_models`` on replay and reproduce the exact resources
+        the run used. Returns an empty mapping when the active stream has no
+        glitches, so a caller can treat "nothing resolved" uniformly.
+        """
+        if not self._glitch_models:
+            return {}
+        for model in self._glitch_models:
+            model.resolve()
+        return {"glitches": [model.serialize() for model in self._glitch_models]}
 
 
 class _ChunkNoiseSimulator:
