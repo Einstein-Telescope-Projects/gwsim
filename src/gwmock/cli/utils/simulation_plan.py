@@ -255,6 +255,7 @@ def create_batch_metadata(  # noqa: PLR0913
     noise: dict[str, Any] | None = None,
     outputs: list[dict[str, Any]] | None = None,
     host: dict[str, Any] | None = None,
+    environment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create metadata for a simulation batch.
 
@@ -328,6 +329,7 @@ def create_batch_metadata(  # noqa: PLR0913
             "cpu": "unknown",
             "git_sha": None,
         },
+        "environment": environment,
         # Compatibility fields kept while CLI reproduction still consumes them.
         "simulator_name": simulator_name,
         "batch_index": batch_index,
@@ -508,12 +510,38 @@ def create_plan_from_metadata_files(
         plan.add_batch(batch)
 
     _warn_version_mismatches(plan.batches, get_dependency_versions())
+    _warn_environment_drift(plan.batches)
 
     logger.info(
         "Created simulation plan from %d metadata files",
         len(metadata_files),
     )
     return plan
+
+
+def _warn_environment_drift(batches: list[SimulationBatch]) -> None:
+    """Warn once if the current environment differs from the recorded freeze.
+
+    Points the user at ``--isolate`` for exact-dependency reproduction. Uses the
+    first batch that recorded a full environment; older metadata without one is
+    skipped (the coarser gwmock-family check above still applies).
+    """
+    from gwmock.cli.utils.environment import capture_environment, diff_environment  # noqa: PLC0415
+
+    for batch in batches:
+        recorded = (batch.batch_metadata or {}).get("environment")
+        if not recorded:
+            continue
+        mismatches = diff_environment(recorded, capture_environment())
+        if mismatches:
+            examples = ", ".join(name for name, _, _ in mismatches[:3])
+            logger.warning(
+                "%d package(s) differ from the environment recorded in the metadata (e.g. %s). "
+                "Re-run with 'gwmock simulate --isolate' to reproduce against the exact recorded dependencies.",
+                len(mismatches),
+                examples,
+            )
+        return
 
 
 def _warn_version_mismatches(

@@ -28,6 +28,7 @@ from tqdm import tqdm
 from gwmock.cli.adapter_orchestration import AdapterOrchestrationResult, AdapterOrchestrator
 from gwmock.cli.utils.checkpoint import CheckpointManager
 from gwmock.cli.utils.config import OrchestrationConfig, SimulatorConfig, resolve_class_path
+from gwmock.cli.utils.environment import capture_environment
 from gwmock.cli.utils.hash import compute_content_hash, compute_file_hash
 from gwmock.cli.utils.metadata import save_metadata_record
 from gwmock.cli.utils.simulation_plan import (
@@ -807,6 +808,7 @@ def save_batch_metadata(
         noise=_build_noise_section(simulator, batch),
         outputs=_build_output_records(simulator, batch, batch_data, output_files),
         host=_get_host_metadata(),
+        environment=capture_environment(),
     )
 
     # Add output files to metadata for easy discovery

@@ -5,12 +5,12 @@
 
 ## Schema
 
-Each record is validated at write time and uses schema version `1.2.0`.
+Each record is validated at write time and uses schema version `1.3.0`.
 Consumers must reject unknown major versions.
 
 ```json
 {
-    "schema_version": "1.2.0",
+    "schema_version": "1.3.0",
     "gwmock_version": "x.y.z",
     "subpackage_versions": {
         "gwmock_signal": "x.y.z",
@@ -62,6 +62,11 @@ Consumers must reject unknown major versions.
         "python": "3.12.x",
         "cpu": "...",
         "git_sha": "..."
+    },
+    "environment": {
+        "python": "3.12.5",
+        "python_implementation": "CPython",
+        "packages": { "numpy": "2.0.0", "gwmock": "x.y.z", "...": "..." }
     }
 }
 ```
@@ -97,8 +102,39 @@ index in the population as ordered for the run (by `coa_time` under the default
 ordering), so it is stable for a fixed configuration. Stationary/SGWB segments
 have no discrete events and record an empty list.
 
+`environment` is a full freeze of the environment that produced the run — the
+Python version and the version of every installed distribution (direct and
+transitive) — recorded so the run can be reproduced against exactly those
+dependencies. It is `null` for records written before this field existed.
+
 For the config shape that feeds this record, see
 [Orchestration](orchestration.md) and [Protocol Contracts](protocols.md).
+
+## Exact-dependency reproduction (`--isolate`)
+
+By default, reproducing from metadata runs in your current environment and warns
+if the recorded package versions differ. For bit-for-bit reproduction against
+the exact dependencies of the original run, add `--isolate`:
+
+```bash
+gwmock simulate metadata/ --isolate
+```
+
+This reads the recorded `environment` freeze, builds a cached, isolated
+[uv](https://docs.astral.sh/uv/) virtualenv pinned to those versions (matching
+the recorded Python `major.minor`), and re-runs the reproduction inside it. If
+the current environment already matches, it runs in place; if no environment was
+recorded (older metadata), it warns and runs in place.
+
+Requirements and limits:
+
+- `uv` must be installed, and the recorded package versions must be resolvable
+  from your package index — a run made with editable/dev installs (versions not
+  published to an index) cannot be recreated this way and will fail loudly
+  rather than run in the wrong environment.
+- Environments are cached under `~/.cache/gwmock/reproduction-envs` (override
+  with `GWMOCK_ENV_CACHE`) and keyed by the version set, so repeated
+  reproductions of the same run skip reinstalling.
 
 ## Finding which frame contains a signal
 

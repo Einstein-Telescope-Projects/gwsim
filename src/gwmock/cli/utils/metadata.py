@@ -11,7 +11,7 @@ import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-SCHEMA_VERSION = "1.2.0"
+SCHEMA_VERSION = "1.3.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 
@@ -93,6 +93,10 @@ class MetadataRecord(BaseModel):
     noise: NoiseSection | None = None
     outputs: list[OutputRecord] = Field(default_factory=list)
     host: HostRecord
+    # Full environment freeze (Python version + every installed distribution's
+    # version) enabling exact-dependency reproduction into an isolated venv.
+    # Null for records written before this field existed.
+    environment: dict[str, Any] | None = None
 
     model_config = ConfigDict(extra="allow")
 
