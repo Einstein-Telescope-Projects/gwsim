@@ -16,13 +16,13 @@ jobs:
     update-floors:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+            - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
               with:
                   persist-credentials: false
 
             - name: Apply support policy (spec0, from pyproject tool table)
               id: policy
-              uses: isaac-cf-wong/dependency-support-policy-action@450e0f1dc90d5d5241b042117ab332bb35b107f9 # v0.2.0
+              uses: isaac-cf-wong/dependency-support-policy-action@eea614d1233d054baf9c346a07602c10bb6d35a0 # v0.2.1
               with:
                   mode: update
 
