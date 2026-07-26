@@ -124,7 +124,7 @@ markers = [
 [tool.ruff]
 line-length = 120 # Matches Black's default
 target-version = "py312" # Align with requires-python (>=3.12)
-lint.extend-select = [
+lint.select = [
   "E",
   "F",
   "W",   # pycodestyle errors and warnings

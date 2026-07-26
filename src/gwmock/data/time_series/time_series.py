@@ -28,7 +28,7 @@ class TimeSeries(JSONSerializable):
 
     __hash__ = None
 
-    def __init__(self, data: np.ndarray, start_time: int | float | Quantity, sampling_frequency: float | Quantity):
+    def __init__(self, data: np.ndarray, start_time: float | Quantity, sampling_frequency: float | Quantity):
         """Initialize the TimeSeries with a list of GWPy TimeSeries objects.
 
         Args:
