@@ -24,17 +24,15 @@ finding is that the seed has to be threaded, before any reference value is store
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
-import yaml
 
 from gwmock.cli.utils.hash import compute_content_hash
 
 from .matrix import E2E_MATRIX, MatrixEntry
-from .overlay import EXAMPLES_DIR, NOT_HERMETIC, apply_overlay
-from .test_examples_end_to_end import _written_files
+from .overlay import NOT_HERMETIC
+from .test_examples_end_to_end import _gwmock_executable, _write_config, _written_files
 
 pytestmark = pytest.mark.e2e
 
@@ -44,32 +42,23 @@ _NOT_DATA = ("resource_usage_summary.json", "config.yaml")
 
 
 def _run_in_subprocess(entry: MatrixEntry, working_directory: Path) -> None:
-    """Run one matrix entry in a fresh interpreter.
+    """Run one matrix entry in a fresh process, through the installed console script.
 
-    A subprocess rather than an in-process call, so no state is shared between the two runs being
-    compared. ``sys.executable`` rather than the ``gwmock`` console script, so this does not
-    depend on what is on PATH.
+    Two separate properties are wanted. A *subprocess* means no state is shared between the two
+    runs being compared. The *console script* means each run goes through the entry point a user
+    invokes rather than an internal function, so what is measured is the reproducibility of the
+    real command.
     """
-    source = EXAMPLES_DIR / entry.label / "config.yaml"
-    config = apply_overlay(yaml.safe_load(source.read_text(encoding="utf-8")), entry.label, working_directory)
-
-    working_directory.mkdir(parents=True, exist_ok=True)
-    config_path = working_directory / "config.yaml"
-    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    config_path, _ = _write_config(entry, working_directory)
 
     completed = subprocess.run(  # noqa: S603
-        [
-            sys.executable,
-            "-c",
-            "import sys; from gwmock.cli.simulate import _simulate_impl; _simulate_impl(sys.argv[1])",
-            str(config_path),
-        ],
+        [_gwmock_executable(), "simulate", str(config_path)],
         capture_output=True,
         text=True,
         check=False,
     )
     assert completed.returncode == 0, (
-        f"'{entry.label}' failed in a subprocess (exit {completed.returncode}):\n{completed.stderr[-2000:]}"
+        f"'{entry.label}' failed via the CLI (exit {completed.returncode}):\n{completed.stderr[-2000:]}"
     )
 
 

@@ -14,12 +14,16 @@ reference* comes later, and depends on first establishing that each path is repr
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 import yaml
+
+from gwmock.cli.utils.hash import compute_content_hash
 
 from .matrix import E2E_MATRIX, MatrixEntry
 from .overlay import CONTAINS_SIGNAL, EXAMPLES_DIR, NOT_HERMETIC, apply_overlay
@@ -35,18 +39,80 @@ def _skip_if_unavailable(entry: MatrixEntry) -> None:
         pytest.skip(f"'{entry.label}' {NOT_HERMETIC[entry.label]}")
 
 
-def _run(entry: MatrixEntry, working_directory: Path) -> dict[str, Any]:
-    """Run one matrix entry through the CLI and return the configuration used."""
-    from gwmock.cli.simulate import _simulate_impl
+def _gwmock_executable() -> str:
+    """Return the installed ``gwmock`` console script.
 
+    These tests exercise what a user actually runs, so they go through the entry point declared
+    in ``[project.scripts]`` rather than calling an internal function. Reaching past the console
+    script would skip argument parsing and the CLI's own error handling -- the parts an
+    end-to-end test exists to cover.
+    """
+    executable = shutil.which("gwmock")
+    assert executable, (
+        "the 'gwmock' console script is not on PATH, so the end-to-end suite cannot invoke the "
+        "CLI the way a user would. Install the project (`uv sync`) before running these tests."
+    )
+    return executable
+
+
+def _write_config(entry: MatrixEntry, working_directory: Path) -> tuple[Path, dict[str, Any]]:
+    """Write the overlaid configuration for *entry* and return its path and contents."""
     source = EXAMPLES_DIR / entry.label / "config.yaml"
     config = apply_overlay(yaml.safe_load(source.read_text(encoding="utf-8")), entry.label, working_directory)
 
     working_directory.mkdir(parents=True, exist_ok=True)
     config_path = working_directory / "config.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
-    _simulate_impl(str(config_path))
+    return config_path, config
+
+
+def _run(entry: MatrixEntry, working_directory: Path) -> dict[str, Any]:
+    """Run one matrix entry through the real CLI and return the configuration used."""
+    config_path, config = _write_config(entry, working_directory)
+
+    completed = subprocess.run(  # noqa: S603
+        [_gwmock_executable(), "simulate", str(config_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, (
+        f"'{entry.label}' failed via the CLI (exit {completed.returncode}):\n{completed.stderr[-2000:]}"
+    )
     return config
+
+
+@pytest.fixture(scope="session")
+def completed_run(tmp_path_factory: pytest.TempPathFactory):
+    """Return a callable giving the output directory for an entry, running it at most once.
+
+    Every assertion below inspects the same run, so re-running per test would multiply the cost
+    of the whole suite by the number of assertions -- and each run is now a real CLI subprocess.
+    Caching per label keeps adding assertions cheap, which matters because the reference-value
+    comparisons still to come will add several more.
+
+    Session-scoped and shared, so the assertions must only *read* the output. They do.
+    """
+    cache: dict[str, Path] = {}
+
+    def _get(entry: MatrixEntry) -> Path:
+        if entry.label not in cache:
+            directory = tmp_path_factory.mktemp(entry.label.replace("/", "_"))
+            _run(entry, directory)
+            cache[entry.label] = directory
+        return cache[entry.label]
+
+    return _get
+
+
+def _config_of(entry: MatrixEntry, working_directory: Path) -> dict[str, Any]:
+    """Return the configuration the run actually used, read back from its directory.
+
+    Read from disk rather than recomputed, so a test cannot end up asserting against a
+    configuration that differs from the one the run was given.
+    """
+    _ = entry
+    return yaml.safe_load((working_directory / "config.yaml").read_text(encoding="utf-8"))
 
 
 def _written_files(working_directory: Path) -> list[Path]:
@@ -109,21 +175,21 @@ def _manifest(working_directory: Path) -> list[dict[str, Any]]:
 class TestExampleRuns:
     """One run per matrix entry, with the checks that do not need a stored reference."""
 
-    def test_the_run_completes_and_writes_data(self, entry: MatrixEntry, tmp_path: Path):
+    def test_the_run_completes_and_writes_data(self, entry: MatrixEntry, completed_run):
         """The example must run to completion and leave non-empty output behind.
 
         The weakest useful assertion, and the one that catches most breakage: an exception
         anywhere in orchestration, or a run that silently writes nothing.
         """
         _skip_if_unavailable(entry)
-        _run(entry, tmp_path)
+        tmp_path = completed_run(entry)
 
         written = _written_files(tmp_path)
         assert written, f"'{entry.label}' completed but wrote no output files"
         empty = [path.name for path in written if path.stat().st_size == 0]
         assert not empty, f"'{entry.label}' wrote empty files: {empty}"
 
-    def test_every_declared_output_was_written(self, entry: MatrixEntry, tmp_path: Path):
+    def test_every_declared_output_was_written(self, entry: MatrixEntry, completed_run):
         """The files on disk must be exactly the ones the run says it wrote.
 
         Checked both ways on purpose. Requiring only that *some* output exists lets a run pass
@@ -131,7 +197,7 @@ class TestExampleRuns:
         its own metadata does not mention is equally wrong, in a way a file count would miss.
         """
         _skip_if_unavailable(entry)
-        _run(entry, tmp_path)
+        tmp_path = completed_run(entry)
 
         declared = {item["path"] for item in _manifest(tmp_path)}
         assert declared, f"'{entry.label}' recorded no outputs in its metadata"
@@ -143,7 +209,7 @@ class TestExampleRuns:
             f"present but undeclared {sorted(found - declared)}"
         )
 
-    def test_every_output_decodes_and_is_finite(self, entry: MatrixEntry, tmp_path: Path):
+    def test_every_output_decodes_and_is_finite(self, entry: MatrixEntry, completed_run):
         """*Every* written file must decode, carry samples, and contain no NaN or infinity.
 
         Previously this counted the files that decoded and required at least one, which let an
@@ -154,13 +220,24 @@ class TestExampleRuns:
         while holding fewer channels than the run claims to have put in it.
         """
         _skip_if_unavailable(entry)
-        _run(entry, tmp_path)
+        tmp_path = completed_run(entry)
 
         for item in _manifest(tmp_path):
             path = tmp_path / item["path"]
             samples = _samples(path)
             assert samples.size, f"'{item['path']}' decoded to no samples"
             assert np.all(np.isfinite(samples)), f"'{item['path']}' contains non-finite samples"
+
+            declared_hash = item.get("content_sha256")
+            if declared_hash:
+                # The run records a content hash of what it wrote. Recomputing it here checks the
+                # pipeline's own bookkeeping against an independent calculation -- a recorded hash
+                # that does not match the data would make every downstream provenance claim wrong,
+                # and nothing else would notice.
+                assert compute_content_hash(path) == declared_hash, (
+                    f"'{item['path']}' does not match the content hash recorded for it in the run "
+                    f"metadata, so the run's own provenance is wrong about its output"
+                )
 
             declared_channels = item.get("channels")
             if declared_channels and path.suffix == ".gwf":
@@ -170,7 +247,7 @@ class TestExampleRuns:
                     f"'{item['path']}' does not hold the channels its metadata declares"
                 )
 
-    def test_the_output_contains_signal_where_expected(self, entry: MatrixEntry, tmp_path: Path):
+    def test_the_output_contains_signal_where_expected(self, entry: MatrixEntry, completed_run):
         """A run whose span covers the population must not be all zeros.
 
         This is the assertion that distinguishes "the pipeline ran" from "the pipeline produced
@@ -181,7 +258,8 @@ class TestExampleRuns:
         if entry.label not in CONTAINS_SIGNAL:
             pytest.skip(f"'{entry.label}' is not expected to contain a located signal")
         _skip_if_unavailable(entry)
-        config = _run(entry, tmp_path)
+        tmp_path = completed_run(entry)
+        config = _config_of(entry, tmp_path)
 
         # Only the signal outputs. Counting every file instead lets a signal+noise
         # configuration pass on its noise alone -- verified: with the start time deliberately
