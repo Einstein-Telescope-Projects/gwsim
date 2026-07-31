@@ -67,16 +67,35 @@ detector draws from its own glitch population file.
 
 ## The end-to-end test matrix
 
-A **subset** of these examples is declared as the end-to-end matrix: the configs
-intended to be driven through the real CLI, checking that a run completes,
-writes the expected files, and reproduces stored reference values.
+A **subset** of these examples is the end-to-end matrix: the configs driven
+through the real CLI by the `e2e` test suite.
 
-> **Status — declared, not yet executed.** No runner drives these configs today.
-> What is enforced now is that the set is fixed and consistent:
-> `tests/e2e/matrix.py` holds it as data, a test fails if this table and that
-> file disagree, and every entry must name an example that exists. Nothing yet
-> checks that running one reaches the code path claimed for it. The runner lands
-> separately, and this note goes when it does.
+Those tests are excluded from the default run — they generate data — and run in
+their own CI job with every extra installed. To run them yourself:
+
+```bash
+uv run pytest -m e2e --no-cov
+```
+
+The examples themselves are never edited. A test-time overlay
+(`tests/e2e/overlay.py`) shortens each run and repoints its inputs at in-repo
+files, so the examples stay realistic while the suite finishes in about two
+minutes.
+
+> **What is and is not checked.** Each entry is run and its output verified
+> against the manifest the run itself records: every declared file present,
+> every file decoding to finite samples, the right channels, and signal actually
+> present where the span covers a population. Each entry is also run twice in
+> separate processes and compared by content hash, so reproducibility is
+> established.
+>
+> Not yet checked: agreement with **stored reference values**. That is the next
+> step, and reproducibility was the prerequisite for it.
+>
+> The overlay shortens runs, which costs coverage worth naming: sampling
+> frequency drops from 4096 Hz to 1024 Hz, moving the Nyquist frequency, and
+> spans are cut, reducing segment counts. A defect appearing only at full rate
+> or across many segments is out of scope here.
 
 The subset is chosen to cover each distinct **code path** exactly once, not
 every configuration. Where two examples differ only in values that flow through
@@ -94,7 +113,7 @@ matrix needs a new entry.
 | `signal/bbh/et_triangle_sardinia`                  | Signal-only CBC; Earth rotation; population loaded from file                   |
 | `signal/sgwb/et_triangle_sardinia`                 | `StochasticBackgroundSimulator` — a different simulator class; **HDF5** output |
 | `signal/waveform_backend/ripple`                   | A non-default waveform library resolved from config. Needs `ripplegw`          |
-| `noise/glitches/gengli/et_triangle_sardinia/e1`    | Glitch injection. Skipped when `gengli` is absent                              |
+| `noise/glitches/gengli/et_triangle_sardinia/e1`    | **Not run** — glitch injection, blocked on `gengli` and a local glitch fixture |
 
 Deliberately excluded, with the reason:
 

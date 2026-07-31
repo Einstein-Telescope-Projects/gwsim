@@ -56,9 +56,13 @@ jobs:
     # them across seven interpreter/OS combinations would multiply that for no added signal,
     # since what they exercise is orchestration rather than anything interpreter-specific.
     #
-    # `--all-extras` is load-bearing. The matrix in tests/e2e/matrix.py has entries gated on
-    # ripplegw and gengli, and with a plain `uv sync` those would skip -- reporting green while
-    # testing nothing. One Python and one OS, but the whole optional stack.
+    # `--all-extras` is load-bearing for the ripplegw-gated entries: with a plain `uv sync` those
+    # would skip, and the job would report green while testing less than it claims. The guard step
+    # below turns that from a silent skip into a failure.
+    #
+    # It does *not* cover the gengli entry. gengli is not a declared extra of this project at all,
+    # so no sync flag can install it, and that entry is separately blocked on a local glitch
+    # fixture. It stays skipped here -- see NOT_HERMETIC in tests/e2e/overlay.py.
     e2e:
         runs-on: ubuntu-latest
         steps:

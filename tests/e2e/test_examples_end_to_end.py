@@ -13,6 +13,7 @@ reference* comes later, and depends on first establishing that each path is repr
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -81,7 +82,27 @@ def _samples(path: Path) -> np.ndarray:
         return np.concatenate(collected) if collected else np.array([])
     if path.suffix == ".npy":
         return np.ravel(np.load(path))
-    return np.array([])
+    raise AssertionError(
+        f"'{path.name}' has no reader here, so its contents would go unchecked. Add one rather "
+        f"than letting an unrecognised output format be skipped silently."
+    )
+
+
+def _manifest(working_directory: Path) -> list[dict[str, Any]]:
+    """Return the ``outputs`` entries the run recorded in its metadata.
+
+    The run declares every file it wrote, with the channels and content hash for each. Checking
+    the directory against that declaration is stronger than counting files against a number
+    restated in the test, and it catches the case a count would miss in the other direction --
+    a file written that the run does not know about.
+    """
+    metadata_files = sorted((working_directory / "metadata").glob("*.metadata.json"))
+    assert metadata_files, f"no run metadata was written to {working_directory / 'metadata'}"
+
+    outputs: list[dict[str, Any]] = []
+    for path in metadata_files:
+        outputs.extend(json.loads(path.read_text(encoding="utf-8")).get("outputs", []))
+    return outputs
 
 
 @pytest.mark.parametrize("entry", E2E_MATRIX, ids=lambda entry: entry.label)
@@ -102,24 +123,52 @@ class TestExampleRuns:
         empty = [path.name for path in written if path.stat().st_size == 0]
         assert not empty, f"'{entry.label}' wrote empty files: {empty}"
 
-    def test_the_output_is_readable_and_finite(self, entry: MatrixEntry, tmp_path: Path):
-        """Every written file must decode, and contain no NaN or infinity.
+    def test_every_declared_output_was_written(self, entry: MatrixEntry, tmp_path: Path):
+        """The files on disk must be exactly the ones the run says it wrote.
 
-        A file that exists but cannot be read, or that decodes to NaN, passes a
-        does-it-exist check while being useless -- and NaN propagates silently into whatever
-        analysis consumes it.
+        Checked both ways on purpose. Requiring only that *some* output exists lets a run pass
+        having written one detector's frame and dropped the rest -- and a run that writes a file
+        its own metadata does not mention is equally wrong, in a way a file count would miss.
         """
         _skip_if_unavailable(entry)
         _run(entry, tmp_path)
 
-        checked = 0
-        for path in _written_files(tmp_path):
+        declared = {item["path"] for item in _manifest(tmp_path)}
+        assert declared, f"'{entry.label}' recorded no outputs in its metadata"
+
+        found = {str(path.relative_to(tmp_path)) for path in _written_files(tmp_path)}
+        assert declared == found, (
+            f"'{entry.label}' output does not match its own manifest: "
+            f"declared but absent {sorted(declared - found)}, "
+            f"present but undeclared {sorted(found - declared)}"
+        )
+
+    def test_every_output_decodes_and_is_finite(self, entry: MatrixEntry, tmp_path: Path):
+        """*Every* written file must decode, carry samples, and contain no NaN or infinity.
+
+        Previously this counted the files that decoded and required at least one, which let an
+        unreadable or empty file pass as long as a sibling was fine. An unrecognised format now
+        fails in ``_samples`` rather than being skipped.
+
+        The channel list is cross-checked against the manifest as well, since a frame can decode
+        while holding fewer channels than the run claims to have put in it.
+        """
+        _skip_if_unavailable(entry)
+        _run(entry, tmp_path)
+
+        for item in _manifest(tmp_path):
+            path = tmp_path / item["path"]
             samples = _samples(path)
-            if not samples.size:
-                continue
-            checked += 1
-            assert np.all(np.isfinite(samples)), f"'{path.name}' contains non-finite samples"
-        assert checked, f"'{entry.label}' produced no file whose samples could be decoded"
+            assert samples.size, f"'{item['path']}' decoded to no samples"
+            assert np.all(np.isfinite(samples)), f"'{item['path']}' contains non-finite samples"
+
+            declared_channels = item.get("channels")
+            if declared_channels and path.suffix == ".gwf":
+                from gwpy.io.gwf import get_channel_names
+
+                assert sorted(get_channel_names(str(path))) == sorted(declared_channels), (
+                    f"'{item['path']}' does not hold the channels its metadata declares"
+                )
 
     def test_the_output_contains_signal_where_expected(self, entry: MatrixEntry, tmp_path: Path):
         """A run whose span covers the population must not be all zeros.

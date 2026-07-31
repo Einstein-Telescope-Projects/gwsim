@@ -27,9 +27,32 @@ from .overlay import (
     apply_overlay,
 )
 
-#: Settings that select a code path. An overlay may shorten a run or repoint an input; changing
-#: any of these would make the entry stop covering what it claims to.
-_PATH_DEFINING_KEYS = ("waveform-model", "waveform-backend", "detectors", "source-type", "backend")
+#: Settings that select a code path or the physics. An overlay may shorten a run or repoint an
+#: input; changing any of these would make the entry stop covering what it claims to.
+#:
+#: ``minimum-frequency``, ``earth-rotation`` and ``waveform-backend-arguments`` are here because
+#: each selects behaviour rather than scale: the cutoff taper, the rotating-versus-static
+#: projection, and the waveform backend's own configuration.
+_PATH_DEFINING_KEYS = (
+    "waveform-model",
+    "waveform-backend",
+    "waveform-backend-arguments",
+    "detectors",
+    "source-type",
+    "backend",
+    "minimum-frequency",
+    "earth-rotation",
+)
+
+#: What an overlay *is* allowed to change, and therefore what these tests do not preserve.
+#:
+#: Recorded because it is a real limitation rather than an oversight. ``sampling-frequency`` is
+#: reduced from 4096 Hz to 1024 Hz, which moves the Nyquist frequency and the discretisation;
+#: ``duration`` and ``total-duration`` are cut, which changes how many segments a run produces.
+#: So these entries verify that orchestration works and produces sane data at test scale -- they
+#: do not reproduce the example's numerical behaviour, and a defect that only appears above
+#: 512 Hz or across many segments would not be caught here.
+_SCALE_KEYS = ("sampling-frequency", "duration", "total-duration")
 
 #: Matrix entries that can actually be run here. A non-hermetic entry has no overlay yet on
 #: purpose: it cannot be exercised, so an overlay for it would be untested guesswork. The
@@ -114,6 +137,40 @@ def test_the_overlay_does_not_change_the_code_path(entry, tmp_path: Path):
                     f"the overlay changed orchestration.{section}.{key} for '{entry.label}', "
                     f"which changes the code path the entry is meant to cover"
                 )
+
+
+def test_only_scale_settings_are_overridden_in_the_globals():
+    """Every global an overlay touches must be a scale knob, not a behaviour switch.
+
+    The complement of ``test_the_overlay_does_not_change_the_code_path``: rather than listing
+    what must be preserved, this bounds what may be altered, so a new overlay cannot quietly
+    introduce an override of something behavioural. ``seed`` is permitted because pinning it is
+    the point.
+    """
+    permitted = set(_SCALE_KEYS) | {"start-time", "seed"}
+    for label, overlay in _OVERLAYS.items():
+        touched = set(overlay.get("globals", {}).get("simulator-arguments", {}))
+        assert touched <= permitted, (
+            f"the overlay for '{label}' overrides {sorted(touched - permitted)}, which is not a "
+            f"scale setting. If that is deliberate, it belongs in the matrix entry's description "
+            f"rather than hidden in an overlay."
+        )
+
+
+@pytest.mark.parametrize("label", sorted(NOT_HERMETIC), ids=lambda label: label)
+def test_a_blocked_entry_is_declared_as_not_run(label: str):
+    """An entry that never runs must say so where coverage is read, not only in a skip message.
+
+    A matrix entry reads as coverage. One that is permanently skipped is the most misleading
+    thing the matrix can contain -- a reader sees seven entries and assumes seven paths are
+    exercised. Enforcing the marker keeps the count honest as entries come and go.
+    """
+    entry = next((entry for entry in E2E_MATRIX if entry.label == label), None)
+    assert entry is not None, f"'{label}' is listed as blocked but is not in the matrix"
+    assert "not run" in entry.covers.lower(), (
+        f"'{label}' cannot be executed here, so its matrix description must say so; it currently "
+        f"reads: {entry.covers!r}"
+    )
 
 
 def test_contains_signal_only_names_matrix_entries():

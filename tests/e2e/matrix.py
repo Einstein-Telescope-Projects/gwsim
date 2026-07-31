@@ -1,9 +1,9 @@
-"""The subset of ``examples/`` *declared* as the end-to-end matrix, and why each one is in it.
+"""The subset of ``examples/`` that the end-to-end suite runs, and why each one is in it.
 
-Declared, not yet executed: no runner drives these configs. Today the entries are checked
-only for existence, and for agreement with the table in ``examples/README.md``. The wording
-matters because a list of examples reads as a claim about coverage, and overstating it is
-worse than having no list -- so the present tense is reserved for when a runner exists.
+``test_examples_end_to_end.py`` drives each entry through the CLI and
+``test_reproducibility.py`` runs each twice in separate processes. One entry is an exception and
+says so in its own description: it cannot be executed here, and a test enforces that it is
+labelled ``not run`` rather than being counted as coverage that happens.
 
 This module is the single source of truth for the set. ``examples/README.md`` documents the
 same set for users, and ``test_examples_index.py`` fails if the two disagree.
@@ -26,12 +26,12 @@ class MatrixEntry:
 
     Attributes:
         label: Path-derived example label, exactly as ``gwmock config --get`` takes it.
-        covers: The code path this entry is intended to exercise. Written as a claim that can
-            be checked against the code, not as a restatement of the label. Intent for now --
-            nothing verifies that running the config reaches that path, because nothing runs
-            it yet.
+        covers: The code path this entry exercises. Written as a claim that can be checked
+            against the code, not as a restatement of the label. The entry is run, but nothing
+            asserts that the run *reaches* the named path -- that much is still a human claim,
+            kept honest by review.
         requires: Import names that must be present for this entry to run, if any. An entry
-            whose dependency is missing will be skipped rather than failed.
+            whose dependency is missing is skipped rather than failed.
     """
 
     label: str
@@ -69,7 +69,7 @@ E2E_MATRIX: tuple[MatrixEntry, ...] = (
     ),
     MatrixEntry(
         label="noise/glitches/gengli/et_triangle_sardinia/e1",
-        covers="Glitch injection. Skipped when `gengli` is absent",
+        covers="**Not run** -- glitch injection, blocked on `gengli` and a local glitch fixture",
         requires=("gengli",),
     ),
 )
