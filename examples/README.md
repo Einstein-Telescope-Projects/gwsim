@@ -99,6 +99,14 @@ minutes.
 > GWMOCK_WRITE_E2E_REFERENCES=1 uv run pytest -m e2e --no-cov
 > ```
 >
+> The exact comparison only applies on the same numerical stack the reference
+> was generated on — system, architecture and Python version. On anything else,
+> identical bits are not a fair thing to demand, so the recorded statistics are
+> compared within a relative tolerance and the test **skips**, naming both
+> environments. A skip there means "not exactly validated here", not
+> "validated". Dependency versions are deliberately _not_ part of that check: a
+> bump that changes a waveform is what these references exist to catch.
+>
 > The overlay shortens runs, which costs coverage worth naming: sampling
 > frequency drops from 4096 Hz to 1024 Hz, moving the Nyquist frequency, and
 > spans are cut, reducing segment counts. A defect appearing only at full rate
