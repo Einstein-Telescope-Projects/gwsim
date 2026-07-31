@@ -10,11 +10,17 @@
     "ripplegw": "0.3.0",
     "scipy": "1.18.0"
   },
+  "fingerprint": {
+    "machine": "x86_64",
+    "python": "3.12",
+    "system": "Linux"
+  },
   "label": "signal/sgwb/et_triangle_sardinia",
   "outputs": {
     "output/noise/noise-0-ET1_SARD.gwf": {
       "argmax": 6525,
       "content_hash": "sha256:5560be5522f62688e8aab9dd34c0506a7ba78604511923cde8b5448b93c7b851",
+      "mean": 6.640791750541525e-27,
       "n": 8192,
       "nonzero": 8192,
       "peak": 1.6351019269974153e-22,
@@ -23,6 +29,7 @@
     "output/noise/noise-0-ET2_SARD.gwf": {
       "argmax": 1503,
       "content_hash": "sha256:593ec9c37cc42b2372b58dbc471d8a68464fbbbdc92bb184c1acb5701271d10e",
+      "mean": 6.576453366363114e-26,
       "n": 8192,
       "nonzero": 8192,
       "peak": 1.4208325323997822e-22,
@@ -31,6 +38,7 @@
     "output/noise/noise-0-ET3_SARD.gwf": {
       "argmax": 3504,
       "content_hash": "sha256:1b15e16834533ae96383b90835a81dfe51d398f953dc88b5e8e60ff877ee973c",
+      "mean": 3.986888356333029e-25,
       "n": 8192,
       "nonzero": 8192,
       "peak": 1.6429011187454721e-22,
@@ -39,6 +47,7 @@
     "output/signal/sgwb-et-triangle-0.hdf5": {
       "argmax": 1807,
       "content_hash": "sha256:2910a9ceb4382448ab0d0e34298135addf7ca15ad414203e261d8d0f1e3171a5",
+      "mean": 7.174648137343064e-43,
       "n": 24576,
       "nonzero": 24576,
       "peak": 6.93698448988948e-24,

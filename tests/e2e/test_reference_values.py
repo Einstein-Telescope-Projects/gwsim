@@ -20,10 +20,12 @@ import pytest
 
 from .matrix import E2E_MATRIX, MatrixEntry
 from .reference_values import (
+    STATISTIC_TOLERANCE,
     WRITE_ENVIRONMENT_VARIABLE,
     build_reference,
     describe_difference,
     load_reference,
+    statistic_differences,
     write_reference,
     writing_references,
 )
@@ -60,6 +62,36 @@ def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_r
         f"'{entry.label}' produced a different set of files than its reference:\n"
         f"{describe_difference(stored, produced)}"
     )
+
+    # Both sides must actually have a hash. `compute_content_hash` returns None for a format it
+    # cannot decode, and two Nones compare equal -- so without this the comparison could pass by
+    # having nothing to compare.
+    unhashed = [
+        name
+        for name in stored_outputs
+        if not isinstance(stored_outputs[name].get("content_hash"), str)
+        or not isinstance(produced_outputs[name].get("content_hash"), str)
+    ]
+    assert not unhashed, (
+        f"'{entry.label}' has files with no content hash on one or both sides, so comparing them "
+        f"would prove nothing: {unhashed}"
+    )
+
+    if produced.get("fingerprint") != stored.get("fingerprint"):
+        # A different numerical stack. Requiring identical bits here would fail for reasons that
+        # say nothing about gwmock, so the statistics are compared instead -- and the weaker check
+        # is stated rather than passed off as the strong one.
+        differences = statistic_differences(stored_outputs, produced_outputs)
+        assert not differences, (
+            f"'{entry.label}' differs from its reference by more than floating-point drift.\n"
+            f"  reference environment: {stored.get('fingerprint')}\n"
+            f"  this environment:      {produced.get('fingerprint')}\n  " + "\n  ".join(differences)
+        )
+        pytest.skip(
+            f"exact comparison not applicable: reference generated on {stored.get('fingerprint')}, "
+            f"this is {produced.get('fingerprint')}; statistics agree to within "
+            f"{STATISTIC_TOLERANCE:g} relative"
+        )
 
     differing = [
         name

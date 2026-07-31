@@ -10,11 +10,17 @@
     "ripplegw": "0.3.0",
     "scipy": "1.18.0"
   },
+  "fingerprint": {
+    "machine": "x86_64",
+    "python": "3.12",
+    "system": "Linux"
+  },
   "label": "signal/waveform_backend/ripple",
   "outputs": {
     "output/signal/E-ET1_SARD_STRAIN_BBH-1577491296-16.gwf": {
       "argmax": 4076,
       "content_hash": "sha256:9dcaeba2c7c514ab7067a4c7889f15f8752cb68bb616a0eec990fa5fd899a408",
+      "mean": 6.162626129192724e-29,
       "n": 16384,
       "nonzero": 4557,
       "peak": 8.371559922671528e-22,
@@ -23,6 +29,7 @@
     "output/signal/E-ET2_SARD_STRAIN_BBH-1577491296-16.gwf": {
       "argmax": 4077,
       "content_hash": "sha256:5ec4684ffbd80c0724c2c1df8dfd85755e3d35067d789af4fe783e345c641d37",
+      "mean": 3.899884970927985e-29,
       "n": 16384,
       "nonzero": 4557,
       "peak": 8.889964206699608e-22,
@@ -31,6 +38,7 @@
     "output/signal/E-ET3_SARD_STRAIN_BBH-1577491296-16.gwf": {
       "argmax": 4078,
       "content_hash": "sha256:435d5a13195b4656357a8558da1a9b1746673fbf1c69b2c361358fc9c4f570bd",
+      "mean": -1.0088623849015395e-28,
       "n": 16384,
       "nonzero": 4557,
       "peak": 8.291569211108467e-22,

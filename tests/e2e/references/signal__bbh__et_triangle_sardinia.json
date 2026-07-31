@@ -10,11 +10,17 @@
     "ripplegw": "0.3.0",
     "scipy": "1.18.0"
   },
+  "fingerprint": {
+    "machine": "x86_64",
+    "python": "3.12",
+    "system": "Linux"
+  },
   "label": "signal/bbh/et_triangle_sardinia",
   "outputs": {
     "output/signal/E-ET1_SARD_STRAIN_BBH-1577491296-16.gwf": {
       "argmax": 4080,
       "content_hash": "sha256:a644fd79a5d4f79d7c0b024608a504a5a5ea5899e307564fbabe296aa7489f16",
+      "mean": 3.5308054199089494e-26,
       "n": 16384,
       "nonzero": 5734,
       "peak": 8.97490201893049e-22,
@@ -23,6 +29,7 @@
     "output/signal/E-ET2_SARD_STRAIN_BBH-1577491296-16.gwf": {
       "argmax": 4083,
       "content_hash": "sha256:11eba4fb0104114a53be81119717b11e41b55f6a1ecdfc5d6f783a2bf5528476",
+      "mean": -1.1654494248448037e-25,
       "n": 16384,
       "nonzero": 5734,
       "peak": 8.697604987835595e-22,
@@ -31,6 +38,7 @@
     "output/signal/E-ET3_SARD_STRAIN_BBH-1577491296-16.gwf": {
       "argmax": 4079,
       "content_hash": "sha256:999fc5d07a0fb4ed3763b3bcc56b5c27635ae5b6a9883ef33f6668492f6af778",
+      "mean": 8.127973266866662e-26,
       "n": 16384,
       "nonzero": 5734,
       "peak": 8.368664878479757e-22,
