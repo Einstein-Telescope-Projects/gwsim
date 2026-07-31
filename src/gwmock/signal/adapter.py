@@ -21,6 +21,21 @@ logger = logging.getLogger("gwmock")
 #: parameter list that follows.
 _UNSUPPORTED_PARAMS_RE = re.compile(r"^Unsupported .+? waveform parameters:\s*(.*)$")
 
+#: Canonical parameter names the on-device batched path requires, with no aliases accepted.
+#:
+#: The per-event path forwards whatever it is given and lets the backend resolve aliases
+#: (``mass1`` for ``detector_frame_mass_1``, and so on). The batched path does not: it reads these
+#: names directly from a struct-of-arrays, so a missing or aliased key would surface as a
+#: ``KeyError`` from inside a jitted kernel rather than as a statement about the input.
+_DEVICE_REQUIRED_PARAMETERS = (
+    "coa_time",
+    "declination",
+    "detector_frame_mass_1",
+    "detector_frame_mass_2",
+    "polarization_angle",
+    "right_ascension",
+)
+
 _DEFAULT_WAVEFORM_MODEL = "IMRPhenomXPHM"
 _LEGACY_SINGLE_DETECTOR_ALIASES = {
     "E1_triangle_sardinia": ("ET-Triangle-Sardinia", "ET1_SARD"),
@@ -340,6 +355,139 @@ class SignalAdapter:
             The resolved public detector network.
         """
         return self._network
+
+    @staticmethod
+    def events_to_struct_of_arrays(
+        events: Sequence[Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """Transpose a sequence of per-event parameter mappings into arrays.
+
+        The orchestration layer holds one mapping per event, while the batched device path takes one
+        array per parameter. Only keys present in *every* event are kept: a parameter some events
+        lack cannot become a column, and silently filling a default would put a fabricated value into
+        a simulation.
+
+        Args:
+            events: Per-event parameter mappings, as the population loader yields them.
+
+        Returns:
+            One entry per shared key, each a list of that key's value across events, in order.
+
+        Raises:
+            ValueError: If *events* is empty, or if no key is shared by all of them.
+        """
+        if not events:
+            raise ValueError("events must be non-empty to build a batch.")
+        shared = set(events[0])
+        for event in events[1:]:
+            shared &= set(event)
+        if not shared:
+            raise ValueError("no parameter is present in every event, so no batch column can be built.")
+        return {key: [event[key] for event in events] for key in sorted(shared)}
+
+    def simulate_segments(
+        self,
+        parameters: Mapping[str, Any],
+        *,
+        sampling_frequency: float,
+        minimum_frequency: float,
+        segment_duration: float,
+        start_time: float,
+        end_time: float,
+        waveform_arguments: Mapping[str, Any] | None = None,
+        n_chirp_mass_bins: int = 1,
+        chunk_size: int | None = None,
+    ) -> list[DetectorStrainStack]:
+        """Generate a whole catalogue on device and return it as fixed-duration segments.
+
+        The device counterpart of :meth:`simulate_stack`. That method takes one event and returns one
+        stack; this takes the catalogue as a struct-of-arrays and returns the assembled segments, so
+        the per-event Python loop disappears and the waveforms are generated under one ``vmap``.
+
+        Kept as a separate entry point rather than folded into :meth:`simulate_stack`, because the
+        per-event path must keep working unchanged for the LAL and PyCBC backends, which have no
+        batched form.
+
+        Args:
+            parameters: Canonical catalogue parameters as a struct-of-arrays — one array per
+                parameter, aligned across parameters. See :meth:`events_to_struct_of_arrays`.
+            sampling_frequency: Sample rate in Hz.
+            minimum_frequency: Low-frequency cutoff in Hz. Note that with a tapered cutoff this is
+                where the waveform reaches full amplitude, not where its content begins.
+            segment_duration: Duration of each output segment in seconds.
+            start_time: GPS start of the first segment.
+            end_time: GPS end of the span to tile.
+            waveform_arguments: Fixed parameters merged into the catalogue; per-event values win.
+            n_chirp_mass_bins: Generate heavier events on shorter grids. Bounds buffer length at the
+                cost of exact reproducibility against a single grid.
+            chunk_size: Events per batched call. ``None`` lets gwmock-signal size it from device
+                memory, which is the safer default.
+
+        Returns:
+            One :class:`~gwmock_signal.DetectorStrainStack` per segment, in time order.
+
+        Raises:
+            ValueError: If a required canonical parameter is missing, or the arrays disagree in
+                length.
+            RuntimeError: If the installed gwmock-signal does not export the device path.
+        """
+        try:
+            # Imported here, not at module scope: an older gwmock-signal without this export would
+            # otherwise break `import gwmock.signal.adapter` outright, taking the per-event path down
+            # with it. Locally, only the device path fails, and it says why.
+            from gwmock_signal import simulate_cbc_catalogue  # noqa: PLC0415
+        except ImportError as exc:  # pragma: no cover - depends on the installed version
+            raise RuntimeError(
+                "The installed gwmock-signal does not export simulate_cbc_catalogue, which the "
+                "device path needs. Upgrade gwmock-signal, and install it with the [jax] extra."
+            ) from exc
+
+        merged = {**(waveform_arguments or {}), **dict(parameters)}
+        missing = [name for name in _DEVICE_REQUIRED_PARAMETERS if name not in merged]
+        if missing:
+            raise ValueError(
+                f"The device path needs these canonical parameters, which are absent: "
+                f"{', '.join(missing)}. Unlike the per-event path it does not accept aliases, so "
+                f"e.g. 'mass1' must be given as 'detector_frame_mass_1'."
+            )
+        lengths = {name: len(values) for name, values in merged.items() if isinstance(values, (list, tuple))}
+        if len(set(lengths.values())) > 1:
+            raise ValueError(f"catalogue parameters disagree in length: {lengths}")
+
+        return simulate_cbc_catalogue(
+            self._waveform_model_name(),
+            list(self._network.detector_names),
+            sampling_frequency=sampling_frequency,
+            minimum_frequency=minimum_frequency,
+            parameters=merged,
+            segment_duration=segment_duration,
+            start_time=start_time,
+            end_time=end_time,
+            n_chirp_mass_bins=n_chirp_mass_bins,
+            chunk_size=chunk_size,
+        )
+
+    def _waveform_model_name(self) -> str:
+        """Return the approximant name the batched path should generate.
+
+        The batched entry point takes an approximant *name*, while the per-event path goes through
+        the backend's own waveform registry. Reading it back off the backend keeps one source of
+        truth for what is being simulated.
+
+        Returns:
+            The approximant name.
+
+        Raises:
+            RuntimeError: If the backend does not expose one.
+        """
+        for attribute in ("waveform_model", "_waveform_model", "approximant"):
+            value = getattr(self._backend, attribute, None)
+            if isinstance(value, str) and value:
+                return value
+        raise RuntimeError(
+            "Could not determine the approximant name from the signal backend, which the device "
+            "path requires. Pass a string waveform-model rather than a callable."
+        )
 
     def simulate_stack(
         self,
