@@ -26,6 +26,14 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES_DIR = _REPO_ROOT / "examples"
 
+#: Seed pinned for every run, so two runs of one entry are comparable.
+#:
+#: Written to ``noise.arguments.seed`` as well as the global, because the orchestrator copies the
+#: global seed with ``setdefault`` -- an example that pins its own (several do, at 42) keeps it
+#: and the global is ignored. Setting only the global looks like it controls the seed while the
+#: example silently does; verified by changing each and seeing which moved the output.
+_TEST_SEED = 20260731
+
 #: In-repo CBC population, used in place of every remote population file. Small and fixed, so a
 #: run is reproducible and needs no network.
 POPULATION_FIXTURE = EXAMPLES_DIR / "signal" / "bbh_population.csv"
@@ -59,7 +67,6 @@ _OVERLAYS: dict[str, dict[str, Any]] = {
                 "sampling-frequency": 1024,
                 "duration": 8,
                 "total-duration": 8,
-                "seed": 20260731,
             }
         }
     },
@@ -70,7 +77,6 @@ _OVERLAYS: dict[str, dict[str, Any]] = {
                 "duration": 16,
                 "total-duration": 16,
                 "start-time": _ALIGNED_START,
-                "seed": 20260731,
             }
         },
         "orchestration": {"population": {"arguments": {"path": str(POPULATION_FIXTURE)}}},
@@ -83,7 +89,6 @@ _OVERLAYS: dict[str, dict[str, Any]] = {
                 "sampling-frequency": 1024,
                 "duration": 4,
                 "total-duration": 12,
-                "seed": 20260731,
             }
         }
     },
@@ -94,13 +99,30 @@ _OVERLAYS: dict[str, dict[str, Any]] = {
                 "duration": 16,
                 "total-duration": 16,
                 "start-time": _ALIGNED_START,
-                "seed": 20260731,
             }
         },
         "orchestration": {"population": {"arguments": {"path": str(POPULATION_FIXTURE)}}},
     },
-    # Already 16 s at 512 Hz, so only the seed is pinned.
-    "signal/sgwb/et_triangle_sardinia": {"globals": {"simulator-arguments": {"seed": 20260731}}},
+    # Already 16 s at 512 Hz; the seed is pinned centrally, so there is nothing to override.
+    "signal/sgwb/et_triangle_sardinia": {},
+    # The example pins its population to a commit, so the URL is stable -- but it is still a
+    # network fetch, and the local fixture is the same data. `waveform-backend: ripple` is left
+    # alone: it is the entire point of this entry.
+    #
+    # ripple JIT-compiles on first use, so this entry costs seconds where the others cost
+    # fractions of one. IMRPhenomD is what the example already selects, and is the cheap case --
+    # the precessing models take roughly seven times longer to compile.
+    "signal/waveform_backend/ripple": {
+        "globals": {
+            "simulator-arguments": {
+                "sampling-frequency": 1024,
+                "duration": 16,
+                "total-duration": 16,
+                "start-time": _ALIGNED_START,
+            }
+        },
+        "orchestration": {"population": {"arguments": {"path": str(POPULATION_FIXTURE)}}},
+    },
 }
 
 #: Entries whose span is expected to contain a gravitational-wave signal, so an all-zero output
@@ -110,6 +132,7 @@ CONTAINS_SIGNAL: frozenset[str] = frozenset(
     {
         "noise/uncorrelated_gaussian/quick_start",
         "signal/bbh/et_triangle_sardinia",
+        "signal/waveform_backend/ripple",
     }
 )
 
@@ -147,4 +170,12 @@ def apply_overlay(config: dict[str, Any], label: str, working_directory: Path) -
         )
     merged = _deep_merge(config, _OVERLAYS[label])
     merged.setdefault("globals", {})["working-directory"] = str(working_directory)
+    merged["globals"].setdefault("simulator-arguments", {})["seed"] = _TEST_SEED
+
+    # Override the noise seed rather than defaulting it: the orchestrator's own copy of the
+    # global seed is a `setdefault`, so an example that pins its own would otherwise keep it and
+    # this would have no effect. See _TEST_SEED.
+    noise = merged.get("orchestration", {}).get("noise")
+    if isinstance(noise, dict):
+        noise.setdefault("arguments", {})["seed"] = _TEST_SEED
     return merged
