@@ -45,13 +45,21 @@ _BATCHED_STRAIN_DIMENSIONS = 3
 #: batched entry point reads canonical names straight from the struct-of-arrays and does not. So a
 #: population using ``distance`` -- as the bundled BBH catalogue does -- works per-event and fails
 #: batched, which would make switching execution mode change whether a config runs at all. Taken
-#: from gwmock-signal's LAL backend rather than invented, so the two agree on what an alias is.
+#: from gwmock-signal's backends rather than invented, so the two agree on what an alias is.
+#:
+#: Scope: this covers the aliases LAL and ripple share, plus PyCBC's ``lambda1``/``lambda2``. It is a
+#: fourth copy of a mapping gwmock-signal already holds three times, one per backend, and the right
+#: home for it is a canonicalisation helper there. Until that exists, a config using an alias no
+#: backend shares would still be refused by the batched path with a missing-parameter error naming
+#: the canonical name.
 _PARAMETER_ALIASES: dict[str, str] = {
     "mass1": "detector_frame_mass_1",
     "mass2": "detector_frame_mass_2",
     "distance": "luminosity_distance",
     "tidal_1": "lambda_1",
     "tidal_2": "lambda_2",
+    "lambda1": "lambda_1",
+    "lambda2": "lambda_2",
     "spin1x": "spin_1x",
     "spin1y": "spin_1y",
     "spin1z": "spin_1z",

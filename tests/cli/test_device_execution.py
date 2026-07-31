@@ -68,11 +68,13 @@ def _config(working_directory: Path, execution: str) -> dict[str, Any]:
     }
 
 
-def _orchestrator(working_directory: Path, execution: str):
+def _orchestrator(working_directory: Path, execution: str, **signal_overrides: Any):
     from gwmock.cli.adapter_orchestration import AdapterOrchestrator
 
     working_directory.mkdir(parents=True, exist_ok=True)
-    config = Config.model_validate(_config(working_directory, execution))
+    raw = _config(working_directory, execution)
+    raw["orchestration"]["signal"].update(signal_overrides)
+    config = Config.model_validate(raw)
     return AdapterOrchestrator.from_config(
         config.orchestration,
         global_simulator_arguments=dict(config.globals.simulator_arguments),
@@ -133,6 +135,45 @@ class TestCanonicalParameters:
         }
 
 
+class TestWaveformConfigurationIsHonoured:
+    """Batched mode must not quietly ignore the waveform settings the config asks for.
+
+    The batched entry point takes a backend *instance*, so omitting it discards
+    ``waveform-backend-arguments`` and silently uses ripple's defaults -- the same silent drop this
+    codebase already fixed once for the per-event path. Output from the wrong settings looks
+    entirely normal, which is what makes it worth testing rather than assuming.
+    """
+
+    def test_backend_arguments_reach_the_device(self, tmp_path):
+        """``taper_fraction`` must change the generated waveform.
+
+        It lowers the effective start frequency, which lengthens the inspiral, so the buffer's
+        length changes -- an unmistakable signal that the argument was applied rather than dropped.
+        """
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        default = _orchestrator(tmp_path / "default", "batched")._simulate()
+        tapered = _orchestrator(
+            tmp_path / "tapered", "batched", **{"waveform-backend-arguments": {"taper_fraction": 0.25}}
+        )._simulate()
+
+        assert np.asarray(default[0]).shape != np.asarray(tapered[0]).shape, (
+            "taper_fraction did not change the waveform, so waveform-backend-arguments are being "
+            "discarded and the run silently uses ripple's defaults"
+        )
+
+    def test_a_non_ripple_library_is_refused(self, tmp_path):
+        """The batched path is ripple-only; substituting it would ignore the configuration."""
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        with pytest.raises(ValueError, match="always generates with ripple"):
+            _orchestrator(tmp_path, "batched", **{"waveform-backend": "lal"})._simulate()
+
+    def test_waveform_options_are_refused(self, tmp_path):
+        """There is no equivalent parameter on the batched entry point, so silence would lose them."""
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        with pytest.raises(ValueError, match="cannot apply waveform-options"):
+            _orchestrator(tmp_path, "batched", **{"waveform-options": {"ModeArray": [[2, 2]]}})._simulate()
+
+
 class TestCatalogueConsumption:
     """Both modes must walk the catalogue the same way, or a resumed run skips or repeats events."""
 
@@ -161,6 +202,23 @@ class TestCatalogueConsumption:
         assert len(batched._batch_injections) == len(chunks)
         assert all("event_id" in record and "parameters" in record for record in batched._batch_injections)
         assert all("injection_parameters" in chunk.metadata for chunk in chunks)
+
+    def test_both_modes_record_the_same_provenance(self, tmp_path):
+        """An injection must be described identically whichever mode produced it.
+
+        The batched path canonicalises names and merges fixed waveform arguments before handing
+        parameters to the device. Recording *that* mapping would make the same event appear with
+        ``luminosity_distance`` in one mode and ``distance`` in the other, so provenance is taken
+        from the catalogue instead.
+        """
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        per_event = _orchestrator(tmp_path / "per", "per-event")
+        batched = _orchestrator(tmp_path / "bat", "batched")
+
+        per_event._simulate()
+        batched._simulate()
+
+        assert batched._batch_injections == per_event._batch_injections
 
 
 @pytest.mark.e2e

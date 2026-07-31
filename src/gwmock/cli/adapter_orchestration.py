@@ -515,9 +515,15 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
     def _events_for_this_segment(self) -> tuple[list[int], list[dict[str, Any]]]:
         """Consume the population events belonging to the current segment.
 
-        Advances ``population_index`` exactly as the per-event loop does, and stops at the same
-        boundary, so the two paths consume the catalogue identically. That matters for resume: a run
-        switched between modes mid-way must not skip or repeat events.
+        Advances ``population_index`` and stops on ``coa_time >= end_time``, which is the per-event
+        loop's boundary. That matters for resume: ``population_index`` is checkpointed state, so a
+        run switched between modes must not skip or repeat events.
+
+        One difference, stated rather than glossed: the per-event loop also breaks when a *generated*
+        strain starts at or after ``end_time``, a condition that cannot be evaluated before
+        generating. Reaching it requires a waveform whose buffer begins beyond the segment despite a
+        ``coa_time`` inside it, which the bundled waveforms do not produce. So the two agree on every
+        case exercised here, and this helper is the weaker of the two rules where they could differ.
 
         Returns:
             The population indices and their parameter mappings, in catalogue order.
@@ -537,6 +543,49 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             self.population_index = cast(int, self.population_index) + 1
         return event_ids, events
 
+    def _batched_waveform_backend(self) -> Any:
+        """Return the ripple backend the batched path should generate with.
+
+        The batched entry point is ripple-only, and it takes a backend *instance*. Without passing
+        one, ``waveform-backend-arguments`` -- ripple's ``taper_fraction``, ``f_ref``,
+        ``ringdown_fraction`` -- are silently discarded and the run uses ripple's defaults while the
+        configuration says otherwise. That is the same silent-drop this codebase already fixed once
+        for the per-event path.
+
+        A configuration asking for a library the batched path cannot provide is refused rather than
+        quietly served with ripple, because the output of the wrong library looks entirely normal.
+
+        Returns:
+            A configured ``RippleBackend``, or ``None`` to let gwmock-signal build its default.
+
+        Raises:
+            ValueError: If the configuration selects a non-ripple library, or sets
+                ``waveform-options``, which the batched entry point has no way to apply.
+        """
+        signal_config = self.orchestration_config.signal
+        if signal_config is None:
+            return None
+
+        requested = getattr(signal_config, "waveform_backend", None)
+        if requested is not None and resolve_backend_class("waveform", requested).__name__ != "RippleBackend":
+            raise ValueError(
+                f"execution: batched always generates with ripple, but waveform-backend is "
+                f"{requested!r}. Substituting ripple would produce a different waveform than the "
+                f"configuration asks for. Use execution: per-event, or waveform-backend: ripple."
+            )
+
+        if self.waveform_options:
+            raise ValueError(
+                f"execution: batched cannot apply waveform-options {sorted(self.waveform_options)}; "
+                f"the batched entry point has no equivalent parameter. Use execution: per-event, or "
+                f"remove them."
+            )
+
+        arguments = _normalize_keys(dict(getattr(signal_config, "waveform_backend_arguments", {}) or {}))
+        if not arguments:
+            return None
+        return instantiate_backend("waveform", "ripple", init_kwargs=arguments)
+
     def _simulate_batched_segment(self) -> TimeSeriesList:
         """Generate this segment's events together, through gwmock-signal's batched path.
 
@@ -553,7 +602,6 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         from gwmock.signal.device_chunks import (  # noqa: PLC0415
             batched_strain_to_chunks,
             canonicalise_parameters,
-            per_event_injections,
         )
 
         event_ids, events = self._events_for_this_segment()
@@ -561,6 +609,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         if not events:
             return TimeSeriesList()
 
+        waveform_backend = self._batched_waveform_backend()
         parameters = canonicalise_parameters(
             {**self.waveform_arguments, **SignalAdapter.events_to_struct_of_arrays(events)}
         )
@@ -576,12 +625,19 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             sampling_frequency=sampling_frequency,
             minimum_frequency=self.minimum_frequency,
             parameters=parameters,
+            backend=waveform_backend,
             earth_rotation=self.earth_rotation,
             output_grid=grid,
         )
 
         chunks = batched_strain_to_chunks(batch, expected_detector_names=tuple(self.detectors))
-        self._batch_injections = per_event_injections(parameters, event_ids)
+        # Provenance records what the *catalogue* said, not the canonicalised and merged mapping
+        # handed to the device, so the two execution modes describe an injection the same way. The
+        # per-event path records `dict(parameters)` straight from the population.
+        self._batch_injections = [
+            {"event_id": int(event_id), "parameters": dict(event)}
+            for event_id, event in zip(event_ids, events, strict=True)
+        ]
         for chunk, record in zip(chunks, self._batch_injections, strict=True):
             chunk.metadata.update({"injection_parameters": dict(record["parameters"])})
         return chunks
