@@ -479,6 +479,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         if not self._population_events and self._source_type == "sgwb":
             return self._simulate_stationary_signal_segment()
 
+        if self._execution_mode() == "batched":
+            return self._simulate_batched_segment()
+
         chunks = TimeSeriesList()
         self._batch_injections = []
         while self.population_index < len(self._population_events):
@@ -502,6 +505,85 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             self.population_index = cast(int, self.population_index) + 1
             if strain.start_time >= self.end_time:
                 break
+        return chunks
+
+    def _execution_mode(self) -> str:
+        """Return how this segment's events should be generated."""
+        signal_config = self.orchestration_config.signal
+        return "per-event" if signal_config is None else str(getattr(signal_config, "execution", "per-event"))
+
+    def _events_for_this_segment(self) -> tuple[list[int], list[dict[str, Any]]]:
+        """Consume the population events belonging to the current segment.
+
+        Advances ``population_index`` exactly as the per-event loop does, and stops at the same
+        boundary, so the two paths consume the catalogue identically. That matters for resume: a run
+        switched between modes mid-way must not skip or repeat events.
+
+        Returns:
+            The population indices and their parameter mappings, in catalogue order.
+        """
+        event_ids: list[int] = []
+        events: list[dict[str, Any]] = []
+        end_time_value = float(getattr(self.end_time, "value", self.end_time))
+
+        while self.population_index < len(self._population_events):
+            event_id = int(self.population_index)
+            parameters = dict(self._population_events[event_id])
+            coa_time = parameters.get("coa_time")
+            if coa_time is not None and float(coa_time) >= end_time_value:
+                break
+            event_ids.append(event_id)
+            events.append(parameters)
+            self.population_index = cast(int, self.population_index) + 1
+        return event_ids, events
+
+    def _simulate_batched_segment(self) -> TimeSeriesList:
+        """Generate this segment's events together, through gwmock-signal's batched path.
+
+        The device produces one buffer per event, aligned to this segment's sample lattice, and
+        gwmock's own assembler places them. Chunks stay per-event so ``inject_from_list`` keeps
+        handling spill-over into later segments and provenance stays per-injection -- the batched
+        path is a different way to *generate*, not a different way to assemble.
+
+        Returns:
+            One chunk per event, ready for injection, or an empty list if the segment has no events.
+        """
+        from gwmock_signal import SamplingGrid, simulate_cbc_batch  # noqa: PLC0415
+
+        from gwmock.signal.device_chunks import (  # noqa: PLC0415
+            batched_strain_to_chunks,
+            canonicalise_parameters,
+            per_event_injections,
+        )
+
+        event_ids, events = self._events_for_this_segment()
+        self._batch_injections = []
+        if not events:
+            return TimeSeriesList()
+
+        parameters = canonicalise_parameters(
+            {**self.waveform_arguments, **SignalAdapter.events_to_struct_of_arrays(events)}
+        )
+        sampling_frequency = float(self.sampling_frequency.value)
+
+        # The grid is this segment's own lattice, so every buffer starts on a sample of it and
+        # injection is an integer-offset add rather than a resample.
+        grid = SamplingGrid(float(getattr(self.start_time, "value", self.start_time)), sampling_frequency)
+
+        batch = simulate_cbc_batch(
+            self.signal_adapter.device_approximant(),
+            list(self._signal_network.detector_names),
+            sampling_frequency=sampling_frequency,
+            minimum_frequency=self.minimum_frequency,
+            parameters=parameters,
+            earth_rotation=self.earth_rotation,
+            output_grid=grid,
+        )
+
+        chunks = batched_strain_to_chunks(batch, expected_detector_names=tuple(self.detectors))
+        self._batch_injections = per_event_injections(parameters, event_ids)
+        for chunk, record in zip(chunks, self._batch_injections, strict=True):
+            chunk.metadata.update({"injection_parameters": dict(record["parameters"])})
         return chunks
 
     def _simulate_stationary_signal_segment(self) -> TimeSeriesList:

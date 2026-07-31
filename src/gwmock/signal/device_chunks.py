@@ -39,6 +39,54 @@ from gwmock.data.time_series.time_series_list import TimeSeriesList
 #: Dimensions of a batched strain array: event, detector, sample.
 _BATCHED_STRAIN_DIMENSIONS = 3
 
+#: Alias to canonical parameter name, mirroring what the per-event backends accept.
+#:
+#: The per-event path resolves these inside gwmock-signal (``_pop_alias`` in each backend); the
+#: batched entry point reads canonical names straight from the struct-of-arrays and does not. So a
+#: population using ``distance`` -- as the bundled BBH catalogue does -- works per-event and fails
+#: batched, which would make switching execution mode change whether a config runs at all. Taken
+#: from gwmock-signal's LAL backend rather than invented, so the two agree on what an alias is.
+_PARAMETER_ALIASES: dict[str, str] = {
+    "mass1": "detector_frame_mass_1",
+    "mass2": "detector_frame_mass_2",
+    "distance": "luminosity_distance",
+    "tidal_1": "lambda_1",
+    "tidal_2": "lambda_2",
+    "spin1x": "spin_1x",
+    "spin1y": "spin_1y",
+    "spin1z": "spin_1z",
+    "spin2x": "spin_2x",
+    "spin2y": "spin_2y",
+    "spin2z": "spin_2z",
+}
+
+
+def canonicalise_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    """Return *parameters* with known aliases renamed to their canonical names.
+
+    Args:
+        parameters: Struct-of-arrays as the population loader produced it.
+
+    Returns:
+        A new mapping; *parameters* is not modified.
+
+    Raises:
+        ValueError: If both an alias and its canonical name are present with different values.
+            Guessing which the caller meant would silently pick one physics over another.
+    """
+    renamed = dict(parameters)
+    for alias, canonical in _PARAMETER_ALIASES.items():
+        if alias not in renamed:
+            continue
+        if canonical in renamed and not np.array_equal(np.asarray(renamed[canonical]), np.asarray(renamed[alias])):
+            raise ValueError(
+                f"Parameters contain both '{canonical}' and its alias '{alias}' with different "
+                f"values. Remove one; picking either would silently choose which physics to use."
+            )
+        renamed[canonical] = renamed.pop(alias)
+    return renamed
+
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from gwmock_signal import BatchedDetectorStrain
 
