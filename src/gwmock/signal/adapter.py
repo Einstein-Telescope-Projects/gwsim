@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from gwmock_signal import CustomDetector, DetectorStrainStack, Network, resolve_simulator_backend
 
 from gwmock.data.time_series.time_series import TimeSeries
@@ -52,11 +53,17 @@ _LEGACY_SINGLE_DETECTOR_ALIASES = {
 DetectorSpec = str | CustomDetector
 
 
+#: Marks a registry name generated for a *callable* waveform model rather than a real approximant.
+#: The device path tests for it to reject callables with an explanation, so the prefix has one
+#: definition rather than being spelled out at both the producing and the consuming end.
+_CALLABLE_WAVEFORM_PREFIX = "__gwmock_custom__"
+
+
 def _callable_waveform_registry_key(func: Callable[..., Any]) -> str:
     """Return a unique registry name for *func* on a ``WaveformFactory`` instance."""
     qual = getattr(func, "__qualname__", type(func).__name__)
     mod = getattr(func, "__module__", "")
-    return f"__gwmock_custom__{mod}:{qual}__{id(func):#x}"
+    return f"{_CALLABLE_WAVEFORM_PREFIX}{mod}:{qual}__{id(func):#x}"
 
 
 def _register_callable_waveform(backend: Any, registry_key: str, factory: Callable[..., Any]) -> None:
@@ -363,27 +370,35 @@ class SignalAdapter:
         """Transpose a sequence of per-event parameter mappings into arrays.
 
         The orchestration layer holds one mapping per event, while the batched device path takes one
-        array per parameter. Only keys present in *every* event are kept: a parameter some events
-        lack cannot become a column, and silently filling a default would put a fabricated value into
-        a simulation.
+        array per parameter. Every event must therefore carry the same keys.
+
+        A ragged catalogue is rejected rather than reduced to the shared keys. Dropping a key that
+        only some events carry does not avoid fabricating physics, it fabricates it wholesale: if one
+        event omits ``spin_1z``, intersecting removes the column entirely and the backend default is
+        then applied to *every* event, silently. A loader that emits ragged events is malformed, and
+        saying so is the only outcome that does not quietly alter the simulation.
 
         Args:
             events: Per-event parameter mappings, as the population loader yields them.
 
         Returns:
-            One entry per shared key, each a list of that key's value across events, in order.
+            One entry per key, each a list of that key's value across events, in order.
 
         Raises:
-            ValueError: If *events* is empty, or if no key is shared by all of them.
+            ValueError: If *events* is empty, or if the events do not all carry the same keys.
         """
         if not events:
             raise ValueError("events must be non-empty to build a batch.")
-        shared = set(events[0])
-        for event in events[1:]:
-            shared &= set(event)
-        if not shared:
-            raise ValueError("no parameter is present in every event, so no batch column can be built.")
-        return {key: [event[key] for event in events] for key in sorted(shared)}
+        expected = set(events[0])
+        for index, event in enumerate(events[1:], start=1):
+            if set(event) != expected:
+                absent = sorted(expected - set(event))
+                extra = sorted(set(event) - expected)
+                raise ValueError(
+                    f"every event must carry the same parameters, but event {index} differs from the "
+                    f"first: missing {absent or 'nothing'}, unexpected {extra or 'nothing'}."
+                )
+        return {key: [event[key] for event in events] for key in sorted(expected)}
 
     def simulate_segments(
         self,
@@ -395,6 +410,7 @@ class SignalAdapter:
         start_time: float,
         end_time: float,
         waveform_arguments: Mapping[str, Any] | None = None,
+        earth_rotation: bool = True,
         n_chirp_mass_bins: int = 1,
         chunk_size: int | None = None,
     ) -> list[DetectorStrainStack]:
@@ -408,6 +424,15 @@ class SignalAdapter:
         per-event path must keep working unchanged for the LAL and PyCBC backends, which have no
         batched form.
 
+        .. warning::
+
+           **This path always generates with Ripple**, whatever backend the adapter was configured
+           with, because Ripple is the only JAX implementation and therefore the only batchable one.
+           The approximant carries over, but its implementation does not: an adapter configured for
+           LAL that runs here gets Ripple's version of the same approximant, which agrees closely but
+           not bit-for-bit. To keep that from being silent, an approximant Ripple does not implement
+           is rejected rather than substituted -- see :meth:`_device_approximant`.
+
         Args:
             parameters: Canonical catalogue parameters as a struct-of-arrays — one array per
                 parameter, aligned across parameters. See :meth:`events_to_struct_of_arrays`.
@@ -418,6 +443,7 @@ class SignalAdapter:
             start_time: GPS start of the first segment.
             end_time: GPS end of the span to tile.
             waveform_arguments: Fixed parameters merged into the catalogue; per-event values win.
+            earth_rotation: Whether to include earth rotation, as on :meth:`simulate_stack`.
             n_chirp_mass_bins: Generate heavier events on shorter grids. Bounds buffer length at the
                 cost of exact reproducibility against a single grid.
             chunk_size: Events per batched call. ``None`` lets gwmock-signal size it from device
@@ -450,12 +476,15 @@ class SignalAdapter:
                 f"{', '.join(missing)}. Unlike the per-event path it does not accept aliases, so "
                 f"e.g. 'mass1' must be given as 'detector_frame_mass_1'."
             )
-        lengths = {name: len(values) for name, values in merged.items() if isinstance(values, (list, tuple))}
+        # Sized by np.ndim rather than isinstance, so NumPy and JAX columns are checked too. Testing
+        # for list/tuple alone let an ndarray of the wrong length through to fail inside batching,
+        # where the message no longer names the parameter.
+        lengths = {name: len(values) for name, values in merged.items() if np.ndim(values) > 0}
         if len(set(lengths.values())) > 1:
             raise ValueError(f"catalogue parameters disagree in length: {lengths}")
 
         return simulate_cbc_catalogue(
-            self._waveform_model_name(),
+            self._device_approximant(),
             list(self._network.detector_names),
             sampling_frequency=sampling_frequency,
             minimum_frequency=minimum_frequency,
@@ -463,31 +492,60 @@ class SignalAdapter:
             segment_duration=segment_duration,
             start_time=start_time,
             end_time=end_time,
+            earth_rotation=earth_rotation,
             n_chirp_mass_bins=n_chirp_mass_bins,
             chunk_size=chunk_size,
         )
 
-    def _waveform_model_name(self) -> str:
-        """Return the approximant name the batched path should generate.
+    def _device_approximant(self) -> str:
+        """Return the approximant to generate on device, or explain why there is not one.
 
         The batched entry point takes an approximant *name*, while the per-event path goes through
-        the backend's own waveform registry. Reading it back off the backend keeps one source of
-        truth for what is being simulated.
+        the backend's own waveform registry, so the name has to be read back off the backend. That is
+        the public ``waveform_model`` property, which is the contract every simulator in
+        gwmock-signal exposes -- deliberately not a search across candidate attributes, since a
+        backend that grew a similarly-named attribute for another purpose would then be picked up
+        silently.
+
+        Two things cannot cross to the device path, and both are rejected here rather than left to
+        fail further in:
+
+        * A **callable** waveform model, which the per-event path supports by registering it under a
+          generated key. Ripple cannot execute arbitrary Python, and the key would otherwise be
+          handed over as if it were an approximant name.
+        * An approximant **Ripple does not implement**. Substituting the nearest one would change the
+          waveform without saying so, which is the failure this whole method exists to prevent.
 
         Returns:
-            The approximant name.
+            The approximant name, known to be one Ripple implements.
 
         Raises:
-            RuntimeError: If the backend does not expose one.
+            RuntimeError: If the backend exposes no usable approximant name.
+            ValueError: If the model is a callable, or Ripple has no such approximant.
         """
-        for attribute in ("waveform_model", "_waveform_model", "approximant"):
-            value = getattr(self._backend, attribute, None)
-            if isinstance(value, str) and value:
-                return value
-        raise RuntimeError(
-            "Could not determine the approximant name from the signal backend, which the device "
-            "path requires. Pass a string waveform-model rather than a callable."
-        )
+        from gwmock_signal.waveform.backends.ripple import RippleBackend  # noqa: PLC0415
+
+        name = getattr(self._backend, "waveform_model", None)
+        if not isinstance(name, str) or not name:
+            raise RuntimeError(
+                f"The signal backend {type(self._backend).__name__} exposes no 'waveform_model' "
+                f"string, which the device path needs to select an approximant."
+            )
+        if name.startswith(_CALLABLE_WAVEFORM_PREFIX):
+            raise ValueError(
+                "This adapter was built with a callable waveform model, which the device path "
+                "cannot run: Ripple generates from its own compiled approximants, not from Python "
+                "callbacks. Use a string approximant, or the per-event path."
+            )
+        available = RippleBackend().available_approximants()
+        if name not in available:
+            raise ValueError(
+                f"Ripple does not implement the approximant '{name}', and the device path always "
+                f"generates with Ripple. It is rejected rather than substituted, because silently "
+                f"generating a different waveform than the one configured would corrupt the "
+                f"simulation. Available: {', '.join(sorted(available))}."
+            )
+        return name
 
     def simulate_stack(
         self,

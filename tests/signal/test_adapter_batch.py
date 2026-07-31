@@ -71,14 +71,24 @@ class TestEventsToStructOfArrays:
         events = [{"a": 1.0, "b": 2.0}, {"a": 3.0, "b": 4.0}]
         assert SignalAdapter.events_to_struct_of_arrays(events) == {"a": [1.0, 3.0], "b": [2.0, 4.0]}
 
-    def test_drops_keys_missing_from_any_event(self):
-        """A key some events lack cannot become a column.
+    def test_rejects_events_whose_keys_differ(self):
+        """A ragged catalogue is an error, not something to reduce to the shared keys.
 
-        Filling a default would put a fabricated value into a simulation, which is worse than the
-        clear failure the caller gets downstream when a required parameter turns out to be absent.
+        Intersecting would be the more forgiving choice and the wrong one: dropping a key that only
+        some events carry does not avoid fabricating physics, it fabricates it for the whole batch,
+        because the backend default then applies to every event with nothing said.
         """
-        events = [{"a": 1.0, "only_first": 9.0}, {"a": 2.0}]
-        assert SignalAdapter.events_to_struct_of_arrays(events) == {"a": [1.0, 2.0]}
+        events = [{"a": 1.0, "spin_1z": 0.4}, {"a": 2.0}]
+        with pytest.raises(ValueError, match="same parameters") as raised:
+            SignalAdapter.events_to_struct_of_arrays(events)
+        assert "spin_1z" in str(raised.value), "the message must name the parameter that went missing"
+
+    def test_names_the_offending_event_and_both_directions(self):
+        """The message points at which event differs, and how, so a loader bug is locatable."""
+        events = [{"a": 1.0}, {"a": 2.0}, {"a": 3.0, "surprise": 0.0}]
+        with pytest.raises(ValueError, match="event 2") as raised:
+            SignalAdapter.events_to_struct_of_arrays(events)
+        assert "surprise" in str(raised.value)
 
     def test_rejects_an_empty_catalogue(self):
         """No events means no batch, and saying so beats returning an empty mapping."""
@@ -86,8 +96,8 @@ class TestEventsToStructOfArrays:
             SignalAdapter.events_to_struct_of_arrays([])
 
     def test_rejects_events_with_no_key_in_common(self):
-        """With nothing shared there is no column to build, which is a caller error."""
-        with pytest.raises(ValueError, match="no parameter is present in every event"):
+        """Wholly disjoint events are the extreme case of ragged, and fail the same way."""
+        with pytest.raises(ValueError, match="same parameters"):
             SignalAdapter.events_to_struct_of_arrays([{"a": 1.0}, {"b": 2.0}])
 
 
@@ -130,23 +140,135 @@ class TestSimulateSegmentsValidation:
                 end_time=_START + _SPAN,
             )
 
-    def test_waveform_arguments_are_merged_and_overridden_by_the_catalogue(self):
-        """Fixed arguments fill gaps; per-event values win, as on the per-event path.
+    def test_ragged_numpy_columns_are_rejected(self):
+        """Length validation must cover arrays, not only lists and tuples.
 
-        Checked through the failure message rather than by generating: supplying the missing
-        parameters via ``waveform_arguments`` must satisfy the same validation.
+        An ``ndarray`` of the wrong length used to pass this check and fail deep inside batching,
+        where the error no longer names the parameter at fault.
         """
-        adapter = _adapter()
-        parameters = {"coa_time": [_START + 1.0], "right_ascension": [0.3]}
-        with pytest.raises(ValueError, match="declination"):
-            adapter.simulate_segments(
+        parameters = SignalAdapter.events_to_struct_of_arrays(_events(3))
+        parameters = {key: np.asarray(value) for key, value in parameters.items()}
+        parameters["coa_time"] = parameters["coa_time"][:2]
+        with pytest.raises(ValueError, match="disagree in length"):
+            _adapter().simulate_segments(
                 parameters,
                 sampling_frequency=_FS,
                 minimum_frequency=30.0,
                 segment_duration=_SEGMENT,
                 start_time=_START,
                 end_time=_START + _SPAN,
-                waveform_arguments={"detector_frame_mass_1": [1.4], "detector_frame_mass_2": [1.35]},
+            )
+
+
+class TestForwardingToTheBatchedCall:
+    """What the adapter actually hands to ``simulate_cbc_catalogue``.
+
+    These stub out the generation but still resolve the approximant, which instantiates
+    ``RippleBackend``, so they need the ``[jax]`` extra.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _require_device_stack(self):
+        pytest.importorskip("jax", reason="the [jax] extra is not installed")
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+
+    def test_a_catalogue_value_overrides_the_same_key_in_waveform_arguments(self, monkeypatch):
+        """Fixed arguments fill gaps; per-event values win where both supply a key.
+
+        Asserted on what actually reaches ``simulate_cbc_catalogue`` rather than through a failure
+        message. A message-based check would pass for any implementation that merges the two
+        mappings in *either* order, so it could not detect the precedence being backwards -- which is
+        the only thing this test is for.
+        """
+        captured = {}
+
+        def _capture(*args, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr("gwmock_signal.simulate_cbc_catalogue", _capture)
+
+        adapter = _adapter()
+        parameters = SignalAdapter.events_to_struct_of_arrays(_events(2))
+        adapter.simulate_segments(
+            parameters,
+            sampling_frequency=_FS,
+            minimum_frequency=30.0,
+            segment_duration=_SEGMENT,
+            start_time=_START,
+            end_time=_START + _SPAN,
+            waveform_arguments={"detector_frame_mass_1": [99.0, 99.0], "f_ref": 20.0},
+        )
+        merged = captured["parameters"]
+        assert merged["detector_frame_mass_1"] == [1.4, 1.4], "the catalogue must win over a fixed value"
+        assert merged["f_ref"] == 20.0, "a fixed key absent from the catalogue must still be passed"
+
+    def test_earth_rotation_reaches_the_batched_call(self, monkeypatch):
+        """The flag must be forwarded, not silently left at the gwmock-signal default.
+
+        Without this the setting would be honoured on the per-event path and ignored here, so the
+        two paths would disagree for anyone who turns it off.
+        """
+        captured = {}
+        monkeypatch.setattr("gwmock_signal.simulate_cbc_catalogue", lambda *a, **k: captured.update(k) or [])
+
+        _adapter().simulate_segments(
+            SignalAdapter.events_to_struct_of_arrays(_events(2)),
+            sampling_frequency=_FS,
+            minimum_frequency=30.0,
+            segment_duration=_SEGMENT,
+            start_time=_START,
+            end_time=_START + _SPAN,
+            earth_rotation=False,
+        )
+        assert captured["earth_rotation"] is False
+
+
+class TestDeviceApproximant:
+    """Which configured models can and cannot cross to the device path."""
+
+    @pytest.fixture(autouse=True)
+    def _require_device_stack(self):
+        pytest.importorskip("jax", reason="the [jax] extra is not installed")
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+
+    def test_an_approximant_ripple_lacks_is_rejected_not_substituted(self):
+        """Generating a different waveform than the one configured would corrupt the simulation."""
+        adapter = SignalAdapter.from_source_type(
+            source_type="bns", waveform_model="SEOBNRv4", detectors=["ET-Triangle-Sardinia"]
+        )
+        with pytest.raises(ValueError, match="does not implement the approximant 'SEOBNRv4'") as raised:
+            adapter.simulate_segments(
+                SignalAdapter.events_to_struct_of_arrays(_events(2)),
+                sampling_frequency=_FS,
+                minimum_frequency=30.0,
+                segment_duration=_SEGMENT,
+                start_time=_START,
+                end_time=_START + _SPAN,
+            )
+        assert "IMRPhenomD" in str(raised.value), "the message must list what is available instead"
+
+    def test_a_callable_waveform_model_is_rejected_with_its_own_message(self):
+        """A callable is registered under a generated key, which is not an approximant name.
+
+        Left unchecked that key reaches Ripple as if it were one, and the failure talks about an
+        unsupported approximant named ``__gwmock_custom__...`` rather than about the callable.
+        """
+
+        def custom(*args, **kwargs):  # pragma: no cover - never called
+            raise AssertionError("the device path must not reach the callable")
+
+        adapter = SignalAdapter.from_source_type(
+            source_type="bns", waveform_model=custom, detectors=["ET-Triangle-Sardinia"]
+        )
+        with pytest.raises(ValueError, match="callable waveform model"):
+            adapter.simulate_segments(
+                SignalAdapter.events_to_struct_of_arrays(_events(2)),
+                sampling_frequency=_FS,
+                minimum_frequency=30.0,
+                segment_duration=_SEGMENT,
+                start_time=_START,
+                end_time=_START + _SPAN,
             )
 
 
