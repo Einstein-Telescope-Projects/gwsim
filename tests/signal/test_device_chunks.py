@@ -151,8 +151,44 @@ class TestGuards:
 
         batch.grid = _OffByHalf()
 
-        with pytest.raises(ValueError, match="not on the output grid"):
+        with pytest.raises(ValueError, match="off the output grid") as raised:
             batched_strain_to_chunks(batch)
+        message = str(raised.value)
+        # Both named, because the two predicates can disagree and which one refused is what tells
+        # the reader where to look.
+        assert "on-lattice" in message
+        assert "placeable" in message
+
+    def test_a_buffer_the_producer_accepts_but_the_consumer_cannot_place_is_refused(self):
+        """Agreeing with the producer is not the same as agreeing with the consumer.
+
+        gwmock-signal's ``is_on_lattice`` answers whether the buffer sits on the grid it was
+        generated for; ``TimeSeries.inject`` applies its own tolerance when placing it. Those can
+        disagree, and when they do the chunk is silently interpolated after this module has promised
+        it would be placed verbatim -- which is exactly what happened at GPS 1577491296, 4000 Hz,
+        sample 10, where the 2.29e-4 sample representation error was on-lattice for one and not for
+        the other. Checking only the producer is how that went unnoticed.
+        """
+        batch = _batch(n_events=1, start_indices=(10,))
+
+        class _GenerousGrid(_Grid):
+            """Accepts everything, as a producer with a looser tolerance would."""
+
+            def is_on_lattice(self, gps_time):
+                return np.ones(np.atleast_1d(np.asarray(gps_time, dtype=float)).shape, dtype=bool)
+
+            def time_of(self, index: int) -> float:
+                # A quarter of a sample out: within no sane tolerance, but this grid says fine.
+                return self.epoch + (index + 0.25) / self.sampling_frequency
+
+        batch.grid = _GenerousGrid()
+
+        with pytest.raises(ValueError, match="off the output grid") as raised:
+            batched_strain_to_chunks(batch)
+        message = str(raised.value)
+        assert "on-lattice: True" in message, "the producer accepted it; the message should say so"
+        assert "placeable within" in message
+        assert "False" in message
 
     def test_reordered_detectors_are_refused(self):
         """Channel order carries detector identity, so a permutation misattributes signals."""
@@ -263,3 +299,90 @@ class TestAgainstTheRealDeviceOutput:
         values = np.asarray(segment)
         assert np.count_nonzero(values), "the converted chunks put no signal into the segment"
         assert np.all(np.isfinite(values))
+
+
+class TestSpillOverAcrossSegments:
+    """A device chunk longer than one segment, placed through the real assembly path.
+
+    This is the normal case rather than an edge one: a BNS inspiral at 20 Hz runs ~160 s, far longer
+    than a segment. gwmock carries such a chunk forward by injecting what fits and caching the
+    remainder, so the property that matters is that the converted chunks partition exactly -- every
+    sample placed once, none dropped, none double-counted.
+
+    The conversion tests above only ever used a chunk that fits inside one segment, so nothing
+    covered this until now.
+    """
+
+    SEGMENT_SAMPLES = 32
+    CHUNK_SAMPLES = 80
+
+    def _batch_with_long_buffer(self):
+        """A one-event batch whose buffer spans two and a half segments, with distinct samples.
+
+        Samples count upward so a dropped or duplicated region is identifiable by value rather than
+        only by length.
+        """
+        strain = np.arange(1, self.CHUNK_SAMPLES + 1, dtype=float).reshape(1, 1, self.CHUNK_SAMPLES)
+        return _Batch(
+            strain=strain,
+            detector_names=("ET1_SARD",),
+            start_index=np.asarray([0]),
+            grid=_Grid(),
+        )
+
+    def test_the_chunk_is_partitioned_across_segments_without_loss(self):
+        from gwmock.data.time_series.time_series import TimeSeries
+
+        chunks = batched_strain_to_chunks(self._batch_with_long_buffer())
+        pending = chunks
+        placed: list[float] = []
+
+        for segment_index in range(3):
+            segment = TimeSeries(
+                data=np.zeros((1, self.SEGMENT_SAMPLES)),
+                start_time=_EPOCH + segment_index * self.SEGMENT_SAMPLES / _SAMPLING_FREQUENCY,
+                sampling_frequency=_SAMPLING_FREQUENCY,
+            )
+            pending = segment.inject_from_list(pending)
+            placed.extend(np.asarray(segment)[0].tolist())
+
+        occupied = [value for value in placed if value != 0.0]
+        expected = list(np.arange(1, self.CHUNK_SAMPLES + 1, dtype=float))
+
+        assert occupied == expected, (
+            "the chunk was not partitioned exactly across segments: samples were dropped, duplicated, or reordered"
+        )
+        assert len(pending) == 0, "the chunk should be fully consumed after three segments"
+
+    def test_nothing_is_double_counted_where_two_chunks_overlap(self):
+        """Two events overlapping in time must sum, not replace or double-place.
+
+        Superposition is the whole point of an injection, and it is the property most easily broken
+        by a placement bug that looks correct for a single chunk.
+        """
+        from gwmock.data.time_series.time_series import TimeSeries
+
+        batch = _Batch(
+            strain=np.ones((2, 1, 16)),
+            detector_names=("ET1_SARD",),
+            start_index=np.asarray([4, 8]),
+            grid=_Grid(),
+        )
+        chunks = batched_strain_to_chunks(batch)
+        segment = TimeSeries(
+            data=np.zeros((1, self.SEGMENT_SAMPLES)),
+            start_time=_EPOCH,
+            sampling_frequency=_SAMPLING_FREQUENCY,
+        )
+
+        segment.inject_from_list(chunks)
+
+        # Chunk one covers samples 4..19, chunk two covers 8..23, so 8..19 is the overlap.
+        values = np.asarray(segment)[0]
+        assert values[3] == pytest.approx(0.0), "nothing reaches sample 3"
+        assert values[4] == pytest.approx(1.0), "only the first chunk covers sample 4"
+        assert values[8] == pytest.approx(2.0), "both chunks cover sample 8 and must sum"
+        assert values[19] == pytest.approx(2.0), "sample 19 is the last of the overlap"
+        assert values[20] == pytest.approx(1.0), "only the second chunk covers sample 20"
+        assert values[23] == pytest.approx(1.0), "the second chunk ends at sample 23"
+        assert values[24] == pytest.approx(0.0), "nothing reaches sample 24"

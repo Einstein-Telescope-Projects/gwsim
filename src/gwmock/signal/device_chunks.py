@@ -10,6 +10,14 @@ That split is deliberate rather than a compromise. Generation was measured at 9.
 of data against 3.66e-4 for assembly, so the expensive 96% moves to the device while the part that
 owns spill-over, resumability and memory bounds stays where it works.
 
+Peak host memory is one full copy of the batch. ``np.asarray(batch.strain)`` materialises
+``(n_events, n_detectors, n_samples)`` at once, and gwmock-signal's ``chunk_size`` bounds the work
+done per generation call without bounding the size of the result handed back. That is acceptable
+here because the intended caller is ``_simulate``, which runs once per segment and so passes only
+the events belonging to that segment -- but it is not a safe path for a whole catalogue in one call,
+and nothing in this module enforces that. A caller batching more than one segment at a time needs
+its own bound.
+
 Placement is required to be **on the output lattice**. When ``simulate_cbc_batch`` is given an
 ``output_grid``, each buffer starts exactly on a sample of that grid, so injection is an
 integer-offset add. Without it, buffers begin at an arbitrary time and gwmock has to interpolate
@@ -24,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from gwmock.data.time_series.inject import alignment_tolerance, is_aligned
 from gwmock.data.time_series.time_series import TimeSeries
 from gwmock.data.time_series.time_series_list import TimeSeriesList
 
@@ -88,12 +97,27 @@ def batched_strain_to_chunks(
     grid = batch.grid
     start_times = np.array([float(grid.time_of(int(index))) for index in start_indices], dtype=float)
 
-    off_lattice = ~np.atleast_1d(grid.is_on_lattice(start_times))
-    if np.any(off_lattice):
-        first = int(np.argmax(off_lattice))
+    # Checked against *both* predicates, because agreeing with the producer is not the same as
+    # agreeing with the consumer. gwmock-signal's `is_on_lattice` says the buffer sits on the grid it
+    # was generated for; `is_aligned` is what `TimeSeries.inject` will actually apply when placing
+    # it. Those can disagree -- at GPS 1577491296, 4000 Hz, sample 10, the representation error is
+    # 2.29e-4 samples, which `is_on_lattice` accepts and a relative-tolerance `inject` rejected,
+    # silently interpolating a chunk this module promised would be placed verbatim. Asserting only
+    # the producer's view is how that went unnoticed.
+    grid_offsets = (start_times - float(grid.epoch)) * float(grid.sampling_frequency)
+    on_lattice = np.atleast_1d(grid.is_on_lattice(start_times))
+    tolerance = alignment_tolerance(float(grid.epoch), float(grid.sampling_frequency), gps_times=start_times)
+    placeable = np.array([is_aligned(float(offset), tolerance) for offset in grid_offsets], dtype=bool)
+
+    rejected = ~(on_lattice & placeable)
+    if np.any(rejected):
+        first = int(np.argmax(rejected))
+        offset = float(grid_offsets[first])
         raise ValueError(
-            f"Event {first}'s buffer starts at GPS {start_times[first]!r}, which is not on the "
-            f"output grid (epoch {grid.epoch!r}, {grid.sampling_frequency!r} Hz). Injecting it would "
+            f"Event {first}'s buffer starts at GPS {start_times[first]!r}, which is {offset - round(offset):+.3e} "
+            f"samples off the output grid (epoch {grid.epoch!r}, {grid.sampling_frequency!r} Hz). "
+            f"gwmock-signal considers it on-lattice: {bool(on_lattice[first])}; gwmock considers it "
+            f"placeable within {tolerance:.3e} samples: {bool(placeable[first])}. Injecting it would "
             f"resample the chunk instead of placing it exactly."
         )
 
