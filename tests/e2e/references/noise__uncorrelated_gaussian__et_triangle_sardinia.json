@@ -1,0 +1,102 @@
+{
+  "environment": {
+    "gwmock": "0.12.0.post9+a8e8004",
+    "gwmock-noise": "0.10.0",
+    "gwmock-pop": "0.11.4",
+    "gwmock-signal": "0.12.0",
+    "jax": "0.11.0",
+    "lalsuite": "7.26.15",
+    "numpy": "2.5.1",
+    "ripplegw": "0.3.0",
+    "scipy": "1.18.0"
+  },
+  "fingerprint": {
+    "machine": "x86_64",
+    "python": "3.12",
+    "system": "Linux"
+  },
+  "label": "noise/uncorrelated_gaussian/et_triangle_sardinia",
+  "outputs": {
+    "output/noise/E-ET1_SARD_STRAIN_NOISE-1577491218-4.gwf": {
+      "argmax": 1333,
+      "content_hash": "sha256:6bc3af6caa761a83c4c2777f9fbb73bde8acb9161749acca854e71971d798bdd",
+      "mean": -1.7311486471113757e-25,
+      "n": 4096,
+      "nonzero": 4096,
+      "peak": 1.2374761556611555e-22,
+      "rms": 3.692291377131024e-23
+    },
+    "output/noise/E-ET1_SARD_STRAIN_NOISE-1577491222-4.gwf": {
+      "argmax": 204,
+      "content_hash": "sha256:13c39129dc398bf97bafedff2b18e0102b05615683a214f2f9b31b7b75945e93",
+      "mean": -4.18055648670967e-25,
+      "n": 4096,
+      "nonzero": 4096,
+      "peak": 2.0345572910553258e-22,
+      "rms": 5.248688522915776e-23
+    },
+    "output/noise/E-ET1_SARD_STRAIN_NOISE-1577491226-4.gwf": {
+      "argmax": 2001,
+      "content_hash": "sha256:55a886c5ed0143eef2c3136629ba447ba61fc376b2dfbea18d56a3b4ff2f6fd2",
+      "mean": 1.3408189878152185e-24,
+      "n": 4096,
+      "nonzero": 4096,
+      "peak": 1.3603692109048568e-22,
+      "rms": 4.0165607408473736e-23
+    },
+    "output/noise/E-ET2_SARD_STRAIN_NOISE-1577491218-4.gwf": {
+      "argmax": 1850,
+      "content_hash": "sha256:4bc21b50795e25d85b2374353157e3fba23c360ebad49675b5937636890e7997",
+      "mean": -5.148526928913194e-25,
+      "n": 4096,
+      "nonzero": 4096,
+      "peak": 1.7077067895293085e-22,
+      "rms": 5.338079661920768e-23
+    },
+    "output/noise/E-ET2_SARD_STRAIN_NOISE-1577491222-4.gwf": {
+      "argmax": 2663,
+      "content_hash": "sha256:f1f43964dbc1ee99a94f9782739b22a18343299f9cf129c6cdca98070c307140",
+      "mean": -7.136667168491174e-25,
+      "n": 4096,
+      "nonzero": 4096,
+      "peak": 1.3164104003111345e-22,
+      "rms": 3.8724211241142747e-23
+    },
+    "output/noise/E-ET2_SARD_STRAIN_NOISE-1577491226-4.gwf": {
+      "argmax": 542,
+      "content_hash": "sha256:afe9e7145a03bf5392212351b608edcd3e491535c0dcdff2ea6072b9bb2f72a5",
+      "mean": -4.700814749807264e-25,
+      "n": 4096,
+      "nonzero": 4096,
+      "peak": 1.3126608491617345e-22,
+      "rms": 4.285229457927625e-23
+    },
+    "output/noise/E-ET3_SARD_STRAIN_NOISE-1577491218-4.gwf": {
+      "argmax": 978,
+      "content_hash": "sha256:3afb1e55969bf4885a02fbaeffedd04370b1dc927d075845b581b837604805ab",
+      "mean": -2.3485411067569452e-25,
+      "n": 4096,
+      "nonzero": 4096,
+      "peak": 1.6361910355844335e-22,
+      "rms": 6.19962915064736e-23
+    },
+    "output/noise/E-ET3_SARD_STRAIN_NOISE-1577491222-4.gwf": {
+      "argmax": 2962,
+      "content_hash": "sha256:0fba179d6f770486df8d0bc3fbc6d5f117b3c6995b70b3b8b878d1bd73b67a2e",
+      "mean": -5.116476960699835e-25,
+      "n": 4096,
+      "nonzero": 4096,
+      "peak": 1.4993790206817366e-22,
+      "rms": 4.7487584613155167e-23
+    },
+    "output/noise/E-ET3_SARD_STRAIN_NOISE-1577491226-4.gwf": {
+      "argmax": 3598,
+      "content_hash": "sha256:f6996f9c989e9eee23f5f2b99e5c38141af4833184d37a2718715f19d58b4d07",
+      "mean": -1.1377406026675563e-24,
+      "n": 4096,
+      "nonzero": 4096,
+      "peak": 1.169565834277579e-22,
+      "rms": 4.298103315926466e-23
+    }
+  }
+}

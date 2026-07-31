@@ -32,7 +32,7 @@ from gwmock.cli.utils.hash import compute_content_hash
 
 from .matrix import E2E_MATRIX, MatrixEntry
 from .overlay import NOT_HERMETIC
-from .test_examples_end_to_end import _gwmock_executable, _write_config, _written_files
+from .runner import gwmock_executable, write_config, written_files
 
 pytestmark = pytest.mark.e2e
 
@@ -49,10 +49,10 @@ def _run_in_subprocess(entry: MatrixEntry, working_directory: Path) -> None:
     invokes rather than an internal function, so what is measured is the reproducibility of the
     real command.
     """
-    config_path, _ = _write_config(entry, working_directory)
+    config_path, _ = write_config(entry, working_directory)
 
     completed = subprocess.run(  # noqa: S603
-        [_gwmock_executable(), "simulate", str(config_path)],
+        [gwmock_executable(), "simulate", str(config_path)],
         capture_output=True,
         text=True,
         check=False,
@@ -66,7 +66,7 @@ def _content_hashes(working_directory: Path) -> dict[str, str | None]:
     """Return ``{path relative to the run directory: content hash}`` for the data written."""
     return {
         str(path.relative_to(working_directory)): compute_content_hash(path)
-        for path in _written_files(working_directory)
+        for path in written_files(working_directory)
         if path.name not in _NOT_DATA
     }
 
