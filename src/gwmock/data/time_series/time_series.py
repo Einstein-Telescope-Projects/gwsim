@@ -288,7 +288,12 @@ class TimeSeries(JSONSerializable):
         # Check whether there is any offset in times
         other_start_time = other.start_time.to(self.start_time.unit)
         idx = ((other_start_time - self.start_time) * self.sampling_frequency).value
-        if not is_aligned(idx, alignment_tolerance(self.start_time.value, self.sampling_frequency.value)):
+        tolerance = alignment_tolerance(
+            self.start_time.value,
+            self.sampling_frequency.value,
+            gps_times=(other_start_time.value, other.end_time.to(self.start_time.unit).value),
+        )
+        if not is_aligned(idx, tolerance):
             logger.warning("Chunk time grid does not align with segment time grid.")
             logger.warning("Interpolation will be used to align the chunk to the segment grid.")
 

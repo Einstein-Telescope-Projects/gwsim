@@ -1002,6 +1002,36 @@ class TestAlignmentToleranceDerivation:
             for sampling_frequency in (1024.0, 16384.0, 1e6):
                 assert alignment_tolerance(epoch, sampling_frequency) <= _MAXIMUM_ALIGNMENT_TOLERANCE < 0.5
 
+    @pytest.mark.parametrize(
+        ("epoch", "sampling_frequency"),
+        [(1e9, 4096.0), (1.577e9, 4096.0), (1.577e9, 4000.0), (1e10, 2000.0), (1.4e9, 2048.0)],
+    )
+    def test_it_agrees_with_gwmock_signals_lattice_tolerance(self, epoch: float, sampling_frequency: float):
+        """The same numerical-resolution decision exists in gwmock-signal; they must not diverge.
+
+        ``SamplingGrid.lattice_tolerance_samples`` reached the same ULP-scaling design
+        independently, with the same floor and ceiling. Two encodings of one decision drift apart
+        silently unless something compares them -- and the device path is about to place chunks
+        using gwmock-signal's lattice and inject them using this tolerance, so a disagreement there
+        would mean a buffer gwmock-signal calls on-lattice that gwmock calls misaligned.
+        """
+        from gwmock_signal import SamplingGrid
+
+        theirs = SamplingGrid(epoch, sampling_frequency).lattice_tolerance_samples(epoch)
+
+        assert alignment_tolerance(epoch, sampling_frequency) == pytest.approx(theirs, rel=1e-12)
+
+    def test_the_tolerance_uses_the_coarsest_magnitude_involved(self):
+        """A timestamp later than the epoch has coarser resolution, and that is what bounds error.
+
+        Taking the spacing at the epoch alone would understate the tolerance whenever the times
+        being compared sit at a larger magnitude.
+        """
+        at_epoch = alignment_tolerance(1.0, 4096.0)
+        with_later_times = alignment_tolerance(1.0, 4096.0, gps_times=[1e10])
+
+        assert with_later_times > at_epoch
+
     def test_the_tolerance_grows_with_epoch_and_rate(self):
         """The property that makes it correct where a constant is not."""
         assert alignment_tolerance(1e10, 4096.0) > alignment_tolerance(1e9, 4096.0)
