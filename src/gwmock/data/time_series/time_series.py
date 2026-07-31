@@ -14,7 +14,7 @@ from gwpy.types.index import Index
 from scipy.interpolate import interp1d
 
 from gwmock.data.serialize.serializable import JSONSerializable
-from gwmock.data.time_series.inject import inject
+from gwmock.data.time_series.inject import inject, is_aligned
 
 logger = logging.getLogger("gwmock")
 
@@ -281,7 +281,7 @@ class TimeSeries(JSONSerializable):
         # Check whether there is any offset in times
         other_start_time = other.start_time.to(self.start_time.unit)
         idx = ((other_start_time - self.start_time) * self.sampling_frequency).value
-        if not np.isclose(idx, np.round(idx)):
+        if not is_aligned(idx):
             logger.warning("Chunk time grid does not align with segment time grid.")
             logger.warning("Interpolation will be used to align the chunk to the segment grid.")
 

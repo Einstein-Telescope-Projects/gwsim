@@ -12,6 +12,36 @@ from scipy.interpolate import interp1d
 
 logger = logging.getLogger("gwmock")
 
+#: How close to a whole sample an offset must be to count as aligned, in samples.
+#:
+#: Absolute, not relative. ``np.isclose``'s default is relative, and since a fractional offset can
+#: never exceed 0.5 samples, a relative test passes unconditionally once ``rtol * offset >= 0.5`` --
+#: about 50,000 samples, or 12 s into a segment at 4096 Hz. Beyond that every chunk was snapped to
+#: the nearest sample and the interpolation branch was unreachable, silently displacing signals by
+#: up to half a sample.
+#:
+#: The value is measured rather than picked. ``offset`` comes from a GPS-scale subtraction, so an
+#: exactly-aligned chunk still carries cancellation error: zero for power-of-two sample rates, and
+#: up to 4.0e-4 samples at 4000 Hz across GPS epochs from 1e9 to 1.8e9. 1e-3 clears that worst case
+#: by 2.5x while still detecting a misalignment of a hundredth of a sample.
+#:
+#: Erring tight is the safer direction. Treating an aligned chunk as misaligned interpolates it onto
+#: essentially the same grid points, which is close to a no-op; treating a misaligned one as aligned
+#: is the displacement this constant exists to prevent.
+ALIGNMENT_TOLERANCE_SAMPLES = 1e-3
+
+
+def is_aligned(offset_samples: float) -> bool:
+    """Return whether *offset_samples* is a whole number of samples, to within tolerance.
+
+    Args:
+        offset_samples: Offset between two series' start times, in samples.
+
+    Returns:
+        Whether the offset counts as aligned. See :data:`ALIGNMENT_TOLERANCE_SAMPLES`.
+    """
+    return bool(abs(offset_samples - round(offset_samples)) <= ALIGNMENT_TOLERANCE_SAMPLES)
+
 
 def inject(timeseries: TimeSeries, other: TimeSeries, interpolate_if_offset: bool = True) -> TimeSeries:
     """Inject one TimeSeries into another, handling time offsets.
@@ -46,7 +76,7 @@ def inject(timeseries: TimeSeries, other: TimeSeries, interpolate_if_offset: boo
     offset = (other_times[0] - target_times[0]) / sample_spacing
 
     # Check if offset is aligned (integer number of samples)
-    if not np.isclose(offset, round(offset)):
+    if not is_aligned(offset):
         if not interpolate_if_offset:
             logger.debug("Non-integer offset of %s samples; not interpolating, returning original timeseries", offset)
             return timeseries
