@@ -272,14 +272,19 @@ def _validate_waveform_backend(backend_name: str, backend_instance: Any) -> None
     if isinstance(backend_instance, WaveformBackend):
         return
 
+    # Matching by public surface, as the population, signal and noise validators do. A
+    # third-party backend reached through an entry point should not be forced to subclass
+    # gwmock-signal's ABC in order to be usable, and ``WaveformFactory`` itself only ever calls
+    # these two methods.
     issues = _collect_protocol_issues(
         backend_instance,
         required_attributes={},
         required_callables=("available_approximants", "generate_td_waveform"),
     )
+    if not issues:
+        return
     raise TypeError(
-        f"Resolved waveform backend '{backend_name}' does not satisfy WaveformBackend"
-        f"{': ' + ', '.join(issues) if issues else ''}."
+        f"Resolved waveform backend '{backend_name}' does not satisfy WaveformBackend: {', '.join(issues)}."
     )
 
 

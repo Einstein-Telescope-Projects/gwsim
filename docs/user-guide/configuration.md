@@ -297,7 +297,9 @@ orchestration:
 `signal.waveform-backend` selects which library generates the polarizations —
 `lal` (the default), `pycbc`, `ripple`, or `gwsignal`. It also accepts an entry
 point in the `gwmock.waveform` group or a `module:Class` reference, so a
-third-party backend can be plugged in the same way.
+third-party backend can be plugged in the same way. Such a backend is matched by
+its public surface — `available_approximants` and `generate_td_waveform` — and
+does not have to subclass gwmock-signal's `WaveformBackend`.
 
 Constructor arguments for that backend go under
 `signal.waveform-backend-arguments`. These are distinct from `signal.arguments`,

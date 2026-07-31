@@ -244,6 +244,23 @@ class NotAWaveformBackend:
     """Resolvable class that does not implement the waveform contract."""
 
 
+class StubWaveformBackend:
+    """Minimal waveform backend, so argument forwarding is testable without the [jax] extra.
+
+    Duck-typed rather than a ``WaveformBackend`` subclass, which exercises the validator's
+    match-by-public-surface path -- the same one a third-party entry-point backend relies on.
+    """
+
+    def __init__(self, *, taper_fraction: float = 0.0) -> None:
+        self.taper_fraction = taper_fraction
+
+    def available_approximants(self) -> tuple[str, ...]:
+        return ("StubApproximant",)
+
+    def generate_td_waveform(self, *args, **kwargs):
+        raise NotImplementedError("the stub is never asked to generate")
+
+
 @pytest.mark.parametrize(
     ("alias", "expected"),
     [
@@ -282,7 +299,28 @@ def test_resolving_a_waveform_backend_does_not_require_the_others():
 
 
 def test_waveform_backend_arguments_reach_the_constructor():
-    """Constructor arguments are how ripple's taper fraction is set from a config file."""
+    """Constructor arguments must be forwarded to the backend being built.
+
+    Checked against a stub rather than ``RippleBackend``, so this runs in an installation
+    without the optional stack. What is under test is the forwarding, not any one library --
+    and instantiating ripple needs ripplegw even though *resolving* it does not.
+    """
+    backend = instantiate_backend(
+        "waveform",
+        "tests.cli.utils.test_backend_resolver:StubWaveformBackend",
+        init_kwargs={"taper_fraction": 0.02},
+    )
+
+    assert backend.taper_fraction == pytest.approx(0.02)
+
+
+def test_ripple_accepts_its_taper_fraction():
+    """The same forwarding against the real class, which is how it is set from a config file.
+
+    Separate from the stub test because this one needs ripplegw: ``taper_fraction`` is
+    ripple-specific, so a stub cannot show that ripple actually accepts it.
+    """
+    pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
     backend = instantiate_backend("waveform", "ripple", init_kwargs={"taper_fraction": 0.02})
 
     assert backend.taper_fraction == pytest.approx(0.02)
@@ -296,6 +334,17 @@ def test_unknown_waveform_backend_lists_the_available_aliases():
     message = str(raised.value)
     assert "ripple" in message
     assert "gwmock.waveform" in message, "the entry-point group is part of the contract"
+
+
+def test_validate_waveform_backend_accepts_a_duck_typed_backend():
+    """A third-party backend must not have to subclass gwmock-signal's ABC to be usable.
+
+    The plugin story is that a `gwmock.waveform` entry point works on the same terms as the
+    other backend kinds, whose validators also match by public surface. `WaveformFactory` only
+    calls these two methods, so requiring the base class would be a stricter contract than the
+    code actually needs.
+    """
+    validate_backend("waveform", "stub", StubWaveformBackend, StubWaveformBackend())
 
 
 def test_validate_waveform_backend_rejects_a_non_backend():
