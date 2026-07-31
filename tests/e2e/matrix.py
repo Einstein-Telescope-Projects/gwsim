@@ -63,6 +63,11 @@ E2E_MATRIX: tuple[MatrixEntry, ...] = (
         covers="`StochasticBackgroundSimulator` -- a different simulator class; **HDF5** output",
     ),
     MatrixEntry(
+        label="signal/waveform_backend/ripple",
+        covers="A non-default waveform library resolved from config. Needs `ripplegw`",
+        requires=("ripplegw",),
+    ),
+    MatrixEntry(
         label="noise/glitches/gengli/et_triangle_sardinia/e1",
         covers="Glitch injection. Skipped when `gengli` is absent",
         requires=("gengli",),

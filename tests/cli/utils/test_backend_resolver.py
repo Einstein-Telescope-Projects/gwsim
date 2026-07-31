@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import shutil
 import subprocess
 import sys
@@ -237,3 +238,121 @@ def test_validate_noise_backend_accepts_protocol_instance():
 def test_validate_noise_backend_accepts_run_boundary_class():
     """Run-boundary adapters remain compatible during the orchestration transition."""
     validate_backend("noise", "run-only", RunOnlyNoiseBackend, RunOnlyNoiseBackend())
+
+
+class NotAWaveformBackend:
+    """Resolvable class that does not implement the waveform contract."""
+
+
+class StubWaveformBackend:
+    """Minimal waveform backend, so argument forwarding is testable without the [jax] extra.
+
+    Duck-typed rather than a ``WaveformBackend`` subclass, which exercises the validator's
+    match-by-public-surface path -- the same one a third-party entry-point backend relies on.
+    """
+
+    def __init__(self, *, taper_fraction: float = 0.0) -> None:
+        self.taper_fraction = taper_fraction
+
+    def available_approximants(self) -> tuple[str, ...]:
+        return ("StubApproximant",)
+
+    def generate_td_waveform(self, *args, **kwargs):
+        raise NotImplementedError("the stub is never asked to generate")
+
+
+@pytest.mark.parametrize(
+    ("alias", "expected"),
+    [
+        ("lal", "LALSimulationBackend"),
+        ("lalsimulation", "LALSimulationBackend"),
+        ("LALSimulationBackend", "LALSimulationBackend"),
+        ("pycbc", "PyCBCBackend"),
+        ("ripple", "RippleBackend"),
+        ("gwsignal", "GWSignalBackend"),
+    ],
+)
+def test_resolve_waveform_builtin_aliases(alias: str, expected: str):
+    """Each waveform library is selectable by a short alias and by its class name."""
+    assert resolve_backend_class("waveform", alias).__name__ == expected
+
+
+def test_resolving_a_waveform_backend_does_not_require_the_others():
+    """Aliases map to import paths, not imported classes, so one absent library is not fatal.
+
+    ``lal`` must resolve in an installation with no ripplegw. Asserted by blocking the
+    ripplegw import outright rather than by uninstalling it.
+    """
+    real_import = builtins.__import__
+
+    def blocked(name: str, *args, **kwargs):
+        if name.split(".", maxsplit=1)[0] == "ripplegw":
+            raise ImportError("simulated: ripplegw is not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(builtins, "__import__", blocked)
+    try:
+        assert resolve_backend_class("waveform", "lal").__name__ == "LALSimulationBackend"
+    finally:
+        monkey.undo()
+
+
+def test_waveform_backend_arguments_reach_the_constructor():
+    """Constructor arguments must be forwarded to the backend being built.
+
+    Checked against a stub rather than ``RippleBackend``, so this runs in an installation
+    without the optional stack. What is under test is the forwarding, not any one library --
+    and instantiating ripple needs ripplegw even though *resolving* it does not.
+    """
+    backend = instantiate_backend(
+        "waveform",
+        "tests.cli.utils.test_backend_resolver:StubWaveformBackend",
+        init_kwargs={"taper_fraction": 0.02},
+    )
+
+    assert backend.taper_fraction == pytest.approx(0.02)
+
+
+def test_ripple_accepts_its_taper_fraction():
+    """The same forwarding against the real class, which is how it is set from a config file.
+
+    Separate from the stub test because this one needs ripplegw: ``taper_fraction`` is
+    ripple-specific, so a stub cannot show that ripple actually accepts it.
+    """
+    pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+    backend = instantiate_backend("waveform", "ripple", init_kwargs={"taper_fraction": 0.02})
+
+    assert backend.taper_fraction == pytest.approx(0.02)
+
+
+def test_unknown_waveform_backend_lists_the_available_aliases():
+    """The error has to name the alternatives; the set is not guessable."""
+    with pytest.raises(ValueError, match="Unknown waveform backend") as raised:
+        resolve_backend_class("waveform", "nosuchlibrary")
+
+    message = str(raised.value)
+    assert "ripple" in message
+    assert "gwmock.waveform" in message, "the entry-point group is part of the contract"
+
+
+def test_validate_waveform_backend_accepts_a_duck_typed_backend():
+    """A third-party backend must not have to subclass gwmock-signal's ABC to be usable.
+
+    The plugin story is that a `gwmock.waveform` entry point works on the same terms as the
+    other backend kinds, whose validators also match by public surface. `WaveformFactory` only
+    calls these two methods, so requiring the base class would be a stricter contract than the
+    code actually needs.
+    """
+    validate_backend("waveform", "stub", StubWaveformBackend, StubWaveformBackend())
+
+
+def test_validate_waveform_backend_rejects_a_non_backend():
+    """A resolvable-but-wrong class must fail here, not inside WaveformFactory.
+
+    Handed to ``WaveformFactory`` instead, it surfaces as ``AttributeError: 'str' object has
+    no attribute 'available_approximants'`` -- a message about a type, naming neither the
+    setting at fault nor what it should have been.
+    """
+    with pytest.raises(TypeError, match="does not satisfy WaveformBackend"):
+        instantiate_backend("waveform", "tests.cli.utils.test_backend_resolver:NotAWaveformBackend")

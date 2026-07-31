@@ -20,12 +20,33 @@ from gwmock_pop import (
 )
 from gwmock_signal import GWSimulator, resolve_simulator_backend
 
-BackendKind = Literal["population", "signal", "noise"]
+BackendKind = Literal["population", "signal", "noise", "waveform"]
 
 _ENTRY_POINT_GROUPS: dict[BackendKind, str] = {
     "population": "gwmock.population",
     "signal": "gwmock.signal",
     "noise": "gwmock.noise",
+    "waveform": "gwmock.waveform",
+}
+
+#: Waveform backends, as ``module:Class`` paths rather than imported classes.
+#:
+#: Deliberately unimported here, so that resolving ``lal`` or ``pycbc`` does not require the
+#: optional stack. What the ``gwmock[jax]`` extra actually supplies is **ripplegw** -- JAX
+#: itself arrives unconditionally as a hard dependency of gwmock-pop -- and instantiating
+#: ``RippleBackend`` without ripplegw raises gwmock-signal's own ``ImportError``, which names
+#: what to install. Importing these at module scope would turn that into an import-time
+#: failure of the whole CLI for users who selected a backend they do have.
+_WAVEFORM_BACKEND_PATHS: dict[str, str] = {
+    "lal": "gwmock_signal.waveform.backends.lal:LALSimulationBackend",
+    "lalsimulation": "gwmock_signal.waveform.backends.lal:LALSimulationBackend",
+    "LALSimulationBackend": "gwmock_signal.waveform.backends.lal:LALSimulationBackend",
+    "pycbc": "gwmock_signal.waveform.backends.pycbc:PyCBCBackend",
+    "PyCBCBackend": "gwmock_signal.waveform.backends.pycbc:PyCBCBackend",
+    "ripple": "gwmock_signal.waveform.backends.ripple:RippleBackend",
+    "RippleBackend": "gwmock_signal.waveform.backends.ripple:RippleBackend",
+    "gwsignal": "gwmock_signal.waveform.backends.gwsignal:GWSignalBackend",
+    "GWSignalBackend": "gwmock_signal.waveform.backends.gwsignal:GWSignalBackend",
 }
 
 _POPULATION_BACKENDS: dict[str, type[Any]] = {
@@ -113,6 +134,9 @@ def validate_backend(
     if kind == "signal":
         _validate_signal_backend(backend_name, backend_class, backend_instance)
         return
+    if kind == "waveform":
+        _validate_waveform_backend(backend_name, backend_instance)
+        return
     _validate_noise_backend(backend_name, backend_instance)
 
 
@@ -130,6 +154,9 @@ def _resolve_builtin_backend(kind: BackendKind, backend_name: str) -> type[Any] 
             return resolve_simulator_backend(backend_name)
         except (KeyError, ValueError):
             return None
+    if kind == "waveform":
+        path = _WAVEFORM_BACKEND_PATHS.get(backend_name)
+        return None if path is None else _load_backend_class(path)
     return _NOISE_BACKENDS.get(backend_name)
 
 
@@ -206,6 +233,8 @@ def _builtin_aliases(kind: BackendKind) -> tuple[str, ...]:
         return tuple(_POPULATION_BACKENDS)
     if kind == "signal":
         return ("bbh", "bns", "nsbh", "sgwb")
+    if kind == "waveform":
+        return tuple(_WAVEFORM_BACKEND_PATHS)
     return tuple(_NOISE_BACKENDS)
 
 
@@ -228,6 +257,35 @@ def _validate_signal_backend(backend_name: str, backend_class: type[Any], backen
     if not issues:
         return
     raise TypeError(f"Resolved signal backend '{backend_name}' does not satisfy GWSimulator: {', '.join(issues)}.")
+
+
+def _validate_waveform_backend(backend_name: str, backend_instance: Any) -> None:
+    """Require a resolved waveform backend to satisfy gwmock-signal's ``WaveformBackend``.
+
+    ``WaveformFactory`` calls ``available_approximants`` on whatever it is handed, so a wrong
+    type surfaces as ``AttributeError: 'str' object has no attribute 'available_approximants'``
+    -- which names neither the setting at fault nor what it should have been. Checking here
+    turns that into a statement about the configuration.
+    """
+    from gwmock_signal.waveform.backends.base import WaveformBackend  # noqa: PLC0415
+
+    if isinstance(backend_instance, WaveformBackend):
+        return
+
+    # Matching by public surface, as the population, signal and noise validators do. A
+    # third-party backend reached through an entry point should not be forced to subclass
+    # gwmock-signal's ABC in order to be usable, and ``WaveformFactory`` itself only ever calls
+    # these two methods.
+    issues = _collect_protocol_issues(
+        backend_instance,
+        required_attributes={},
+        required_callables=("available_approximants", "generate_td_waveform"),
+    )
+    if not issues:
+        return
+    raise TypeError(
+        f"Resolved waveform backend '{backend_name}' does not satisfy WaveformBackend: {', '.join(issues)}."
+    )
 
 
 def _validate_noise_backend(backend_name: str, backend_instance: Any) -> None:

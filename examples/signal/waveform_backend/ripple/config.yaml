@@ -1,0 +1,60 @@
+# Generate CBC signals with the ripple (JAX) waveform library instead of LAL.
+#
+# `waveform-backend` selects which library generates the polarizations. It is otherwise
+# identical to signal/bbh/et_triangle_sardinia -- diff the two to see only that key change.
+#
+# This selects a LIBRARY, not a compute device. ripple runs through the same per-event path
+# as LAL here; gwmock does not yet drive ripple's batched on-device entry point from a
+# configuration file.
+#
+# Requires the extra:  pip install 'gwmock[jax]'
+#
+# Note on cost: ripple JIT-compiles each waveform model on first use. Measured on one
+# 8-second segment, IMRPhenomD took ~10 s end to end against ~0.7 s for LAL, and the
+# precessing IMRPhenomXPHM took ~72 s. The compile is paid once per process, so it is
+# amortised over a long run -- but IMRPhenomD is the friendlier choice for a first run.
+globals:
+    simulator-arguments:
+        sampling-frequency: 4096
+        duration: 4096
+        total-duration: 4096
+        # 1 Jan 2030, as the noise examples use. Chosen to contain the population's event
+        # (GPS 1577491300): a segment placed elsewhere still runs, and writes only zeros.
+        start-time: 1577491218
+        seed: 42
+    working-directory: .
+    output-directory: output
+    metadata-directory: metadata
+
+orchestration:
+    population:
+        backend: FilePopulationLoader
+        source-type: bbh
+        n-samples: 1
+        arguments:
+            # The small in-repo population, not the sandbox Zenodo deposit the other signal
+            # examples use: sandbox records are purged, so that URL has a built-in expiry.
+            #
+            # Pinned to a commit rather than `main`, so the input to this example cannot change
+            # under it. Fetching from a branch means two runs of "the same example" can differ,
+            # which matters more here than tracking edits to the file. Update the SHA
+            # deliberately if the population is ever meant to change.
+            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/9fa389516dfd8b818670b0ae4359e9be04f30e5e/examples/signal/bbh_population.csv
+    signal:
+        waveform-model: IMRPhenomD
+        waveform-backend: ripple
+        waveform-backend-arguments:
+            # Raised-cosine taper below minimum-frequency, suppressing the Gibbs ringing a
+            # hard spectral cutoff would leave. Set 0.0 for an untapered cutoff.
+            taper_fraction: 0.05
+        minimum-frequency: 20
+        earth-rotation: true
+        detectors:
+            - ET-Triangle-Sardinia
+        output:
+            output_directory: signal
+            file_name:
+                'E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration
+                }}.gwf'
+            arguments:
+                channel: '{{ detectors }}:STRAIN'

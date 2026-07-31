@@ -292,6 +292,42 @@ orchestration:
                 channel: '{{ detectors }}:STRAIN'
 ```
 
+### Choosing the waveform library
+
+`signal.waveform-backend` selects which library generates the polarizations —
+`lal` (the default), `pycbc`, `ripple`, or `gwsignal`. It also accepts an entry
+point in the `gwmock.waveform` group or a `module:Class` reference, so a
+third-party backend can be plugged in the same way. Such a backend is matched by
+its public surface — `available_approximants` and `generate_td_waveform` — and
+does not have to subclass gwmock-signal's `WaveformBackend`.
+
+Constructor arguments for that backend go under
+`signal.waveform-backend-arguments`. These are distinct from `signal.arguments`,
+which is passed to the _simulator_ rather than to the waveform backend:
+
+```yaml
+signal:
+    waveform-model: IMRPhenomD
+    waveform-backend: ripple
+    waveform-backend-arguments:
+        taper_fraction: 0.05 # ripple-specific
+```
+
+Two things to be aware of:
+
+- This selects a **library, not a compute device.** `ripple` is JAX-based, but
+  it runs through the same per-event path as LAL; gwmock does not yet drive
+  ripple's batched on-device entry point from a configuration file.
+- The same approximant from two libraries agrees closely but not exactly, so the
+  choice changes the data. It is recorded in the run metadata as
+  `orchestration.signal.waveform_backend` for that reason.
+
+`ripple` requires the extra: `pip install 'gwmock[jax]'`. It also JIT-compiles
+each waveform model on first use — measured on a single 8-second segment,
+`IMRPhenomD` took ~10 s end to end against ~0.7 s for LAL, and the precessing
+`IMRPhenomXPHM` ~72 s. The cost is paid once per process, so it amortises over a
+long run.
+
 For SGWB studies, use `signal.source-type: sgwb`. Constructor options for the
 SGWB backend belong under `signal.arguments`, while spectrum parameters passed
 to `simulate(...)` belong under `signal.parameters`:
