@@ -664,6 +664,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+jax = [
+    { name = "gwmock-signal", extra = ["jax"] },
+]
 sgwb = [
     { name = "gwmock-signal", extra = ["sgwb"] },
 ]
@@ -693,8 +696,9 @@ requires-dist = [
     { name = "filelock", specifier = ">=3.16.0" },
     { name = "gwmock-noise", specifier = ">=0.10.0" },
     { name = "gwmock-pop", specifier = ">=0.11.4" },
-    { name = "gwmock-signal", specifier = ">=0.11.2" },
-    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.11.2" },
+    { name = "gwmock-signal", specifier = ">=0.12.0" },
+    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'jax'", specifier = ">=0.12.0" },
+    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.12.0" },
     { name = "h5py", specifier = ">=3.12.1" },
     { name = "psutil", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.9.0" },
@@ -703,7 +707,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67.0" },
     { name = "typer", specifier = ">=0.19.0" },
 ]
-provides-extras = ["sgwb"]
+provides-extras = ["jax", "sgwb"]
 
 [package.metadata.requires-dev]
 build = [{ name = "hatch", specifier = ">=1.17.1" }]
@@ -772,6 +776,9 @@ wheels = [
 ]
 
 [package.optional-dependencies]
+jax = [
+    { name = "ripplegw" },
+]
 sgwb = [
     { name = "gwmock-noise" },
 ]
@@ -1119,6 +1126,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/09/18/04d82793d804a6766ca73e4ed30ef928aea252db7c86f73b2faf11fe9e90/jaxlib-0.11.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:5c38a393d37b4a70569224dc8273d8ae6ccea837e45410ed53ca03e15d6fad58", size = 62642149, upload-time = "2026-07-16T19:00:02.597Z" },
     { url = "https://files.pythonhosted.org/packages/91/2e/418dae82175154f6b5f53aec8909bda800dcbc9c65d94373de146b06e3b1/jaxlib-0.11.0-cp314-cp314t-manylinux_2_27_aarch64.whl", hash = "sha256:5ed7c54a6ef02eea19c0a02e3f603e4f9ad77248098bb9fc3feffca7f4814b83", size = 82261560, upload-time = "2026-07-16T19:00:06.22Z" },
     { url = "https://files.pythonhosted.org/packages/ac/ff/2edc74b4de40ac4222ee48b3805a6ea5e40f34abe4cd10b65bc0fa0864db/jaxlib-0.11.0-cp314-cp314t-manylinux_2_27_x86_64.whl", hash = "sha256:005ae3a663193d3a89eafadc073880c67d6b829e0ad989690275d02b5adc810a", size = 87367515, upload-time = "2026-07-16T19:00:10.661Z" },
+]
+
+[[package]]
+name = "jaxtyping"
+version = "0.3.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wadler-lindig" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/91/c1/091b8852bd7cbf50bd655543c8506033cf4029300c67f8c176c1286879a9/jaxtyping-0.3.11.tar.gz", hash = "sha256:b09c14acf6686feb9e0df5b0d8c6e7c5b6f8d36bf059ee54cd522a186c2ef050", size = 46489, upload-time = "2026-06-13T18:35:23.167Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/38/c66bbdc5047f4776c2bd3e47e5295a350e3fa44d5b8942105e71c2a876a0/jaxtyping-0.3.11-py3-none-any.whl", hash = "sha256:8a4bedc4e3f963fa82df41bd13c7ebc2bad925601eb48614c65798f21329d4e3", size = 56593, upload-time = "2026-06-13T18:35:22.01Z" },
 ]
 
 [[package]]
@@ -2319,6 +2338,19 @@ wheels = [
 ]
 
 [[package]]
+name = "ripplegw"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jax" },
+    { name = "jaxtyping" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ee/4b/0497feefa9e502e717be8ac797a401eac2c9eb916bc682d98aeef3a97d91/ripplegw-0.3.0.tar.gz", hash = "sha256:9e2a415a94bf4aaa3d90a2426298cda4c0c1feaaecd8468745dcabc54abfb3d2", size = 479776, upload-time = "2026-07-29T10:33:36.347Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/cb/b9573f0ceae67274946ab633060053d7509d0d2f833f5f306aa593c13d4b/ripplegw-0.3.0-py3-none-any.whl", hash = "sha256:2aa86258b3b1714a92602d02c5edb58e7305b73bcd4136f5121345414cb7e302", size = 224968, upload-time = "2026-07-29T10:33:34.881Z" },
+]
+
+[[package]]
 name = "ruyaml"
 version = "0.91.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2690,6 +2722,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fe/25/e367a7229b0914772ca8d81b41fde012d9feda68523b52644a571bb21ce8/virtualenv-21.7.0.tar.gz", hash = "sha256:7f9519b9432ff11b6e1a3e94061664efc2ff99ea21780e3cf4f6bd0a5da8b37c", size = 5527510, upload-time = "2026-07-21T13:12:14.109Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a5/7a/ae29312b1e88a22e81f5d21fc11526d2a114089776c2550d2b205b6c2a47/virtualenv-21.7.0-py3-none-any.whl", hash = "sha256:a8370c1c5530fbabf955e40b8fbbc68a431648b10f9433faa587db30a06e51dd", size = 5507078, upload-time = "2026-07-21T13:12:12.136Z" },
+]
+
+[[package]]
+name = "wadler-lindig"
+version = "0.1.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/67/cbae4bf7683a64755c2c1778c418fea96d00e34395bb91743f08bd951571/wadler_lindig-0.1.7.tar.gz", hash = "sha256:81d14d3fe77d441acf3ebd7f4aefac20c74128bf460e84b512806dccf7b2cd55", size = 15842, upload-time = "2025-06-18T07:00:42.843Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8d/96/04e7b441807b26b794da5b11e59ed7f83b2cf8af202bd7eba8ad2fa6046e/wadler_lindig-0.1.7-py3-none-any.whl", hash = "sha256:e3ec83835570fd0a9509f969162aeb9c65618f998b1f42918cfc8d45122fe953", size = 20516, upload-time = "2025-06-18T07:00:41.684Z" },
 ]
 
 [[package]]

@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from gwmock_signal import CustomDetector, DetectorStrainStack, Network, resolve_simulator_backend
 
 from gwmock.data.time_series.time_series import TimeSeries
@@ -20,6 +21,21 @@ logger = logging.getLogger("gwmock")
 #: (``LAL``, ``ripple``, ``PyCBC``), so match any of them and capture the comma-separated
 #: parameter list that follows.
 _UNSUPPORTED_PARAMS_RE = re.compile(r"^Unsupported .+? waveform parameters:\s*(.*)$")
+
+#: Canonical parameter names the on-device batched path requires, with no aliases accepted.
+#:
+#: The per-event path forwards whatever it is given and lets the backend resolve aliases
+#: (``mass1`` for ``detector_frame_mass_1``, and so on). The batched path does not: it reads these
+#: names directly from a struct-of-arrays, so a missing or aliased key would surface as a
+#: ``KeyError`` from inside a jitted kernel rather than as a statement about the input.
+_DEVICE_REQUIRED_PARAMETERS = (
+    "coa_time",
+    "declination",
+    "detector_frame_mass_1",
+    "detector_frame_mass_2",
+    "polarization_angle",
+    "right_ascension",
+)
 
 _DEFAULT_WAVEFORM_MODEL = "IMRPhenomXPHM"
 _LEGACY_SINGLE_DETECTOR_ALIASES = {
@@ -37,11 +53,17 @@ _LEGACY_SINGLE_DETECTOR_ALIASES = {
 DetectorSpec = str | CustomDetector
 
 
+#: Marks a registry name generated for a *callable* waveform model rather than a real approximant.
+#: The device path tests for it to reject callables with an explanation, so the prefix has one
+#: definition rather than being spelled out at both the producing and the consuming end.
+_CALLABLE_WAVEFORM_PREFIX = "__gwmock_custom__"
+
+
 def _callable_waveform_registry_key(func: Callable[..., Any]) -> str:
     """Return a unique registry name for *func* on a ``WaveformFactory`` instance."""
     qual = getattr(func, "__qualname__", type(func).__name__)
     mod = getattr(func, "__module__", "")
-    return f"__gwmock_custom__{mod}:{qual}__{id(func):#x}"
+    return f"{_CALLABLE_WAVEFORM_PREFIX}{mod}:{qual}__{id(func):#x}"
 
 
 def _register_callable_waveform(backend: Any, registry_key: str, factory: Callable[..., Any]) -> None:
@@ -340,6 +362,207 @@ class SignalAdapter:
             The resolved public detector network.
         """
         return self._network
+
+    @staticmethod
+    def events_to_struct_of_arrays(
+        events: Sequence[Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """Transpose a sequence of per-event parameter mappings into arrays.
+
+        The orchestration layer holds one mapping per event, while the batched device path takes one
+        array per parameter. Every event must therefore carry the same keys.
+
+        A ragged catalogue is rejected rather than reduced to the shared keys. Dropping a key that
+        only some events carry does not avoid fabricating physics, it fabricates it wholesale: if one
+        event omits ``spin_1z``, intersecting removes the column entirely and the backend default is
+        then applied to *every* event, silently. A loader that emits ragged events is malformed, and
+        saying so is the only outcome that does not quietly alter the simulation.
+
+        Args:
+            events: Per-event parameter mappings, as the population loader yields them.
+
+        Returns:
+            One entry per key, each a list of that key's value across events, in order.
+
+        Raises:
+            ValueError: If *events* is empty, or if the events do not all carry the same keys.
+        """
+        if not events:
+            raise ValueError("events must be non-empty to build a batch.")
+        expected = set(events[0])
+        for index, event in enumerate(events[1:], start=1):
+            if set(event) != expected:
+                absent = sorted(expected - set(event))
+                extra = sorted(set(event) - expected)
+                raise ValueError(
+                    f"every event must carry the same parameters, but event {index} differs from the "
+                    f"first: missing {absent or 'nothing'}, unexpected {extra or 'nothing'}."
+                )
+        return {key: [event[key] for event in events] for key in sorted(expected)}
+
+    def simulate_segments(
+        self,
+        parameters: Mapping[str, Any],
+        *,
+        sampling_frequency: float,
+        minimum_frequency: float,
+        segment_duration: float,
+        start_time: float,
+        end_time: float,
+        waveform_arguments: Mapping[str, Any] | None = None,
+        earth_rotation: bool = True,
+        n_chirp_mass_bins: int = 1,
+        chunk_size: int | None = None,
+    ) -> list[DetectorStrainStack]:
+        """Generate a whole catalogue on device and return it as fixed-duration segments.
+
+        The device counterpart of :meth:`simulate_stack`. That method takes one event and returns one
+        stack; this takes the catalogue as a struct-of-arrays and returns the assembled segments, so
+        the per-event Python loop disappears and the waveforms are generated under one ``vmap``.
+
+        Kept as a separate entry point rather than folded into :meth:`simulate_stack`, because the
+        per-event path must keep working unchanged for the LAL and PyCBC backends, which have no
+        batched form.
+
+        .. warning::
+
+           **This path always generates with Ripple**, whatever backend the adapter was configured
+           with, because Ripple is the only JAX implementation and therefore the only batchable one.
+           The approximant carries over, but its implementation does not: an adapter configured for
+           LAL that runs here gets Ripple's version of the same approximant, which agrees closely but
+           not bit-for-bit. To keep that from being silent, an approximant Ripple does not implement
+           is rejected rather than substituted -- see :meth:`_device_approximant`.
+
+        Args:
+            parameters: Canonical catalogue parameters as a struct-of-arrays — one array per
+                parameter, aligned across parameters. See :meth:`events_to_struct_of_arrays`.
+            sampling_frequency: Sample rate in Hz.
+            minimum_frequency: Low-frequency cutoff in Hz. Note that with a tapered cutoff this is
+                where the waveform reaches full amplitude, not where its content begins.
+            segment_duration: Duration of each output segment in seconds.
+            start_time: GPS start of the first segment.
+            end_time: GPS end of the span to tile.
+            waveform_arguments: Fixed parameters merged into the catalogue; per-event values win.
+            earth_rotation: Whether to include earth rotation, as on :meth:`simulate_stack`.
+            n_chirp_mass_bins: Generate heavier events on shorter grids. Bounds buffer length at the
+                cost of exact reproducibility against a single grid.
+            chunk_size: Events per batched call. ``None`` lets gwmock-signal size it from device
+                memory, which is the safer default.
+
+        Returns:
+            One :class:`~gwmock_signal.DetectorStrainStack` per segment, in time order.
+
+        Raises:
+            ValueError: If a required canonical parameter is missing, or the arrays disagree in
+                length.
+            RuntimeError: If the installed gwmock-signal does not export the device path.
+        """
+        try:
+            # Imported here, not at module scope: an older gwmock-signal without this export would
+            # otherwise break `import gwmock.signal.adapter` outright, taking the per-event path down
+            # with it. Locally, only the device path fails, and it says why.
+            from gwmock_signal import simulate_cbc_catalogue  # noqa: PLC0415
+        except ImportError as exc:  # pragma: no cover - depends on the installed version
+            raise RuntimeError(
+                "The installed gwmock-signal does not export simulate_cbc_catalogue, which the "
+                "device path needs. Upgrade gwmock-signal, and install it with the [jax] extra."
+            ) from exc
+
+        merged = {**(waveform_arguments or {}), **dict(parameters)}
+        missing = [name for name in _DEVICE_REQUIRED_PARAMETERS if name not in merged]
+        if missing:
+            raise ValueError(
+                f"The device path needs these canonical parameters, which are absent: "
+                f"{', '.join(missing)}. Unlike the per-event path it does not accept aliases, so "
+                f"e.g. 'mass1' must be given as 'detector_frame_mass_1'."
+            )
+        # The required parameters are per-event by definition, so each must be a column. A scalar is
+        # rejected rather than broadcast: it means every event shares one value, and for `coa_time`
+        # that is every signal landing at the same instant. Left unchecked it surfaces from inside
+        # batching as "too many indices for array: array is 0-dimensional".
+        #
+        # Only the required ones. A scalar elsewhere is the documented way to fix a parameter across
+        # the catalogue -- `f_ref=20.0` via waveform_arguments -- so scalars stay legal in general.
+        scalars = [name for name in _DEVICE_REQUIRED_PARAMETERS if np.ndim(merged[name]) == 0]
+        if scalars:
+            raise ValueError(
+                f"These parameters vary per event and must be given as arrays, but were scalars: "
+                f"{', '.join(scalars)}. To hold one fixed across the catalogue, repeat it per event."
+            )
+
+        # Sized by np.ndim rather than isinstance, so NumPy and JAX columns are checked too. Testing
+        # for list/tuple alone let an ndarray of the wrong length through to fail inside batching,
+        # where the message no longer names the parameter.
+        lengths = {name: len(values) for name, values in merged.items() if np.ndim(values) > 0}
+        if len(set(lengths.values())) > 1:
+            raise ValueError(f"catalogue parameters disagree in length: {lengths}")
+
+        return simulate_cbc_catalogue(
+            self._device_approximant(),
+            list(self._network.detector_names),
+            sampling_frequency=sampling_frequency,
+            minimum_frequency=minimum_frequency,
+            parameters=merged,
+            segment_duration=segment_duration,
+            start_time=start_time,
+            end_time=end_time,
+            earth_rotation=earth_rotation,
+            n_chirp_mass_bins=n_chirp_mass_bins,
+            chunk_size=chunk_size,
+        )
+
+    def _device_approximant(self) -> str:
+        """Return the approximant to generate on device, or explain why there is not one.
+
+        The batched entry point takes an approximant *name*, while the per-event path goes through
+        the backend's own waveform registry, so the name has to be read back off the backend. That is
+        the public ``waveform_model`` property, which is the contract every simulator in
+        gwmock-signal exposes -- deliberately not a search across candidate attributes, since a
+        backend that grew a similarly-named attribute for another purpose would then be picked up
+        silently.
+
+        Two things cannot cross to the device path, and both are rejected here rather than left to
+        fail further in:
+
+        * A **callable** waveform model, which the per-event path supports by registering it under a
+          generated key. Ripple cannot execute arbitrary Python, and the key would otherwise be
+          handed over as if it were an approximant name.
+        * An approximant **Ripple does not implement**. Substituting the nearest one would change the
+          waveform without saying so, which is the failure this whole method exists to prevent.
+
+        Returns:
+            The approximant name, known to be one Ripple implements.
+
+        Raises:
+            RuntimeError: If the backend exposes no usable approximant name.
+            ValueError: If the model is a callable, or Ripple has no such approximant.
+        """
+        name = getattr(self._backend, "waveform_model", None)
+        if not isinstance(name, str) or not name:
+            raise RuntimeError(
+                f"The signal backend {type(self._backend).__name__} exposes no 'waveform_model' "
+                f"string, which the device path needs to select an approximant."
+            )
+        if name.startswith(_CALLABLE_WAVEFORM_PREFIX):
+            raise ValueError(
+                "This adapter was built with a callable waveform model, which the device path "
+                "cannot run: Ripple generates from its own compiled approximants, not from Python "
+                "callbacks. Use a string approximant, or the per-event path."
+            )
+
+        # Imported only once the cheap checks pass, so both of the above stay reachable -- and
+        # therefore testable, and covered in CI -- in an installation without the [jax] extra.
+        from gwmock_signal.waveform.backends.ripple import RippleBackend  # noqa: PLC0415
+
+        available = RippleBackend().available_approximants()
+        if name not in available:
+            raise ValueError(
+                f"Ripple does not implement the approximant '{name}', and the device path always "
+                f"generates with Ripple. It is rejected rather than substituted, because silently "
+                f"generating a different waveform than the one configured would corrupt the "
+                f"simulation. Available: {', '.join(sorted(available))}."
+            )
+        return name
 
     def simulate_stack(
         self,
