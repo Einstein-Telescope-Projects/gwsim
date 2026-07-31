@@ -1,0 +1,40 @@
+{
+  "environment": {
+    "gwmock": "0.12.0.post9+a8e8004",
+    "gwmock-noise": "0.10.0",
+    "gwmock-pop": "0.11.4",
+    "gwmock-signal": "0.12.0",
+    "jax": "0.11.0",
+    "lalsuite": "7.26.15",
+    "numpy": "2.5.1",
+    "ripplegw": "0.3.0",
+    "scipy": "1.18.0"
+  },
+  "label": "signal/waveform_backend/ripple",
+  "outputs": {
+    "output/signal/E-ET1_SARD_STRAIN_BBH-1577491296-16.gwf": {
+      "argmax": 4076,
+      "content_hash": "sha256:9dcaeba2c7c514ab7067a4c7889f15f8752cb68bb616a0eec990fa5fd899a408",
+      "n": 16384,
+      "nonzero": 4557,
+      "peak": 8.371559922671528e-22,
+      "rms": 5.450588182389e-23
+    },
+    "output/signal/E-ET2_SARD_STRAIN_BBH-1577491296-16.gwf": {
+      "argmax": 4077,
+      "content_hash": "sha256:5ec4684ffbd80c0724c2c1df8dfd85755e3d35067d789af4fe783e345c641d37",
+      "n": 16384,
+      "nonzero": 4557,
+      "peak": 8.889964206699608e-22,
+      "rms": 5.515358197316966e-23
+    },
+    "output/signal/E-ET3_SARD_STRAIN_BBH-1577491296-16.gwf": {
+      "argmax": 4078,
+      "content_hash": "sha256:435d5a13195b4656357a8558da1a9b1746673fbf1c69b2c361358fc9c4f570bd",
+      "n": 16384,
+      "nonzero": 4557,
+      "peak": 8.291569211108467e-22,
+      "rms": 5.2376567705979746e-23
+    }
+  }
+}

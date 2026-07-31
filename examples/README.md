@@ -89,8 +89,15 @@ minutes.
 > separate processes and compared by content hash, so reproducibility is
 > established.
 >
-> Not yet checked: agreement with **stored reference values**. That is the next
-> step, and reproducibility was the prerequisite for it.
+> Each entry's output is also compared against **stored reference values** in
+> `tests/e2e/references/` — an exact content hash per file, so a change of one
+> sample fails. A failure is a prompt to look, not a verdict: the message
+> reports which files moved, by how much, and whether any dependency version
+> changed. If the change is harmless, regenerate and review the diff:
+>
+> ```bash
+> GWMOCK_WRITE_E2E_REFERENCES=1 uv run pytest -m e2e --no-cov
+> ```
 >
 > The overlay shortens runs, which costs coverage worth naming: sampling
 > frequency drops from 4096 Hz to 1024 Hz, moving the Nyquist frequency, and

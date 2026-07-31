@@ -1,0 +1,40 @@
+{
+  "environment": {
+    "gwmock": "0.12.0.post9+a8e8004",
+    "gwmock-noise": "0.10.0",
+    "gwmock-pop": "0.11.4",
+    "gwmock-signal": "0.12.0",
+    "jax": "0.11.0",
+    "lalsuite": "7.26.15",
+    "numpy": "2.5.1",
+    "ripplegw": "0.3.0",
+    "scipy": "1.18.0"
+  },
+  "label": "signal/bbh/et_triangle_sardinia",
+  "outputs": {
+    "output/signal/E-ET1_SARD_STRAIN_BBH-1577491296-16.gwf": {
+      "argmax": 4080,
+      "content_hash": "sha256:a644fd79a5d4f79d7c0b024608a504a5a5ea5899e307564fbabe296aa7489f16",
+      "n": 16384,
+      "nonzero": 5734,
+      "peak": 8.97490201893049e-22,
+      "rms": 7.83172358481834e-23
+    },
+    "output/signal/E-ET2_SARD_STRAIN_BBH-1577491296-16.gwf": {
+      "argmax": 4083,
+      "content_hash": "sha256:11eba4fb0104114a53be81119717b11e41b55f6a1ecdfc5d6f783a2bf5528476",
+      "n": 16384,
+      "nonzero": 5734,
+      "peak": 8.697604987835595e-22,
+      "rms": 7.926106802177429e-23
+    },
+    "output/signal/E-ET3_SARD_STRAIN_BBH-1577491296-16.gwf": {
+      "argmax": 4079,
+      "content_hash": "sha256:999fc5d07a0fb4ed3763b3bcc56b5c27635ae5b6a9883ef33f6668492f6af778",
+      "n": 16384,
+      "nonzero": 5734,
+      "peak": 8.368664878479757e-22,
+      "rms": 7.520223179488685e-23
+    }
+  }
+}
