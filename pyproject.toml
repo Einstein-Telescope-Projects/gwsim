@@ -110,7 +110,7 @@ addopts = [
   "--junitxml=test-results.xml",
   "--cov-append",
   "-m",
-  "not integration",
+  "not integration and not e2e",
 ]
 pythonpath = ["src"]
 testpaths = "tests"
@@ -122,6 +122,11 @@ markers = [
   "spark: marks tests which need Spark",
   "slow: marks tests as slow",
   "unit: fast offline tests",
+  # Drives an example configuration through the real CLI. Excluded from the default run via
+  # `-m "not e2e"` below, because these generate data and are minutes rather than seconds; the
+  # `e2e` CI job runs them, and it installs every extra so the optional-stack entries in
+  # tests/e2e/matrix.py actually execute rather than silently skipping.
+  "e2e: end-to-end tests that run an example config through the CLI",
 ]
 
 [tool.ruff]

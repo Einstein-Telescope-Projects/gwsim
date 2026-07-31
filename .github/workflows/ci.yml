@@ -50,3 +50,47 @@ jobs:
               uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
               with:
                   token: ${{ secrets.CODECOV_TOKEN }}
+
+    # End-to-end runs, kept out of the `test` matrix on purpose. They drive example configs
+    # through the real CLI and generate data, so they are minutes rather than seconds -- running
+    # them across seven interpreter/OS combinations would multiply that for no added signal,
+    # since what they exercise is orchestration rather than anything interpreter-specific.
+    #
+    # `--all-extras` is load-bearing for the ripplegw-gated entries: with a plain `uv sync` those
+    # would skip, and the job would report green while testing less than it claims. The guard step
+    # below turns that from a silent skip into a failure.
+    #
+    # It does *not* cover the gengli entry. gengli is not a declared extra of this project at all,
+    # so no sync flag can install it, and that entry is separately blocked on a local glitch
+    # fixture. It stays skipped here -- see NOT_HERMETIC in tests/e2e/overlay.py.
+    e2e:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+              with:
+                  # This job runs example configurations, which fetch remote inputs. Nothing here
+                  # needs to push, so the checkout token is not left in .git/config where a
+                  # subsequent step could reach it.
+                  persist-credentials: false
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+              with:
+                  python-version: '3.12'
+                  enable-cache: 'true'
+
+            - name: Install dependencies
+              run: uv sync --group dev --all-extras
+
+            - name: Confirm the optional stack is present
+              # Otherwise a missing extra turns the whole job into a silent no-op: every gated
+              # entry skips and the job still passes.
+              run: |
+                  uv run --no-sync python -c "
+                  import importlib.util as u, sys
+                  missing = [m for m in ('ripplegw', 'jax') if u.find_spec(m) is None]
+                  sys.exit('e2e job is missing: ' + ', '.join(missing) if missing else 0)
+                  "
+
+            - name: Run end-to-end tests
+              run: uv run --no-sync pytest -m e2e --no-cov
