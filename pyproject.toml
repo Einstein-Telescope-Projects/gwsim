@@ -22,7 +22,7 @@ classifiers = [
 requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
-  "gwmock-signal>=0.11.1",
+  "gwmock-signal>=0.11.2",
   "gwmock-noise>=0.10.0",
   "gwmock-pop>=0.11.4",
   "typer>=0.19.0",         # Literal-type CLI options; the SPEC 0 floor (0.13) predates them
@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sgwb = ["gwmock-signal[sgwb]>=0.11.1"]
+sgwb = ["gwmock-signal[sgwb]>=0.11.2"]
 
 [dependency-groups]
 dev = [
