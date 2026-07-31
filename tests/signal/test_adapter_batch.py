@@ -140,6 +140,53 @@ class TestSimulateSegmentsValidation:
                 end_time=_START + _SPAN,
             )
 
+    def test_a_scalar_required_parameter_is_rejected(self):
+        """A per-event parameter given once is not a column, whatever it would broadcast to.
+
+        Verified to be a real failure rather than a hypothetical: passing ``coa_time`` as a scalar
+        reaches batching and raises ``too many indices for array: array is 0-dimensional``, which
+        names neither the parameter nor the mistake.
+        """
+        parameters = SignalAdapter.events_to_struct_of_arrays(_events(2))
+        parameters["coa_time"] = _START
+        with pytest.raises(ValueError, match="must be given as arrays") as raised:
+            _adapter().simulate_segments(
+                parameters,
+                sampling_frequency=_FS,
+                minimum_frequency=30.0,
+                segment_duration=_SEGMENT,
+                start_time=_START,
+                end_time=_START + _SPAN,
+            )
+        assert "coa_time" in str(raised.value)
+
+    def test_a_scalar_stays_legal_for_a_parameter_that_is_not_per_event(self):
+        """Only the required per-event names are forced to be arrays.
+
+        Fixing a value across the catalogue with a scalar -- ``f_ref=20.0`` -- is the documented use
+        of ``waveform_arguments``, so the new check must not sweep it up.
+
+        The assertion is the *absence* of the scalar rejection rather than a specific exception,
+        because what happens after validation differs by installation: with the extra the
+        approximant is resolved and rejected as unknown, without it the Ripple import fails first.
+        Both mean validation was cleared, which is the whole claim.
+        """
+        parameters = SignalAdapter.events_to_struct_of_arrays(_events(2))
+        adapter = SignalAdapter.from_source_type(
+            source_type="bns", waveform_model="NotARippleApproximant", detectors=["ET-Triangle-Sardinia"]
+        )
+        with pytest.raises(Exception) as raised:  # noqa: PT011 - see the docstring
+            adapter.simulate_segments(
+                parameters,
+                sampling_frequency=_FS,
+                minimum_frequency=30.0,
+                segment_duration=_SEGMENT,
+                start_time=_START,
+                end_time=_START + _SPAN,
+                waveform_arguments={"f_ref": 20.0},
+            )
+        assert "must be given as arrays" not in str(raised.value), "a scalar f_ref must not be rejected"
+
     def test_ragged_numpy_columns_are_rejected(self):
         """Length validation must cover arrays, not only lists and tuples.
 
@@ -224,29 +271,12 @@ class TestForwardingToTheBatchedCall:
         assert captured["earth_rotation"] is False
 
 
-class TestDeviceApproximant:
-    """Which configured models can and cannot cross to the device path."""
+class TestDeviceApproximantWithoutTheExtra:
+    """Model rejections that do not need Ripple, and so must stay reachable without the extra.
 
-    @pytest.fixture(autouse=True)
-    def _require_device_stack(self):
-        pytest.importorskip("jax", reason="the [jax] extra is not installed")
-        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
-
-    def test_an_approximant_ripple_lacks_is_rejected_not_substituted(self):
-        """Generating a different waveform than the one configured would corrupt the simulation."""
-        adapter = SignalAdapter.from_source_type(
-            source_type="bns", waveform_model="SEOBNRv4", detectors=["ET-Triangle-Sardinia"]
-        )
-        with pytest.raises(ValueError, match="does not implement the approximant 'SEOBNRv4'") as raised:
-            adapter.simulate_segments(
-                SignalAdapter.events_to_struct_of_arrays(_events(2)),
-                sampling_frequency=_FS,
-                minimum_frequency=30.0,
-                segment_duration=_SEGMENT,
-                start_time=_START,
-                end_time=_START + _SPAN,
-            )
-        assert "IMRPhenomD" in str(raised.value), "the message must list what is available instead"
+    ``_device_approximant`` runs these before importing ``RippleBackend`` precisely so they hold in
+    a base installation. Placing them here rather than behind ``importorskip`` is the assertion.
+    """
 
     def test_a_callable_waveform_model_is_rejected_with_its_own_message(self):
         """A callable is registered under a generated key, which is not an approximant name.
@@ -270,6 +300,31 @@ class TestDeviceApproximant:
                 start_time=_START,
                 end_time=_START + _SPAN,
             )
+
+
+class TestDeviceApproximant:
+    """Which configured models can and cannot cross to the device path."""
+
+    @pytest.fixture(autouse=True)
+    def _require_device_stack(self):
+        pytest.importorskip("jax", reason="the [jax] extra is not installed")
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+
+    def test_an_approximant_ripple_lacks_is_rejected_not_substituted(self):
+        """Generating a different waveform than the one configured would corrupt the simulation."""
+        adapter = SignalAdapter.from_source_type(
+            source_type="bns", waveform_model="SEOBNRv4", detectors=["ET-Triangle-Sardinia"]
+        )
+        with pytest.raises(ValueError, match="does not implement the approximant 'SEOBNRv4'") as raised:
+            adapter.simulate_segments(
+                SignalAdapter.events_to_struct_of_arrays(_events(2)),
+                sampling_frequency=_FS,
+                minimum_frequency=30.0,
+                segment_duration=_SEGMENT,
+                start_time=_START,
+                end_time=_START + _SPAN,
+            )
+        assert "IMRPhenomD" in str(raised.value), "the message must list what is available instead"
 
 
 class TestSimulateSegmentsOnDevice:

@@ -476,6 +476,20 @@ class SignalAdapter:
                 f"{', '.join(missing)}. Unlike the per-event path it does not accept aliases, so "
                 f"e.g. 'mass1' must be given as 'detector_frame_mass_1'."
             )
+        # The required parameters are per-event by definition, so each must be a column. A scalar is
+        # rejected rather than broadcast: it means every event shares one value, and for `coa_time`
+        # that is every signal landing at the same instant. Left unchecked it surfaces from inside
+        # batching as "too many indices for array: array is 0-dimensional".
+        #
+        # Only the required ones. A scalar elsewhere is the documented way to fix a parameter across
+        # the catalogue -- `f_ref=20.0` via waveform_arguments -- so scalars stay legal in general.
+        scalars = [name for name in _DEVICE_REQUIRED_PARAMETERS if np.ndim(merged[name]) == 0]
+        if scalars:
+            raise ValueError(
+                f"These parameters vary per event and must be given as arrays, but were scalars: "
+                f"{', '.join(scalars)}. To hold one fixed across the catalogue, repeat it per event."
+            )
+
         # Sized by np.ndim rather than isinstance, so NumPy and JAX columns are checked too. Testing
         # for list/tuple alone let an ndarray of the wrong length through to fail inside batching,
         # where the message no longer names the parameter.
@@ -523,8 +537,6 @@ class SignalAdapter:
             RuntimeError: If the backend exposes no usable approximant name.
             ValueError: If the model is a callable, or Ripple has no such approximant.
         """
-        from gwmock_signal.waveform.backends.ripple import RippleBackend  # noqa: PLC0415
-
         name = getattr(self._backend, "waveform_model", None)
         if not isinstance(name, str) or not name:
             raise RuntimeError(
@@ -537,6 +549,11 @@ class SignalAdapter:
                 "cannot run: Ripple generates from its own compiled approximants, not from Python "
                 "callbacks. Use a string approximant, or the per-event path."
             )
+
+        # Imported only once the cheap checks pass, so both of the above stay reachable -- and
+        # therefore testable, and covered in CI -- in an installation without the [jax] extra.
+        from gwmock_signal.waveform.backends.ripple import RippleBackend  # noqa: PLC0415
+
         available = RippleBackend().available_approximants()
         if name not in available:
             raise ValueError(
