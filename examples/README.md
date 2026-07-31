@@ -23,14 +23,22 @@ end.
 
 **By what you want to generate**
 
-| Goal                           | Label                                          |
-| ------------------------------ | ---------------------------------------------- |
-| Detector noise only            | `noise/uncorrelated_gaussian/<network>`        |
-| Noise with transient glitches  | `noise/glitches/gengli/<network>/<detector>`   |
-| CBC signals only (no noise)    | `signal/bbh/<network>`, `signal/bns/<network>` |
-| Signals **and** noise together | `noise/uncorrelated_gaussian/quick_start`      |
-| Stochastic background          | `signal/sgwb/<network>`                        |
-| A blank starting point         | `default_config`                               |
+| Goal                                      | Label                                          |
+| ----------------------------------------- | ---------------------------------------------- |
+| Detector noise only                       | `noise/uncorrelated_gaussian/<network>`        |
+| Noise with transient glitches             | `noise/glitches/gengli/<network>/<detector>`   |
+| CBC signals only (no noise)               | `signal/bbh/<network>`, `signal/bns/<network>` |
+| Signals **and** noise together            | `noise/uncorrelated_gaussian/quick_start`      |
+| Stochastic background                     | `signal/sgwb/<network>`                        |
+| Signals from a different waveform library | `signal/waveform_backend/ripple`               |
+| A blank starting point                    | `default_config`                               |
+
+**By waveform library** — `signal.waveform-backend` chooses which library
+generates the polarizations: `lal` (the default), `pycbc`, `ripple`, or
+`gwsignal`. Any signal example accepts it. It names a **library, not a compute
+device** — `ripple` generates ripple waveforms through the same per-event path,
+since gwmock does not yet drive ripple's batched on-device path from a
+configuration file.
 
 **By detector network** — every `<network>` above is one of
 `et_triangle_sardinia`, `et_triangle_emr`, `et_2l_aligned`, `et_2l_misaligned`.
@@ -52,6 +60,7 @@ each is runnable without editing.
 | `signal/bbh/<network>`                             | signal             | all four                      | `IMRPhenomXPHM`, f<sub>min</sub> 10 Hz, Earth rotation on          |
 | `signal/bns/<network>`                             | signal             | all four                      | `IMRPhenomPv2_NRTidalv2`, f<sub>min</sub> 20 Hz, Earth rotation on |
 | `signal/sgwb/<network>`                            | background + noise | Triangle Sardinia, 2L aligned | 16 s; signal written as **HDF5**, noise as GWF                     |
+| `signal/waveform_backend/ripple`                   | signal             | Triangle Sardinia             | Waveforms from **ripple** rather than LAL. Needs `gwmock[jax]`     |
 
 The glitch examples are per-detector rather than per-network because each
 detector draws from its own glitch population file.
@@ -84,6 +93,7 @@ matrix needs a new entry.
 | `noise/uncorrelated_gaussian/et_triangle_sardinia` | Noise-only across **many** segments (chunking, per-segment seeds)              |
 | `signal/bbh/et_triangle_sardinia`                  | Signal-only CBC; Earth rotation; population loaded from file                   |
 | `signal/sgwb/et_triangle_sardinia`                 | `StochasticBackgroundSimulator` — a different simulator class; **HDF5** output |
+| `signal/waveform_backend/ripple`                   | A non-default waveform library resolved from config. Needs `ripplegw`          |
 | `noise/glitches/gengli/et_triangle_sardinia/e1`    | Glitch injection. Skipped when `gengli` is absent                              |
 
 Deliberately excluded, with the reason:

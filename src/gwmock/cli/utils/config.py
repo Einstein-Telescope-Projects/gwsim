@@ -173,6 +173,25 @@ class SignalConfig(BaseModel):
         description="Fixed signal parameters passed to the backend simulate method.",
     )
     waveform_model: str | None = Field(default=None, alias="waveform-model", description="Waveform model name")
+    waveform_backend: str | None = Field(
+        default=None,
+        alias="waveform-backend",
+        description=(
+            "Which waveform library generates the polarizations: a built-in alias "
+            "('lal', 'pycbc', 'ripple', 'gwsignal'), an entry point in 'gwmock.waveform', or a "
+            "'module:Class' reference. Defaults to LAL. Note this selects a library, not a "
+            "compute device: 'ripple' generates with ripple through the same per-event path."
+        ),
+    )
+    waveform_backend_arguments: dict[str, Any] = Field(
+        default_factory=dict,
+        alias="waveform-backend-arguments",
+        description=(
+            "Constructor arguments for the waveform backend, e.g. 'f_ref', 'ringdown_fraction', "
+            "'segment_duration', or ripple's 'taper_fraction'. Distinct from 'arguments', which "
+            "goes to the simulator rather than to the waveform backend."
+        ),
+    )
     waveform_arguments: dict[str, Any] = Field(
         default_factory=dict,
         alias="waveform-arguments",

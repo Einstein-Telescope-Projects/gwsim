@@ -325,6 +325,17 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         backend_arguments = _normalize_keys(dict(signal_config.arguments))
         if source_type == "sgwb":
             backend_arguments.setdefault("duration", duration)
+
+        # `waveform-backend` names a library; the simulator wants an instance. Resolved here so an
+        # unknown name is reported against the setting, rather than reaching WaveformFactory as a
+        # string and failing as an AttributeError about `str`.
+        waveform_backend_name = getattr(signal_config, "waveform_backend", None)
+        if waveform_backend_name:
+            backend_arguments["waveform_backend"] = instantiate_backend(
+                "waveform",
+                waveform_backend_name,
+                init_kwargs=_normalize_keys(dict(signal_config.waveform_backend_arguments)),
+            )
         backend_instance = SignalAdapter.instantiate_backend(
             backend_class,
             waveform_model=signal_config.waveform_model,
@@ -364,6 +375,14 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 },
                 "signal": {
                     "waveform_model": self.waveform_model,
+                    # Which library generated the polarizations. Recorded because it changes the
+                    # data: the same approximant from LAL and from ripple agree closely but not
+                    # exactly, so without this two runs with materially different strain would
+                    # carry identical provenance. Read from the config rather than stored
+                    # separately, to keep one source of truth. ``None`` means none was requested,
+                    # and gwmock-signal's own default (LAL) applied.
+                    "waveform_backend": self._configured_waveform_backend(),
+                    "waveform_backend_arguments": self._configured_waveform_backend_arguments(),
                     "waveform_arguments": self.waveform_arguments,
                     "waveform_options": self.waveform_options,
                     "parameters": self.signal_parameters,
@@ -383,6 +402,18 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 "segment_seeds": self.segment_seeds(),
             },
         }
+
+    def _configured_waveform_backend(self) -> str | None:
+        """Return the requested waveform-backend name, or ``None`` if the default applied."""
+        signal_config = self.orchestration_config.signal
+        return None if signal_config is None else getattr(signal_config, "waveform_backend", None)
+
+    def _configured_waveform_backend_arguments(self) -> dict[str, Any]:
+        """Return the waveform-backend constructor arguments, empty when none were given."""
+        signal_config = self.orchestration_config.signal
+        if signal_config is None:
+            return {}
+        return dict(getattr(signal_config, "waveform_backend_arguments", {}) or {})
 
     def resolved_config(self) -> dict[str, Any]:
         """Return runtime-resolved config overrides, shaped like OrchestrationConfig.
