@@ -117,6 +117,46 @@ class TestSelection:
 
         assert _active_waveform_backend(orchestrator).taper_fraction == pytest.approx(0.02)
 
+    def test_arguments_without_a_backend_name_are_still_applied(self, tmp_path):
+        """Tuning the default library is legitimate, and must not be silently discarded.
+
+        Gating on the backend name dropped ``waveform-backend-arguments`` from any config that
+        named no library -- while the run metadata still recorded them, so provenance claimed
+        settings that never reached the waveform. ``f_ref`` on LAL is the ordinary case.
+        """
+        orchestrator = _orchestrator(tmp_path, **{"waveform-backend-arguments": {"f_ref": 30.0}})
+        backend = _active_waveform_backend(orchestrator)
+
+        assert type(backend).__name__ == "LALSimulationBackend", "the library must not change"
+        # `_f_ref`: LALSimulationBackend stores it privately and exposes no accessor, unlike
+        # ripple's public `taper_fraction`. The alternative is asserting nothing at all here.
+        assert backend._f_ref == pytest.approx(30.0), "the argument was dropped"
+
+    def test_the_default_backend_matches_what_the_factory_would_have_built(self, tmp_path):
+        """The fallback library is stated in gwmock and again inside ``WaveformFactory``.
+
+        Two copies of one decision, so they are checked against each other rather than trusted:
+        if gwmock-signal changed its internal default, supplying arguments alone would silently
+        switch which library generates the waveforms.
+        """
+        from gwmock_signal.waveform.factory import WaveformFactory
+
+        factory_default = type(WaveformFactory()._backend)
+        explicit = type(_active_waveform_backend(_orchestrator(tmp_path, **{"waveform-backend": "lal"})))
+
+        assert explicit is factory_default, (
+            f"gwmock falls back to 'lal' ({explicit.__name__}) but WaveformFactory defaults to "
+            f"{factory_default.__name__}; supplying arguments alone would change the library."
+        )
+
+    def test_an_empty_backend_name_is_rejected_rather_than_ignored(self, tmp_path):
+        """An empty string is a mistake, and must not read as "use the default".
+
+        This is why the check is ``is not None`` rather than a truth test.
+        """
+        with pytest.raises(ValueError, match="non-empty string"):
+            _orchestrator(tmp_path, **{"waveform-backend": ""})
+
     def test_an_unknown_name_is_reported_against_the_setting(self, tmp_path):
         """Resolution happens up front, so the error names the library rather than a type.
 

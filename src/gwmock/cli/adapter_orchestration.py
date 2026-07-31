@@ -27,6 +27,11 @@ from gwmock.simulator.base import Simulator
 from gwmock.simulator.seeds import derive_seed
 from gwmock.simulator.state import StateAttribute
 
+#: Waveform library used when a config gives ``waveform-backend-arguments`` but names no
+#: backend. It must stay the same library ``WaveformFactory`` defaults to internally, or
+#: supplying arguments would quietly change which library generates the waveforms.
+_DEFAULT_WAVEFORM_BACKEND = "lal"
+
 
 @dataclass(slots=True)
 class AdapterOrchestrationResult:
@@ -329,12 +334,22 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         # `waveform-backend` names a library; the simulator wants an instance. Resolved here so an
         # unknown name is reported against the setting, rather than reaching WaveformFactory as a
         # string and failing as an AttributeError about `str`.
+        #
+        # Arguments alone are enough to require this. Gating on the name would silently discard
+        # `waveform-backend-arguments` from a config that only tunes the default library --
+        # `f_ref` on LAL, say -- while the run metadata still recorded them as applied. So when
+        # arguments are given without a name, the default is constructed explicitly; that is the
+        # same class WaveformFactory would have built for itself, so nothing else changes.
+        #
+        # `is not None` rather than a truth test, so an empty configured name reaches the
+        # resolver and is rejected there instead of being treated as absent.
         waveform_backend_name = getattr(signal_config, "waveform_backend", None)
-        if waveform_backend_name:
+        waveform_backend_arguments = _normalize_keys(dict(signal_config.waveform_backend_arguments))
+        if waveform_backend_name is not None or waveform_backend_arguments:
             backend_arguments["waveform_backend"] = instantiate_backend(
                 "waveform",
-                waveform_backend_name,
-                init_kwargs=_normalize_keys(dict(signal_config.waveform_backend_arguments)),
+                waveform_backend_name if waveform_backend_name is not None else _DEFAULT_WAVEFORM_BACKEND,
+                init_kwargs=waveform_backend_arguments,
             )
         backend_instance = SignalAdapter.instantiate_backend(
             backend_class,
