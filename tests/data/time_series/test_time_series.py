@@ -192,3 +192,77 @@ class TestTimeSeriesSerialization:
         assert reconstructed.start_time == sample_timeseries.start_time
         assert reconstructed.sampling_frequency == sample_timeseries.sampling_frequency
         np.testing.assert_array_equal(reconstructed[0].value, sample_timeseries[0].value)
+
+
+class TestInjectBoundaryOverflow:
+    """A chunk crossing the segment boundary must hand its tail back, aligned or not.
+
+    ``TimeSeriesMixin.simulate`` carries a signal across segments by caching whatever
+    ``inject``/``inject_from_list`` returns. The interpolation path rebinds ``other`` to samples
+    drawn from the segment's own time array, which cannot extend past the segment end, so the
+    overflow check compared against the wrong series and the tail was dropped -- silently
+    truncating any misaligned signal at a segment boundary.
+
+    This was latent while the alignment test used a relative tolerance, because long segments always
+    took the aligned branch. Fixing that tolerance made the interpolation branch reachable and the
+    bug live, which is why it belongs with that change.
+    """
+
+    SAMPLING_FREQUENCY = 4096.0
+    START = 1e9
+    SEGMENT_SAMPLES = 1000
+    CHUNK_SAMPLES = 400
+    CHUNK_START_SAMPLE = 900
+
+    def _segment(self):
+        return TimeSeries(
+            data=np.zeros((1, self.SEGMENT_SAMPLES)),
+            start_time=self.START,
+            sampling_frequency=self.SAMPLING_FREQUENCY,
+        )
+
+    def _chunk(self, offset_samples: float):
+        return TimeSeries(
+            data=np.ones((1, self.CHUNK_SAMPLES)),
+            start_time=self.START + offset_samples / self.SAMPLING_FREQUENCY,
+            sampling_frequency=self.SAMPLING_FREQUENCY,
+        )
+
+    @pytest.mark.parametrize(
+        ("offset_samples", "description"),
+        [(900.0, "aligned"), (900.5, "half a sample misaligned")],
+    )
+    def test_the_overflow_is_returned(self, offset_samples: float, description: str):
+        """Both branches must return the part of the chunk beyond the segment."""
+        segment = self._segment()
+
+        remaining = segment.inject(self._chunk(offset_samples))
+
+        assert remaining is not None, (
+            f"a {description} chunk crossing the segment boundary returned no remainder, so its "
+            f"tail was discarded instead of being carried into the next segment"
+        )
+        expected = self.CHUNK_SAMPLES - (self.SEGMENT_SAMPLES - int(self.CHUNK_START_SAMPLE))
+        assert len(np.asarray(remaining)[0]) == expected
+
+    def test_the_returned_tail_is_not_resampled(self):
+        """The tail must keep its own grid so the next segment can place it correctly.
+
+        Handing back an already-interpolated tail would resample the same data twice, and would
+        also lose the sub-sample offset the next segment needs in order to place it.
+        """
+        segment = self._segment()
+        chunk = self._chunk(900.5)
+
+        remaining = segment.inject(chunk)
+
+        assert remaining is not None
+        assert np.all(np.asarray(remaining)[0] == 1.0), (
+            "the returned tail has been interpolated; it should be the supplied samples unchanged"
+        )
+
+    def test_a_chunk_inside_the_segment_returns_nothing(self):
+        """The complement, so the test above cannot pass by always returning a remainder."""
+        segment = self._segment()
+
+        assert segment.inject(self._chunk(100.5)) is None

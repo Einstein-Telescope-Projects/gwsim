@@ -278,6 +278,13 @@ class TimeSeries(JSONSerializable):
             )
             return other
 
+        # Kept because the interpolation below rebinds `other` to samples drawn from this segment's
+        # own time array, which by construction cannot extend past `self.end_time`. The overflow has
+        # to be measured against what the caller actually passed, or a chunk crossing the segment
+        # boundary loses its tail -- and `TimeSeriesMixin.simulate` relies on that tail being
+        # returned to carry the rest of the signal into the next segment.
+        supplied = other
+
         # Check whether there is any offset in times
         other_start_time = other.start_time.to(self.start_time.unit)
         idx = ((other_start_time - self.start_time) * self.sampling_frequency).value
@@ -306,8 +313,10 @@ class TimeSeries(JSONSerializable):
         for i in range(self.num_of_channels):
             self[i] = inject(self[i], other[i])
 
-        if other.end_time > self.end_time:
-            return other.crop(start_time=self.end_time)
+        # The tail comes from the supplied chunk, unresampled, so the next segment interpolates it
+        # against its own grid rather than inheriting this segment's resampling.
+        if supplied.end_time > self.end_time:
+            return supplied.crop(start_time=self.end_time)
         return None
 
     def inject_from_list(self, ts_iterable: Iterable[TimeSeries]) -> TimeSeriesList:
