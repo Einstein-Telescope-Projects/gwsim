@@ -1,9 +1,12 @@
-"""The subset of ``examples/`` that the end-to-end suite runs, and why each one is in it.
+"""The subset of ``examples/`` *declared* as the end-to-end matrix, and why each one is in it.
 
-This module is the single source of truth for the matrix. ``examples/README.md`` documents
-the same set for users, and ``test_examples_index.py`` fails if the two disagree -- a
-README that can drift from what the suite actually runs is worse than no README, because
-it is read as a statement of coverage.
+Declared, not yet executed: no runner drives these configs. Today the entries are checked
+only for existence, and for agreement with the table in ``examples/README.md``. The wording
+matters because a list of examples reads as a claim about coverage, and overstating it is
+worse than having no list -- so the present tense is reserved for when a runner exists.
+
+This module is the single source of truth for the set. ``examples/README.md`` documents the
+same set for users, and ``test_examples_index.py`` fails if the two disagree.
 
 The selection principle is one entry per distinct **code path**, not per configuration.
 Examples that differ only in values flowing through the same code (four detector networks
@@ -23,10 +26,12 @@ class MatrixEntry:
 
     Attributes:
         label: Path-derived example label, exactly as ``gwmock config --get`` takes it.
-        covers: The code path this entry exists to exercise. Written as a claim that can be
-            checked against the code, not as a restatement of the label.
+        covers: The code path this entry is intended to exercise. Written as a claim that can
+            be checked against the code, not as a restatement of the label. Intent for now --
+            nothing verifies that running the config reaches that path, because nothing runs
+            it yet.
         requires: Import names that must be present for this entry to run, if any. An entry
-            whose dependency is missing is skipped rather than failed.
+            whose dependency is missing will be skipped rather than failed.
     """
 
     label: str
@@ -34,8 +39,8 @@ class MatrixEntry:
     requires: tuple[str, ...] = ()
 
 
-#: The matrix. Keep in step with the "Which of these the test suite runs" table in
-#: ``examples/README.md`` -- a test enforces it.
+#: The declared matrix. Keep in step with the corresponding table in ``examples/README.md``
+#: -- a test enforces it.
 E2E_MATRIX: tuple[MatrixEntry, ...] = (
     MatrixEntry(
         label="default_config",

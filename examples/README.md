@@ -56,16 +56,18 @@ each is runnable without editing.
 The glitch examples are per-detector rather than per-network because each
 detector draws from its own glitch population file.
 
-## Which of these the test suite runs
+## The end-to-end test matrix
 
-A **subset** of these examples is the end-to-end test matrix: the configs the
-suite drives through the real CLI to check a run completes, writes the expected
-files, and reproduces stored reference values.
+A **subset** of these examples is declared as the end-to-end matrix: the configs
+intended to be driven through the real CLI, checking that a run completes,
+writes the expected files, and reproduces stored reference values.
 
-> **Status.** The matrix below is fixed and enforced — `tests/e2e/matrix.py`
-> holds it as data, and a test fails if this table and that file disagree. The
-> runner that executes the configs lands separately; until it does, these
-> entries are checked for existence, not yet run.
+> **Status — declared, not yet executed.** No runner drives these configs today.
+> What is enforced now is that the set is fixed and consistent:
+> `tests/e2e/matrix.py` holds it as data, a test fails if this table and that
+> file disagree, and every entry must name an example that exists. Nothing yet
+> checks that running one reaches the code path claimed for it. The runner lands
+> separately, and this note goes when it does.
 
 The subset is chosen to cover each distinct **code path** exactly once, not
 every configuration. Where two examples differ only in values that flow through
@@ -75,7 +77,7 @@ what guarantee the others follow. That assumption is the reason the subset is
 legitimate; if a change makes two examples take genuinely different paths, the
 matrix needs a new entry.
 
-| Label                                              | Code path it covers                                                            |
+| Label                                              | Code path it is intended to cover                                              |
 | -------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `default_config`                                   | The blank template must run unedited; noise-only, single segment               |
 | `noise/uncorrelated_gaussian/quick_start`          | Signal **and** noise in one run; CBC; GWF output                               |
@@ -96,11 +98,11 @@ Deliberately excluded, with the reason:
 - **`e2`/`e3` glitch files**, which differ only in the population file they
   read.
 
-The tests do **not** edit these files. Durations, sample counts and input paths
-are reduced by a test-time overlay, so the examples stay realistic as examples
-while the suite stays fast. Changing an example still changes what the suite
-runs — that is the point — but shortening one for the tests' benefit is never
-necessary.
+The tests will **not** edit these files. Durations, sample counts and input
+paths are to be reduced by a test-time overlay, so the examples stay realistic
+as examples while the suite stays fast. Changing an example will still change
+what the suite runs — that is the point — but shortening one for the tests'
+benefit should never be necessary.
 
 Adding a new example is free: the label is derived from the directory path. Add
 it to the table above. Add it to the matrix only if it reaches code no listed

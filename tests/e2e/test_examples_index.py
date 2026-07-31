@@ -2,8 +2,11 @@
 
 Documentation that lists coverage is read as a statement *about* coverage, so it is worth
 enforcing rather than trusting. Three ways it can lie, one test each: an example missing
-from the index, an index row naming an example that is gone, and the documented test
-matrix disagreeing with the matrix the suite runs.
+from the index, an index row naming an example that is gone, and the documented matrix
+disagreeing with the matrix declared in ``matrix.py``.
+
+Note what is *not* checked here: that running a matrix entry reaches the code path claimed
+for it. No runner exists yet, so every claim in ``covers`` is intent.
 """
 
 from __future__ import annotations
@@ -18,6 +21,10 @@ from .matrix import E2E_MATRIX
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _EXAMPLES = _REPO_ROOT / "examples"
 _README = _EXAMPLES / "README.md"
+
+#: Heading that introduces the matrix table. Named once because the parser splits on it, so a
+#: reworded heading silently empties the comparison rather than failing it.
+_MATRIX_HEADING = "## The end-to-end test matrix"
 
 #: Placeholders used in the index table so it stays browsable at ~26 examples. Expanding
 #: them here rather than writing every row out keeps the README readable *and* checkable.
@@ -81,13 +88,21 @@ def test_the_index_does_not_name_examples_that_are_gone():
     assert not stale, f"the README indexes examples that no longer exist: {sorted(stale)}"
 
 
-def test_the_documented_matrix_matches_the_matrix_the_suite_runs():
+def test_the_documented_matrix_matches_the_declared_matrix():
     """The README's matrix table and ``E2E_MATRIX`` must be the same set, in the same order.
+
+    The *declared* matrix -- no runner executes these configs yet, so this compares two
+    statements of intent and nothing here shows that running them reaches the claimed paths.
 
     Order too, not just membership: the table is read top to bottom as the coverage
     argument, and a silently reordered one invites the two to drift apart in content next.
     """
-    body = _README.read_text(encoding="utf-8").split("## Which of these the test suite runs")[-1]
+    text = _README.read_text(encoding="utf-8")
+    assert _MATRIX_HEADING in text, (
+        f"the README no longer has a '{_MATRIX_HEADING}' heading, so this test cannot locate "
+        f"the table it is meant to compare."
+    )
+    body = text.split(_MATRIX_HEADING)[-1]
     documented = [re.match(r"\| `([^`]+)`", line).group(1) for line in body.splitlines() if line.startswith("| `")]
     assert documented == [entry.label for entry in E2E_MATRIX], (
         "examples/README.md and tests/e2e/matrix.py disagree about the end-to-end matrix."
