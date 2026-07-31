@@ -6,7 +6,12 @@ import numpy as np
 import pytest
 from gwpy.timeseries import TimeSeries as GWpyTimeSeries
 
-from gwmock.data.time_series.inject import inject, is_aligned
+from gwmock.data.time_series.inject import (
+    _MAXIMUM_ALIGNMENT_TOLERANCE,
+    alignment_tolerance,
+    inject,
+    is_aligned,
+)
 
 
 class TestInjectBasic:
@@ -947,21 +952,57 @@ class TestAlignmentTolerance:
 class TestIsAligned:
     """The predicate itself, across the domain rather than at one point."""
 
+    #: Tolerance at a realistic GPS epoch and rate, ~3.9e-3 samples.
+    TOLERANCE = alignment_tolerance(1.6e9, 4096.0)
+
     def test_zero_and_whole_offsets_are_aligned(self):
-        assert is_aligned(0.0)
-        assert is_aligned(1.0)
-        assert is_aligned(16_777_216.0)
+        assert is_aligned(0.0, self.TOLERANCE)
+        assert is_aligned(1.0, self.TOLERANCE)
+        assert is_aligned(16_777_216.0, self.TOLERANCE)
 
     def test_representation_error_counts_as_aligned(self):
         """4.0e-4 samples is the worst measured error for a truly aligned chunk, at 4000 Hz."""
-        assert is_aligned(4.0e-4)
-        assert is_aligned(1_000_000 + 4.0e-4)
+        assert is_aligned(4.0e-4, self.TOLERANCE)
+        assert is_aligned(1_000_000 + 4.0e-4, self.TOLERANCE)
 
     def test_a_fraction_of_a_sample_counts_as_misaligned(self):
-        assert not is_aligned(0.01)
-        assert not is_aligned(0.5)
+        assert not is_aligned(0.05, self.TOLERANCE)
+        assert not is_aligned(0.5, self.TOLERANCE)
 
     @pytest.mark.parametrize("offset", [0.5, 50_000.5, 1_000_000.5, 16_777_216.5])
     def test_a_half_sample_is_misaligned_at_any_magnitude(self, offset: float):
         """The property the relative tolerance failed to provide: scale independence."""
-        assert not is_aligned(offset)
+        assert not is_aligned(offset, self.TOLERANCE)
+
+
+class TestAlignmentToleranceDerivation:
+    """The tolerance has to track the epoch, not be a constant."""
+
+    @pytest.mark.parametrize(
+        ("epoch", "sampling_frequency", "observed_error"),
+        [
+            (1.577e9, 4000.0, 4.0e-4),  # worst error measured locally
+            (1e10, 2000.0, 1.68e-3),  # the case a fixed 1e-3 got wrong
+        ],
+    )
+    def test_the_tolerance_exceeds_the_error_a_real_alignment_carries(
+        self, epoch: float, sampling_frequency: float, observed_error: float
+    ):
+        """A tolerance below the representation error interpolates genuinely aligned chunks.
+
+        That is worse than the misclassification this check exists to prevent, and it is why the
+        tolerance is derived from the floating-point spacing rather than fixed. A hardcoded 1e-3
+        passed the first case and failed the second.
+        """
+        assert alignment_tolerance(epoch, sampling_frequency) > observed_error
+
+    def test_the_tolerance_never_reaches_half_a_sample(self):
+        """Above half a sample the check would call everything aligned -- the original bug."""
+        for epoch in (1e9, 1e10, 1e12, 1e15):
+            for sampling_frequency in (1024.0, 16384.0, 1e6):
+                assert alignment_tolerance(epoch, sampling_frequency) <= _MAXIMUM_ALIGNMENT_TOLERANCE < 0.5
+
+    def test_the_tolerance_grows_with_epoch_and_rate(self):
+        """The property that makes it correct where a constant is not."""
+        assert alignment_tolerance(1e10, 4096.0) > alignment_tolerance(1e9, 4096.0)
+        assert alignment_tolerance(1e9, 16384.0) > alignment_tolerance(1e9, 1024.0)

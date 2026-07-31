@@ -12,35 +12,78 @@ from scipy.interpolate import interp1d
 
 logger = logging.getLogger("gwmock")
 
-#: How close to a whole sample an offset must be to count as aligned, in samples.
+#: Multiple of the float64 spacing at the epoch allowed as alignment error.
 #:
-#: Absolute, not relative. ``np.isclose``'s default is relative, and since a fractional offset can
-#: never exceed 0.5 samples, a relative test passes unconditionally once ``rtol * offset >= 0.5`` --
-#: about 50,000 samples, or 12 s into a segment at 4096 Hz. Beyond that every chunk was snapped to
-#: the nearest sample and the interpolation branch was unreachable, silently displacing signals by
-#: up to half a sample.
+#: 4x leaves about an order of magnitude over the largest error measured for a genuinely aligned
+#: chunk (4.0e-4 samples at GPS 1.577e9, 4000 Hz) while keeping the tolerance as small as possible --
+#: too loose is the harmful direction, since that is what snaps a misaligned chunk to a whole sample.
+_ALIGNMENT_SPACING_MARGIN = 4.0
+
+#: Smallest tolerance ever used, for epochs near zero where the spacing is meaningless.
+_MINIMUM_ALIGNMENT_TOLERANCE = 1e-9
+
+#: Largest tolerance ever used, in samples.
 #:
-#: The value is measured rather than picked. ``offset`` comes from a GPS-scale subtraction, so an
-#: exactly-aligned chunk still carries cancellation error: zero for power-of-two sample rates, and
-#: up to 4.0e-4 samples at 4000 Hz across GPS epochs from 1e9 to 1.8e9. 1e-3 clears that worst case
-#: by 2.5x while still detecting a misalignment of a hundredth of a sample.
-#:
-#: Erring tight is the safer direction. Treating an aligned chunk as misaligned interpolates it onto
-#: essentially the same grid points, which is close to a no-op; treating a misaligned one as aligned
-#: is the displacement this constant exists to prevent.
-ALIGNMENT_TOLERANCE_SAMPLES = 1e-3
+#: A fractional offset cannot exceed 0.5 samples, so a tolerance approaching that would classify
+#: everything as aligned -- reintroducing the bug this machinery exists to prevent. 0.01 keeps a
+#: hundredth of a sample detectable. Reaching this ceiling means float64 can no longer resolve
+#: sample alignment at the given epoch and rate, which is worth saying out loud rather than
+#: silently degrading.
+_MAXIMUM_ALIGNMENT_TOLERANCE = 1e-2
 
 
-def is_aligned(offset_samples: float) -> bool:
-    """Return whether *offset_samples* is a whole number of samples, to within tolerance.
+def alignment_tolerance(reference_time: float, sampling_frequency: float) -> float:
+    """Return how far from a whole sample an offset may sit and still count as aligned.
+
+    Derived from the floating-point spacing at *reference_time* rather than fixed. The offset is
+    computed as ``(other_start - self_start) * sampling_frequency`` from two GPS-scale times, so an
+    exactly-aligned chunk still carries error of order ``spacing(epoch) * sampling_frequency``: at
+    GPS 1.6e9 and 4096 Hz that is ~1e-3 samples, and it grows with both the epoch and the rate.
+
+    A fixed tolerance therefore cannot be right everywhere. 1e-3 covers GPS 1e9-1.8e9 at 512-16384
+    Hz, but at GPS 1e10 and 2000 Hz the real error reaches ~1.7e-3 -- and a tolerance below the
+    error means genuinely aligned chunks get interpolated, which is worse than the misclassification
+    this whole check exists to avoid. Scaling with the spacing removes the domain assumption.
+
+    Args:
+        reference_time: Epoch the offset is measured from, in seconds.
+        sampling_frequency: Sample rate in Hz.
+
+    Returns:
+        Tolerance in samples, clamped to :data:`_MINIMUM_ALIGNMENT_TOLERANCE` and
+        :data:`_MAXIMUM_ALIGNMENT_TOLERANCE`.
+    """
+    derived = _ALIGNMENT_SPACING_MARGIN * float(np.spacing(abs(float(reference_time)))) * float(sampling_frequency)
+    if derived > _MAXIMUM_ALIGNMENT_TOLERANCE:
+        logger.warning(
+            "Sample alignment cannot be resolved at epoch %s and %s Hz: the floating-point spacing "
+            "implies an uncertainty of %.3g samples, so alignment decisions there are unreliable. "
+            "Capping the tolerance at %s.",
+            reference_time,
+            sampling_frequency,
+            derived,
+            _MAXIMUM_ALIGNMENT_TOLERANCE,
+        )
+    return min(_MAXIMUM_ALIGNMENT_TOLERANCE, max(_MINIMUM_ALIGNMENT_TOLERANCE, derived))
+
+
+def is_aligned(offset_samples: float, tolerance: float) -> bool:
+    """Return whether *offset_samples* is a whole number of samples, within *tolerance*.
+
+    Absolute, not relative. ``np.isclose``'s default tolerance is relative, and since a fractional
+    offset can never exceed 0.5 samples, a relative test passes unconditionally once
+    ``rtol * offset >= 0.5`` -- about 50,000 samples, or 12 s into a segment at 4096 Hz. Beyond that
+    the interpolation branch was unreachable and every chunk was snapped to the nearest sample,
+    displacing signals by up to half a sample.
 
     Args:
         offset_samples: Offset between two series' start times, in samples.
+        tolerance: Permitted deviation in samples, from :func:`alignment_tolerance`.
 
     Returns:
-        Whether the offset counts as aligned. See :data:`ALIGNMENT_TOLERANCE_SAMPLES`.
+        Whether the offset counts as aligned.
     """
-    return bool(abs(offset_samples - round(offset_samples)) <= ALIGNMENT_TOLERANCE_SAMPLES)
+    return bool(abs(offset_samples - round(offset_samples)) <= tolerance)
 
 
 def inject(timeseries: TimeSeries, other: TimeSeries, interpolate_if_offset: bool = True) -> TimeSeries:
@@ -76,7 +119,7 @@ def inject(timeseries: TimeSeries, other: TimeSeries, interpolate_if_offset: boo
     offset = (other_times[0] - target_times[0]) / sample_spacing
 
     # Check if offset is aligned (integer number of samples)
-    if not is_aligned(offset):
+    if not is_aligned(offset, alignment_tolerance(target_times[0], 1.0 / sample_spacing)):
         if not interpolate_if_offset:
             logger.debug("Non-integer offset of %s samples; not interpolating, returning original timeseries", offset)
             return timeseries
