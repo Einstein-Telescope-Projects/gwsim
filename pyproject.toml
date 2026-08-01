@@ -133,8 +133,8 @@ markers = [
   "unit: fast offline tests",
   # Drives an example configuration through the real CLI. Excluded from the default run via
   # `-m "not e2e"` below, because these generate data and are minutes rather than seconds; the
-  # `e2e` CI job runs them, and it installs every extra so the optional-stack entries in
-  # tests/e2e/matrix.py actually execute rather than silently skipping.
+  # `e2e` CI job runs them, and it installs the extras the matrix needs so the optional-stack
+  # entries in tests/e2e/matrix.py actually execute rather than silently skipping.
   "e2e: end-to-end tests that run an example config through the CLI",
 ]
 

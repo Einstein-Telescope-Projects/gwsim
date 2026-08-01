@@ -351,7 +351,9 @@ Batched is the **GPU-capable** path, but this key does not choose a device.
 Whether it runs on a GPU depends only on the installed JAX backend:
 
 - `pip install 'gwmock[jax]'` — batched, on the CPU.
-- `pip install 'gwmock[cuda]'` — batched, on a GPU (Linux x86_64, CUDA 12).
+- `pip install 'gwmock[cuda]'` — installs the CUDA backend (Linux x86_64, CUDA
+  12); runs on a GPU when a compatible device and driver are present, and
+  silently falls back to the CPU when they are not.
 
 Nothing in the output distinguishes the two and no warning is raised for the CPU
 case. Check with `python -c "import jax; print(jax.devices())"`.
