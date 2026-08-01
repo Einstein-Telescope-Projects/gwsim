@@ -47,11 +47,11 @@ the installed JAX backend, not on the key: `gwmock[jax]` gives batched on the
 CPU, `gwmock[cuda]` gives a GPU. Check with
 `python -c "import jax; print(jax.devices())"`.
 
-**Not every preset can use it.** None of the presets set `execution` — they all
-default to per-event — but if you add `execution: batched` to one, whether it
-works depends on its approximant, because the batched path only ever generates
-with ripple. A configuration naming an approximant ripple lacks is refused
-rather than served with a substitute.
+**Not every preset can use it.** Apart from `signal/execution/batched` itself,
+the presets leave `execution` unset and so default to per-event — but if you add
+`execution: batched` to one, whether it works depends on its approximant,
+because the batched path only ever generates with ripple. A configuration naming
+an approximant ripple lacks is refused rather than served with a substitute.
 
 Measured on an RTX 2080 Ti on 2026-08-01, by adding the key to each preset: the
 four `signal/bbh/<network>` presets generated (`IMRPhenomXPHM`), while the four

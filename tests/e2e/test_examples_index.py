@@ -158,6 +158,11 @@ class TestBundledPresetsAgainstTheBatchedPath:
         config = yaml.safe_load((_EXAMPLES / label / "config.yaml").read_text())
         return config["orchestration"]["signal"]["waveform-model"]
 
+    #: Every ET network a CBC preset ships for. Asserted exactly, not merely as "non-empty": a
+    #: subset would otherwise satisfy the tests below while leaving presets unchecked, which is the
+    #: weaker form of the bug that already let an earlier version pass over an empty set.
+    _NETWORKS = frozenset({"et_2l_aligned", "et_2l_misaligned", "et_triangle_emr", "et_triangle_sardinia"})
+
     def _models_under(self, source_type: str) -> dict[str, str]:
         """Map network name -> approximant for every preset of one source type.
 
@@ -174,8 +179,11 @@ class TestBundledPresetsAgainstTheBatchedPath:
         supported = self._supported()
         models = self._models_under("bbh")
 
-        assert models, "no BBH presets found; this test has stopped checking anything"
+        assert set(models) == self._NETWORKS, f"BBH presets are {sorted(models)}, expected {sorted(self._NETWORKS)}"
         for label, model in models.items():
+            # The exact model, not just "something supported": a preset silently changing
+            # approximant changes the physics it represents and what was measured on device.
+            assert model == "IMRPhenomXPHM", f"bbh/{label} now uses {model}; the device check covered IMRPhenomXPHM"
             assert model in supported, f"bbh/{label} uses {model}, which the batched path cannot generate"
 
     def test_the_bns_presets_name_an_approximant_ripple_does_not(self):
@@ -189,8 +197,12 @@ class TestBundledPresetsAgainstTheBatchedPath:
         supported = self._supported()
         models = self._models_under("bns")
 
-        assert models, "no BNS presets found; this test has stopped checking anything"
+        assert set(models) == self._NETWORKS, f"BNS presets are {sorted(models)}, expected {sorted(self._NETWORKS)}"
         for label, model in models.items():
+            assert model == "IMRPhenomPv2_NRTidalv2", (
+                f"bns/{label} now uses {model}; whether the batched path is still blocked depends on "
+                f"that model, so the config headers and README need rechecking"
+            )
             assert model not in supported, (
                 f"bns/{label} uses {model}, which ripple now implements — the batched path is no "
                 f"longer blocked for the BNS presets, so this test, the config headers and the "
