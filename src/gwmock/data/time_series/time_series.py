@@ -330,6 +330,17 @@ class TimeSeries(JSONSerializable):
                 start_time=supplied.start_time,
                 sampling_frequency=supplied.sampling_frequency,
             )
+            # Carry the wrapper metadata and each channel's identity across. A tail is the same
+            # signal continuing into the next segment, so dropping these would strip
+            # `injection_parameters` -- and the channel name and unit -- from any injection long
+            # enough to cross a boundary, which is precisely the long-inspiral case.
+            tail.metadata.update(dict(supplied.metadata))
+            for index in range(min(tail.num_of_channels, supplied.num_of_channels)):
+                source, target = supplied[index], tail[index]
+                target.name = source.name
+                target.channel = source.channel
+                # `unit` is read-only on a gwpy array; override_unit is the supported way to set it.
+                target.override_unit(source.unit)
             return tail.crop(start_time=self.end_time)
         return None
 

@@ -211,9 +211,17 @@ class TestSegmentEventSelection:
 
         assert event_ids == [0], "only the event before the segment end belongs to this segment"
         assert len(events) == 1
+        assert int(orchestrator.population_index) == 0, (
+            "reading the segment's events must not advance the checkpointed index: generation can "
+            "still fail afterwards, and a caller would then see events consumed that were never "
+            "produced"
+        )
+
+        orchestrator._commit_consumed_events(event_ids)
+
         assert int(orchestrator.population_index) == 1, (
-            "population_index must stop at the boundary; it is checkpointed, so over-consuming here "
-            "loses events on resume"
+            "committing must advance past exactly the events generated, so the next segment resumes "
+            "at the boundary rather than skipping or repeating"
         )
 
     def test_an_empty_segment_consumes_nothing(self, tmp_path):

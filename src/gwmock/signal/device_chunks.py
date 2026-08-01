@@ -69,6 +69,55 @@ _PARAMETER_ALIASES: dict[str, str] = {
 }
 
 
+#: Canonical parameters the batched path actually consumes.
+#:
+#: Projection reads the first four; ripple's waveform generation reads the rest. Anything else
+#: handed to ``simulate_cbc_batch`` is ignored without complaint, which for a *fixed* argument the
+#: user wrote in their config is a silent drop -- the third of that kind found in this work. Listed
+#: here so it can be rejected instead.
+#:
+#: Taken from ``gwmock_signal.jax_batch`` and ``waveform.backends.ripple``. It will drift if
+#: gwmock-signal grows a parameter; the cost of that is a spurious rejection, which is visible,
+#: rather than a silent omission, which is not.
+BATCHED_PARAMETERS: frozenset[str] = frozenset(
+    {
+        "coa_time",
+        "declination",
+        "polarization_angle",
+        "right_ascension",
+        "detector_frame_mass_1",
+        "detector_frame_mass_2",
+        "luminosity_distance",
+        "coa_phase",
+        "inclination",
+        "spin_1z",
+        "spin_2z",
+        "lambda_1",
+        "lambda_2",
+        "f_ref",
+    }
+)
+
+
+def require_batched_parameters_supported(waveform_arguments: dict[str, Any]) -> None:
+    """Raise if a fixed waveform argument would be ignored by the batched path.
+
+    Args:
+        waveform_arguments: The ``waveform-arguments`` mapping from the configuration, already
+            canonicalised.
+
+    Raises:
+        ValueError: If any key is not one the batched entry point reads.
+    """
+    unsupported = sorted(set(waveform_arguments) - BATCHED_PARAMETERS)
+    if unsupported:
+        raise ValueError(
+            f"execution: batched cannot apply these waveform-arguments: {unsupported}. The batched "
+            f"entry point reads only {sorted(BATCHED_PARAMETERS)}, and would ignore the rest "
+            f"without complaint. Use execution: per-event, or remove them."
+        )
+
+
 def canonicalise_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
     """Return *parameters* with known aliases renamed to their canonical names.
 

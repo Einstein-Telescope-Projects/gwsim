@@ -288,6 +288,28 @@ class TestInjectBoundaryOverflow:
         assert float(chunk.start_time.value) == original_start, "the caller's chunk was moved"
         assert remaining is not chunk, "the remainder must not be the caller's own object"
 
+    def test_the_tail_keeps_the_chunk_s_metadata_and_channel_identity(self):
+        """A tail is the same signal continuing, so it must arrive described the same way.
+
+        The remainder is rebuilt as a new TimeSeries to avoid mutating the caller's chunk. Building
+        it from data, start time and rate alone silently drops ``metadata`` -- which carries
+        ``injection_parameters`` -- along with each channel's name and unit. Any injection long
+        enough to cross a segment boundary would then lose its provenance in the next segment, and a
+        long inspiral is exactly the case that crosses one.
+        """
+        segment = self._segment()
+        chunk = self._chunk(900.0)
+        chunk.metadata.update({"injection_parameters": {"coa_time": 1234.5}})
+        chunk[0].name = "H1:STRAIN"
+
+        remaining = segment.inject(chunk)
+
+        assert remaining is not None
+        assert remaining.metadata.get("injection_parameters") == {"coa_time": 1234.5}, (
+            "the tail lost the injection provenance it was carrying"
+        )
+        assert remaining[0].name == "H1:STRAIN", "the tail lost its channel identity"
+
     def test_a_chunk_inside_the_segment_returns_nothing(self):
         """The complement, so the test above cannot pass by always returning a remainder."""
         segment = self._segment()

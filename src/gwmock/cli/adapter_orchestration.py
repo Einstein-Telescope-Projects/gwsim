@@ -532,16 +532,26 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         events: list[dict[str, Any]] = []
         end_time_value = float(getattr(self.end_time, "value", self.end_time))
 
-        while self.population_index < len(self._population_events):
-            event_id = int(self.population_index)
-            parameters = dict(self._population_events[event_id])
+        # Read without advancing. `population_index` is checkpointed, and everything after this --
+        # transposing to a struct-of-arrays, canonicalising, generating -- can still fail. Advancing
+        # here would let a caller observe a consumed index after an exception, so the commit happens
+        # in `_commit_consumed_events` once generation has succeeded. The CLI's retry wrapper
+        # restores pre-batch state, so this is about direct library callers rather than the runner.
+        position = int(self.population_index)
+        while position < len(self._population_events):
+            parameters = dict(self._population_events[position])
             coa_time = parameters.get("coa_time")
             if coa_time is not None and float(coa_time) >= end_time_value:
                 break
-            event_ids.append(event_id)
+            event_ids.append(position)
             events.append(parameters)
-            self.population_index = cast(int, self.population_index) + 1
+            position += 1
         return event_ids, events
+
+    def _commit_consumed_events(self, event_ids: list[int]) -> None:
+        """Advance the checkpointed index past events whose generation succeeded."""
+        if event_ids:
+            self.population_index = event_ids[-1] + 1
 
     def _batched_waveform_backend(self) -> Any:
         """Return the ripple backend the batched path should generate with.
@@ -602,11 +612,13 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         from gwmock.signal.device_chunks import (  # noqa: PLC0415
             batched_strain_to_chunks,
             canonicalise_parameters,
+            require_batched_parameters_supported,
         )
 
         # Validated before any events are consumed. `population_index` is checkpointed state, so
         # failing after advancing it would make a resumed run skip the events this call rejected.
         waveform_backend = self._batched_waveform_backend()
+        require_batched_parameters_supported(canonicalise_parameters(dict(self.waveform_arguments)))
 
         event_ids, events = self._events_for_this_segment()
         self._batch_injections = []
@@ -633,6 +645,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         )
 
         chunks = batched_strain_to_chunks(batch, expected_detector_names=tuple(self.detectors))
+
+        # Generation succeeded, so these events are now genuinely consumed.
+        self._commit_consumed_events(event_ids)
         # Provenance records what the *catalogue* said, not the canonicalised and merged mapping
         # handed to the device, so the two execution modes describe an injection the same way. The
         # per-event path records `dict(parameters)` straight from the population.
