@@ -125,44 +125,85 @@ def test_each_matrix_entry_states_a_distinct_code_path():
 
 
 class TestBundledPresetsAgainstTheBatchedPath:
-    """Which shipped example configs can actually use `execution: batched`.
+    """Which shipped example configs *could* use `execution: batched`, if it were added.
 
-    Verified on an RTX 2080 Ti (HTCondor, 2026-08-01): all four BBH ET presets run on the device,
-    `IMRPhenomXPHM` compiling once in ~100 s and then serving every network from cache. The BNS
-    presets cannot run there at all, and that is a property of the *shipped configurations* rather
-    than of any code in this repository -- so it is pinned here, against the real files.
+    None of the presets set `execution` — they all default to the per-event path. What is pinned
+    here is narrower and is the thing that surprises people: whether a preset's approximant is one
+    the batched path could generate at all, since that path only ever generates with ripple.
 
-    ``tests/signal/test_adapter_batch.py`` already covers the refusal *mechanism* with a synthetic
-    approximant. What that cannot catch is a preset drifting onto an approximant Ripple lacks, or a
-    future allow-list quietly accepting one it does not implement.
+    Measured on an RTX 2080 Ti (HTCondor, 2026-08-01) by injecting `execution: batched` into each
+    preset: the four BBH ones ran, `IMRPhenomXPHM` compiling once in ~100 s and then serving the
+    other networks from cache. The four BNS ones were refused before generating anything.
+
+    ``tests/signal/test_adapter_batch.py`` covers the refusal *mechanism* with a synthetic
+    approximant. What that cannot catch is a shipped preset drifting onto an approximant ripple
+    lacks, or ripple gaining one it currently lacks.
     """
+
+    @staticmethod
+    def _supported() -> frozenset[str]:
+        """Ripple's approximant list, read without constructing a backend.
+
+        ``RippleBackend()`` raises ``ImportError`` when the ``[jax]`` extra is absent, so building
+        one would make these tests skip — or worse, error — in the default CI job, which installs no
+        extras. The module-level tuple needs neither jax nor ripplegw, so the check runs everywhere.
+        ``test_the_private_list_still_matches_the_public_api`` keeps that shortcut honest.
+        """
+        from gwmock_signal.waveform.backends import ripple
+
+        return frozenset(ripple._SUPPORTED_APPROXIMANTS)
 
     @staticmethod
     def _waveform_model(label: str) -> str:
         config = yaml.safe_load((_EXAMPLES / label / "config.yaml").read_text())
         return config["orchestration"]["signal"]["waveform-model"]
 
-    def test_the_bbh_presets_use_an_approximant_ripple_implements(self):
-        ripple = pytest.importorskip("gwmock_signal.waveform.backends.ripple")
-        available = set(ripple.RippleBackend().available_approximants())
+    def _models_under(self, source_type: str) -> dict[str, str]:
+        """Map network name -> approximant for every preset of one source type.
 
-        for label in sorted(p.parent.name for p in (_EXAMPLES / "bbh").glob("*/config.yaml")):
-            model = self._waveform_model(f"bbh/{label}")
-            assert model in available, f"bbh/{label} uses {model}, which the device path cannot generate"
-
-    def test_the_bns_presets_use_an_approximant_ripple_does_not_implement(self):
-        """Pins a known limitation, so that lifting it is a deliberate act rather than a surprise.
-
-        `IMRPhenomPv2_NRTidalv2` is precessing *and* tidal. Ripple has precessing models and tidal
-        models but not that combination, so `execution: batched` refuses these outright. If ripple
-        ever gains it, this test fails and the BNS presets become device-capable -- update it then.
+        The empty-result guards in the tests below are load-bearing: an earlier version of this
+        pointed at ``examples/<source_type>`` rather than ``examples/signal/<source_type>``, found
+        nothing, and passed vacuously while checking no configuration at all.
         """
-        ripple = pytest.importorskip("gwmock_signal.waveform.backends.ripple")
-        available = set(ripple.RippleBackend().available_approximants())
+        return {
+            path.parent.name: self._waveform_model(f"signal/{source_type}/{path.parent.name}")
+            for path in sorted((_EXAMPLES / "signal" / source_type).glob("*/config.yaml"))
+        }
 
-        for label in sorted(p.parent.name for p in (_EXAMPLES / "bns").glob("*/config.yaml")):
-            model = self._waveform_model(f"bns/{label}")
-            assert model not in available, (
+    def test_the_bbh_presets_name_an_approximant_ripple_implements(self):
+        supported = self._supported()
+        models = self._models_under("bbh")
+
+        assert models, "no BBH presets found; this test has stopped checking anything"
+        for label, model in models.items():
+            assert model in supported, f"bbh/{label} uses {model}, which the batched path cannot generate"
+
+    def test_the_bns_presets_name_an_approximant_ripple_does_not(self):
+        """Pins a known limitation, so lifting it is deliberate rather than a surprise.
+
+        ``IMRPhenomPv2_NRTidalv2`` is precessing *and* tidal. Ripple has precessing models and tidal
+        models but not that combination, so `execution: batched` refuses these outright. If ripple
+        gains it, this fails — at which point the BNS presets become batched-capable and this test,
+        their header comments and the README all need updating together.
+        """
+        supported = self._supported()
+        models = self._models_under("bns")
+
+        assert models, "no BNS presets found; this test has stopped checking anything"
+        for label, model in models.items():
+            assert model not in supported, (
                 f"bns/{label} uses {model}, which ripple now implements — the batched path is no "
-                f"longer blocked for the BNS presets, so this test and their comments need updating"
+                f"longer blocked for the BNS presets, so this test, the config headers and the "
+                f"README all need updating"
             )
+
+    def test_the_private_list_still_matches_the_public_api(self):
+        """The two tests above read a private tuple to stay runnable without the extras.
+
+        That is only sound while it agrees with what a constructed backend reports. Gated, because
+        constructing one needs ripplegw.
+        """
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        from gwmock_signal.waveform.backends.ripple import RippleBackend
+
+        assert frozenset(RippleBackend().available_approximants()) == self._supported()

@@ -3,9 +3,13 @@
 # NOTE: this preset cannot use `execution: batched`. It generates with
 # `IMRPhenomPv2_NRTidalv2`, which is precessing *and* tidal; ripple — the only library the
 # batched path generates with — implements precessing models and tidal models, but not that
-# combination. Selecting `execution: batched` here is refused outright rather than silently
-# served with a different approximant. Use the default per-event path, which uses LAL.
-# Verified against ripple 0.3.0 on 2026-08-01.
+# combination. Adding `execution: batched` here is refused outright rather than silently
+# served with a different approximant, so the failure is loud. Leave it on the default
+# per-event path, which this file already uses.
+#
+# Provenance for that claim: ripple 0.3.0, checked 2026-08-01. It is not left to this comment
+# to stay true — `tests/e2e/test_examples_index.py` fails if ripple ever gains the
+# approximant, which is when this note needs rewriting.
 globals:
     simulator-arguments:
         sampling-frequency: 4096

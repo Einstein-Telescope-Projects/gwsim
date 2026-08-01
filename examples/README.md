@@ -47,13 +47,24 @@ the installed JAX backend, not on the key: `gwmock[jax]` gives batched on the
 CPU, `gwmock[cuda]` gives a GPU. Check with
 `python -c "import jax; print(jax.devices())"`.
 
-**Not every preset can use it.** The batched path always generates with ripple,
-so a configuration naming an approximant ripple lacks is refused rather than
-served with a substitute. Verified on an RTX 2080 Ti on 2026-08-01: the four
-`signal/bbh/<network>` presets run on device (`IMRPhenomXPHM`, ~100 s to compile
-once, then cached across networks), while the four `signal/bns/<network>`
-presets cannot — `IMRPhenomPv2_NRTidalv2` is precessing _and_ tidal, a
-combination ripple does not implement.
+**Not every preset can use it.** None of the presets set `execution` — they all
+default to per-event — but if you add `execution: batched` to one, whether it
+works depends on its approximant, because the batched path only ever generates
+with ripple. A configuration naming an approximant ripple lacks is refused
+rather than served with a substitute.
+
+Measured on an RTX 2080 Ti on 2026-08-01, by adding the key to each preset: the
+four `signal/bbh/<network>` presets generated (`IMRPhenomXPHM`), while the four
+`signal/bns/<network>` presets were refused — `IMRPhenomPv2_NRTidalv2` is
+precessing _and_ tidal, a combination ripple does not implement. That run used a
+shortened 128 s span at 1024 Hz; it shows the approximant and the ET detector
+networks are usable on device, **not** that the shipped 4096 s, 4096 Hz, one-day
+configurations fit in GPU memory.
+
+`IMRPhenomXPHM` compiled once in ~100 s and then served the other three networks
+from cache. That caching holds for a fixed approximant, backend options and
+traced shapes; changing the sample rate or segment length can force another
+compile.
 
 **By detector network** — every `<network>` above is one of
 `et_triangle_sardinia`, `et_triangle_emr`, `et_2l_aligned`, `et_2l_misaligned`.
@@ -63,20 +74,20 @@ each is runnable without editing.
 
 ## Every example
 
-| Label                                              | Generates          | Network                       | Notes                                                                                                                  |
-| -------------------------------------------------- | ------------------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `default_config`                                   | noise              | Triangle Sardinia             | Commented template; single 4096 s segment                                                                              |
-| `noise/uncorrelated_gaussian/quick_start`          | signal + noise     | Triangle Sardinia             | **Start here.** 1024 s, one BBH event                                                                                  |
-| `noise/uncorrelated_gaussian/et_triangle_sardinia` | noise              | Triangle Sardinia             | 1 day, `ET_10_full_cryo_psd`                                                                                           |
-| `noise/uncorrelated_gaussian/et_triangle_emr`      | noise              | Triangle EMR                  | 1 day, `ET_10_full_cryo_psd`                                                                                           |
-| `noise/uncorrelated_gaussian/et_2l_aligned`        | noise              | 2L aligned                    | 1 day, `ET_15_full_cryo_psd`                                                                                           |
-| `noise/uncorrelated_gaussian/et_2l_misaligned`     | noise              | 2L misaligned                 | 1 day, `ET_15_full_cryo_psd`                                                                                           |
-| `noise/glitches/gengli/<network>/<e1\|e2\|e3>`     | noise + glitches   | all four                      | One file **per detector**; blip glitches at 1/min. Needs `gengli`                                                      |
-| `signal/bbh/<network>`                             | signal             | all four                      | `IMRPhenomXPHM`, f<sub>min</sub> 10 Hz, Earth rotation on                                                              |
-| `signal/bns/<network>`                             | signal             | all four                      | `IMRPhenomPv2_NRTidalv2`, f<sub>min</sub> 20 Hz, Earth rotation on. **Per-event only** — ripple lacks this approximant |
-| `signal/sgwb/<network>`                            | background + noise | Triangle Sardinia, 2L aligned | 16 s; signal written as **HDF5**, noise as GWF                                                                         |
-| `signal/waveform_backend/ripple`                   | signal             | Triangle Sardinia             | Waveforms from **ripple** rather than LAL. Needs `gwmock[jax]`                                                         |
-| `signal/execution/batched`                         | signal             | Triangle Sardinia             | A segment's events generated in one batched call. Needs `gwmock[jax]`; add `gwmock[cuda]` for a GPU                    |
+| Label                                              | Generates          | Network                       | Notes                                                                                                                               |
+| -------------------------------------------------- | ------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `default_config`                                   | noise              | Triangle Sardinia             | Commented template; single 4096 s segment                                                                                           |
+| `noise/uncorrelated_gaussian/quick_start`          | signal + noise     | Triangle Sardinia             | **Start here.** 1024 s, one BBH event                                                                                               |
+| `noise/uncorrelated_gaussian/et_triangle_sardinia` | noise              | Triangle Sardinia             | 1 day, `ET_10_full_cryo_psd`                                                                                                        |
+| `noise/uncorrelated_gaussian/et_triangle_emr`      | noise              | Triangle EMR                  | 1 day, `ET_10_full_cryo_psd`                                                                                                        |
+| `noise/uncorrelated_gaussian/et_2l_aligned`        | noise              | 2L aligned                    | 1 day, `ET_15_full_cryo_psd`                                                                                                        |
+| `noise/uncorrelated_gaussian/et_2l_misaligned`     | noise              | 2L misaligned                 | 1 day, `ET_15_full_cryo_psd`                                                                                                        |
+| `noise/glitches/gengli/<network>/<e1\|e2\|e3>`     | noise + glitches   | all four                      | One file **per detector**; blip glitches at 1/min. Needs `gengli`                                                                   |
+| `signal/bbh/<network>`                             | signal             | all four                      | `IMRPhenomXPHM`, f<sub>min</sub> 10 Hz, Earth rotation on                                                                           |
+| `signal/bns/<network>`                             | signal             | all four                      | `IMRPhenomPv2_NRTidalv2`, f<sub>min</sub> 20 Hz, Earth rotation on. Cannot use `execution: batched` — ripple lacks this approximant |
+| `signal/sgwb/<network>`                            | background + noise | Triangle Sardinia, 2L aligned | 16 s; signal written as **HDF5**, noise as GWF                                                                                      |
+| `signal/waveform_backend/ripple`                   | signal             | Triangle Sardinia             | Waveforms from **ripple** rather than LAL. Needs `gwmock[jax]`                                                                      |
+| `signal/execution/batched`                         | signal             | Triangle Sardinia             | A segment's events generated in one batched call. Needs `gwmock[jax]`; add `gwmock[cuda]` for a GPU                                 |
 
 The glitch examples are per-detector rather than per-network because each
 detector draws from its own glitch population file.
