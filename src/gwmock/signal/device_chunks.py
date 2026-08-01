@@ -39,6 +39,131 @@ from gwmock.data.time_series.time_series_list import TimeSeriesList
 #: Dimensions of a batched strain array: event, detector, sample.
 _BATCHED_STRAIN_DIMENSIONS = 3
 
+#: Alias to canonical parameter name, mirroring what the per-event backends accept.
+#:
+#: The per-event path resolves these inside gwmock-signal (``_pop_alias`` in each backend); the
+#: batched entry point reads canonical names straight from the struct-of-arrays and does not. So a
+#: population using ``distance`` -- as the bundled BBH catalogue does -- works per-event and fails
+#: batched, which would make switching execution mode change whether a config runs at all. Taken
+#: from gwmock-signal's backends rather than invented, so the two agree on what an alias is.
+#:
+#: Scope: this covers the aliases LAL and ripple share, plus PyCBC's ``lambda1``/``lambda2``. It is a
+#: fourth copy of a mapping gwmock-signal already holds three times, one per backend, and the right
+#: home for it is a canonicalisation helper there. Until that exists, a config using an alias no
+#: backend shares would still be refused by the batched path with a missing-parameter error naming
+#: the canonical name.
+_PARAMETER_ALIASES: dict[str, str] = {
+    "mass1": "detector_frame_mass_1",
+    "mass2": "detector_frame_mass_2",
+    "distance": "luminosity_distance",
+    "tidal_1": "lambda_1",
+    "tidal_2": "lambda_2",
+    "lambda1": "lambda_1",
+    "lambda2": "lambda_2",
+    "spin1x": "spin_1x",
+    "spin1y": "spin_1y",
+    "spin1z": "spin_1z",
+    "spin2x": "spin_2x",
+    "spin2y": "spin_2y",
+    "spin2z": "spin_2z",
+}
+
+
+#: Canonical parameters the batched path actually consumes.
+#:
+#: Projection reads the first four; ripple's waveform generation reads the rest. Anything else
+#: handed to ``simulate_cbc_batch`` is ignored without complaint, which for a *fixed* argument the
+#: user wrote in their config is a silent drop -- the third of that kind found in this work. Listed
+#: here so it can be rejected instead.
+#:
+#: Taken from ``gwmock_signal.jax_batch`` and ``waveform.backends.ripple``. It will drift if
+#: gwmock-signal grows a parameter; the cost of that is a spurious rejection, which is visible,
+#: rather than a silent omission, which is not.
+#:
+#: The in-plane spins are here because ripple's batch resolver reads all six components for the
+#: precessing approximants (``IMRPhenomPv2``, ``IMRPhenomXP``, ``IMRPhenomXPHM``). Omitting them
+#: rejected every precessing configuration -- the opposite failure to a silent drop, and the reason
+#: this list is checked against the library rather than written from memory.
+#:
+#: ``f_ref`` is deliberately *absent*. It is a backend option, not a per-event parameter:
+#: gwmock-signal's own ``_RESERVED_WAVEFORM_ARGUMENTS`` says "f_ref is configured on the backend,
+#: not through waveform_arguments". Passing it in this mapping does nothing at all. The
+#: orchestrator forwards it to the ripple backend instead, so the configuration key still works.
+BATCHED_PARAMETERS: frozenset[str] = frozenset(
+    {
+        "coa_time",
+        "declination",
+        "polarization_angle",
+        "right_ascension",
+        "detector_frame_mass_1",
+        "detector_frame_mass_2",
+        "luminosity_distance",
+        "coa_phase",
+        "inclination",
+        "spin_1x",
+        "spin_1y",
+        "spin_1z",
+        "spin_2x",
+        "spin_2y",
+        "spin_2z",
+        "lambda_1",
+        "lambda_2",
+    }
+)
+
+#: Waveform arguments that configure the ripple *backend* rather than an individual event.
+#:
+#: They are accepted in ``waveform-arguments`` because that is where the per-event path takes them,
+#: and a key that changes the waveform in one execution mode must not be inert in the other. The
+#: orchestrator routes them to the backend constructor.
+BATCHED_BACKEND_ARGUMENTS: frozenset[str] = frozenset({"f_ref"})
+
+
+def require_batched_parameters_supported(waveform_arguments: dict[str, Any]) -> None:
+    """Raise if a fixed waveform argument would be ignored by the batched path.
+
+    Args:
+        waveform_arguments: The ``waveform-arguments`` mapping from the configuration, already
+            canonicalised.
+
+    Raises:
+        ValueError: If any key is not one the batched entry point reads.
+    """
+    unsupported = sorted(set(waveform_arguments) - BATCHED_PARAMETERS - BATCHED_BACKEND_ARGUMENTS)
+    if unsupported:
+        raise ValueError(
+            f"execution: batched cannot apply these waveform-arguments: {unsupported}. The batched "
+            f"entry point reads only {sorted(BATCHED_PARAMETERS | BATCHED_BACKEND_ARGUMENTS)}, and "
+            f"would ignore the rest without complaint. Use execution: per-event, or remove them."
+        )
+
+
+def canonicalise_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    """Return *parameters* with known aliases renamed to their canonical names.
+
+    Args:
+        parameters: Struct-of-arrays as the population loader produced it.
+
+    Returns:
+        A new mapping; *parameters* is not modified.
+
+    Raises:
+        ValueError: If both an alias and its canonical name are present with different values.
+            Guessing which the caller meant would silently pick one physics over another.
+    """
+    renamed = dict(parameters)
+    for alias, canonical in _PARAMETER_ALIASES.items():
+        if alias not in renamed:
+            continue
+        if canonical in renamed and not np.array_equal(np.asarray(renamed[canonical]), np.asarray(renamed[alias])):
+            raise ValueError(
+                f"Parameters contain both '{canonical}' and its alias '{alias}' with different "
+                f"values. Remove one; picking either would silently choose which physics to use."
+            )
+        renamed[canonical] = renamed.pop(alias)
+    return renamed
+
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from gwmock_signal import BatchedDetectorStrain
 
@@ -154,38 +279,3 @@ def batched_strain_to_chunks(
             for event in range(strain.shape[0])
         ]
     )
-
-
-def per_event_injections(parameters: dict[str, Any], event_ids: list[int]) -> list[dict[str, Any]]:
-    """Return provenance records for a batch, one per event.
-
-    The per-event path records ``{"event_id", "parameters"}`` for each injection, and the batched
-    path has to produce the same thing or provenance silently thins out as soon as the device path is
-    used. Chunks stay per-event precisely so this remains possible.
-
-    Args:
-        parameters: The struct-of-arrays handed to the device, one entry per parameter.
-        event_ids: Population indices of the events in the batch, in the same order.
-
-    Returns:
-        One record per event, with that event's scalar parameters.
-
-    Raises:
-        ValueError: If a parameter column is shorter than the number of events.
-    """
-    records: list[dict[str, Any]] = []
-    for position, event_id in enumerate(event_ids):
-        scalars: dict[str, Any] = {}
-        for name, column in parameters.items():
-            if np.ndim(column) == 0:
-                scalars[name] = column
-                continue
-            values = np.atleast_1d(np.asarray(column))
-            if position >= values.size:
-                raise ValueError(
-                    f"Parameter '{name}' has {values.size} values but the batch has "
-                    f"{len(event_ids)} events, so event {event_id} has no value for it."
-                )
-            scalars[name] = values[position].item() if hasattr(values[position], "item") else values[position]
-        records.append({"event_id": int(event_id), "parameters": scalars})
-    return records

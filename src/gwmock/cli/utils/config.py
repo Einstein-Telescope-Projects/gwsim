@@ -212,6 +212,17 @@ class SignalConfig(BaseModel):
         alias="earth-rotation",
         description="Whether to project using time-dependent detector response",
     )
+    execution: str = Field(
+        default="per-event",
+        alias="execution",
+        description=(
+            "How the segment's events are generated: 'per-event' (default) calls the backend once "
+            "per event, 'batched' generates them together through gwmock-signal's batched path, "
+            "which is what makes GPU execution possible. Distinct from 'waveform-backend', which "
+            "chooses the library: 'batched' always generates with ripple, and whether that runs on "
+            "a GPU depends on the JAX device available, not on this setting."
+        ),
+    )
     output: SimulatorOutputConfig = Field(
         default_factory=lambda: SimulatorOutputConfig(
             file_name="signal-{{ detectors }}-{{ start_time }}-{{ duration }}.gwf",
@@ -229,6 +240,19 @@ class SignalConfig(BaseModel):
         """Require at least one detector."""
         if not v:
             raise ValueError("'detectors' must contain at least one detector")
+        return v
+
+    @field_validator("execution")
+    @classmethod
+    def validate_execution(cls, v: str) -> str:
+        """Reject an unknown execution mode rather than silently falling back to per-event.
+
+        A typo here would otherwise leave the run on the default path while the author believed
+        they had switched it, and the output would look entirely normal.
+        """
+        allowed = {"per-event", "batched"}
+        if v not in allowed:
+            raise ValueError(f"'execution' must be one of {sorted(allowed)}, got {v!r}")
         return v
 
 

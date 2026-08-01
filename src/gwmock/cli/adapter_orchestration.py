@@ -479,6 +479,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         if not self._population_events and self._source_type == "sgwb":
             return self._simulate_stationary_signal_segment()
 
+        if self._execution_mode() == "batched":
+            return self._simulate_batched_segment()
+
         chunks = TimeSeriesList()
         self._batch_injections = []
         while self.population_index < len(self._population_events):
@@ -502,6 +505,182 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             self.population_index = cast(int, self.population_index) + 1
             if strain.start_time >= self.end_time:
                 break
+        return chunks
+
+    def _execution_mode(self) -> str:
+        """Return how this segment's events should be generated."""
+        signal_config = self.orchestration_config.signal
+        return "per-event" if signal_config is None else str(getattr(signal_config, "execution", "per-event"))
+
+    def _events_for_this_segment(self) -> tuple[list[int], list[dict[str, Any]]]:
+        """Consume the population events belonging to the current segment.
+
+        Advances ``population_index`` and stops on ``coa_time >= end_time``, which is the per-event
+        loop's boundary. That matters for resume: ``population_index`` is checkpointed state, so a
+        run switched between modes must not skip or repeat events.
+
+        One difference, stated rather than glossed: the per-event loop also breaks when a *generated*
+        strain starts at or after ``end_time``, a condition that cannot be evaluated before
+        generating. Reaching it requires a waveform whose buffer begins beyond the segment despite a
+        ``coa_time`` inside it, which the bundled waveforms do not produce. So the two agree on every
+        case exercised here, and this helper is the weaker of the two rules where they could differ.
+
+        Returns:
+            The population indices and their parameter mappings, in catalogue order.
+        """
+        event_ids: list[int] = []
+        events: list[dict[str, Any]] = []
+        end_time_value = float(getattr(self.end_time, "value", self.end_time))
+
+        # Read without advancing. `population_index` is checkpointed, and everything after this --
+        # transposing to a struct-of-arrays, canonicalising, generating -- can still fail. Advancing
+        # here would let a caller observe a consumed index after an exception, so the commit happens
+        # in `_commit_consumed_events` once generation has succeeded. The CLI's retry wrapper
+        # restores pre-batch state, so this is about direct library callers rather than the runner.
+        position = int(self.population_index)
+        while position < len(self._population_events):
+            parameters = dict(self._population_events[position])
+            coa_time = parameters.get("coa_time")
+            if coa_time is not None and float(coa_time) >= end_time_value:
+                break
+            event_ids.append(position)
+            events.append(parameters)
+            position += 1
+        return event_ids, events
+
+    def _commit_consumed_events(self, event_ids: list[int]) -> None:
+        """Advance the checkpointed index past events whose generation succeeded."""
+        if event_ids:
+            self.population_index = event_ids[-1] + 1
+
+    def _batched_waveform_backend(self) -> Any:
+        """Return the ripple backend the batched path should generate with.
+
+        The batched entry point is ripple-only, and it takes a backend *instance*. Without passing
+        one, ``waveform-backend-arguments`` -- ripple's ``taper_fraction``, ``f_ref``,
+        ``ringdown_fraction`` -- are silently discarded and the run uses ripple's defaults while the
+        configuration says otherwise. That is the same silent-drop this codebase already fixed once
+        for the per-event path.
+
+        A configuration asking for a library the batched path cannot provide is refused rather than
+        quietly served with ripple, because the output of the wrong library looks entirely normal.
+
+        Returns:
+            A configured ``RippleBackend``, or ``None`` to let gwmock-signal build its default.
+
+        Raises:
+            ValueError: If the configuration selects a non-ripple library, or sets
+                ``waveform-options``, which the batched entry point has no way to apply.
+        """
+        signal_config = self.orchestration_config.signal
+        if signal_config is None:
+            return None
+
+        requested = getattr(signal_config, "waveform_backend", None)
+        if requested is not None and resolve_backend_class("waveform", requested).__name__ != "RippleBackend":
+            raise ValueError(
+                f"execution: batched always generates with ripple, but waveform-backend is "
+                f"{requested!r}. Substituting ripple would produce a different waveform than the "
+                f"configuration asks for. Use execution: per-event, or waveform-backend: ripple."
+            )
+
+        if self.waveform_options:
+            raise ValueError(
+                f"execution: batched cannot apply waveform-options {sorted(self.waveform_options)}; "
+                f"the batched entry point has no equivalent parameter. Use execution: per-event, or "
+                f"remove them."
+            )
+
+        from gwmock.signal.device_chunks import BATCHED_BACKEND_ARGUMENTS  # noqa: PLC0415
+
+        arguments = _normalize_keys(dict(getattr(signal_config, "waveform_backend_arguments", {}) or {}))
+
+        # `f_ref` is written under `waveform-arguments` because that is where the per-event path
+        # takes it, but gwmock-signal treats it as a backend option -- its own reserved-argument
+        # table says "f_ref is configured on the backend, not through waveform_arguments". Left in
+        # the parameter mapping it would reach `simulate_cbc_batch` and do nothing, so the same
+        # config key would set the reference frequency in one execution mode and be inert in the
+        # other. Routed here instead, so the two modes agree.
+        for name in sorted(BATCHED_BACKEND_ARGUMENTS & set(self.waveform_arguments)):
+            from_arguments = self.waveform_arguments[name]
+            if name in arguments and arguments[name] != from_arguments:
+                raise ValueError(
+                    f"{name} is set to {from_arguments!r} in waveform-arguments and "
+                    f"{arguments[name]!r} in waveform-backend-arguments. One value has to win and "
+                    f"picking silently would make the waveform depend on which of two keys a reader "
+                    f"happened to look at. Set it in one place."
+                )
+            arguments[name] = from_arguments
+
+        if not arguments:
+            return None
+        return instantiate_backend("waveform", "ripple", init_kwargs=arguments)
+
+    def _simulate_batched_segment(self) -> TimeSeriesList:
+        """Generate this segment's events together, through gwmock-signal's batched path.
+
+        The device produces one buffer per event, aligned to this segment's sample lattice, and
+        gwmock's own assembler places them. Chunks stay per-event so ``inject_from_list`` keeps
+        handling spill-over into later segments and provenance stays per-injection -- the batched
+        path is a different way to *generate*, not a different way to assemble.
+
+        Returns:
+            One chunk per event, ready for injection, or an empty list if the segment has no events.
+        """
+        from gwmock_signal import SamplingGrid, simulate_cbc_batch  # noqa: PLC0415
+
+        from gwmock.signal.device_chunks import (  # noqa: PLC0415
+            BATCHED_BACKEND_ARGUMENTS,
+            batched_strain_to_chunks,
+            canonicalise_parameters,
+            require_batched_parameters_supported,
+        )
+
+        # Validated before any events are consumed. `population_index` is checkpointed state, so
+        # failing after advancing it would make a resumed run skip the events this call rejected.
+        waveform_backend = self._batched_waveform_backend()
+        require_batched_parameters_supported(canonicalise_parameters(dict(self.waveform_arguments)))
+
+        event_ids, events = self._events_for_this_segment()
+        self._batch_injections = []
+        if not events:
+            return TimeSeriesList()
+        # Backend options are excluded: they went to the constructor in `_batched_waveform_backend`,
+        # and leaving them here too would hand `simulate_cbc_batch` a key it does not read.
+        fixed_arguments = {
+            key: value for key, value in self.waveform_arguments.items() if key not in BATCHED_BACKEND_ARGUMENTS
+        }
+        parameters = canonicalise_parameters({**fixed_arguments, **SignalAdapter.events_to_struct_of_arrays(events)})
+        sampling_frequency = float(self.sampling_frequency.value)
+
+        # The grid is this segment's own lattice, so every buffer starts on a sample of it and
+        # injection is an integer-offset add rather than a resample.
+        grid = SamplingGrid(float(getattr(self.start_time, "value", self.start_time)), sampling_frequency)
+
+        batch = simulate_cbc_batch(
+            self.signal_adapter.device_approximant(),
+            list(self._signal_network.detector_names),
+            sampling_frequency=sampling_frequency,
+            minimum_frequency=self.minimum_frequency,
+            parameters=parameters,
+            backend=waveform_backend,
+            earth_rotation=self.earth_rotation,
+            output_grid=grid,
+        )
+
+        chunks = batched_strain_to_chunks(batch, expected_detector_names=tuple(self.detectors))
+
+        # Generation succeeded, so these events are now genuinely consumed.
+        self._commit_consumed_events(event_ids)
+        # Provenance records what the *catalogue* said, not the canonicalised and merged mapping
+        # handed to the device, so the two execution modes describe an injection the same way. The
+        # per-event path records `dict(parameters)` straight from the population.
+        self._batch_injections = [
+            {"event_id": int(event_id), "parameters": dict(event)}
+            for event_id, event in zip(event_ids, events, strict=True)
+        ]
+        for chunk, record in zip(chunks, self._batch_injections, strict=True):
+            chunk.metadata.update({"injection_parameters": dict(record["parameters"])})
         return chunks
 
     def _simulate_stationary_signal_segment(self) -> TimeSeriesList:

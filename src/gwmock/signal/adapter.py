@@ -511,6 +511,14 @@ class SignalAdapter:
             chunk_size=chunk_size,
         )
 
+    def device_approximant(self) -> str:
+        """Return the approximant the batched path will generate, or explain why there is not one.
+
+        Public because the orchestrator needs it to drive the batched path from another module;
+        the logic lives in :meth:`_device_approximant`.
+        """
+        return self._device_approximant()
+
     def _device_approximant(self) -> str:
         """Return the approximant to generate on device, or explain why there is not one.
 
