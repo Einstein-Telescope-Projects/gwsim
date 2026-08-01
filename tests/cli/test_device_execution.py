@@ -182,8 +182,13 @@ class TestWaveformConfigurationIsHonoured:
             _orchestrator(tmp_path, "batched", waveform_backend="lal")._simulate()
 
     def test_waveform_options_are_refused(self, tmp_path):
-        """There is no equivalent parameter on the batched entry point, so silence would lose them."""
-        with pytest.raises(ValueError, match="cannot apply waveform-options"):
+        """There is no equivalent parameter on the batched entry point, so silence would lose them.
+
+        Refused by the general consumption check rather than a rule of its own -- see
+        ``tests/signal/test_execution_support.py``. Kept here because this exercises it through the
+        orchestrator, confirming the check is actually reached on the real path.
+        """
+        with pytest.raises(ValueError, match="would ignore settings"):
             _orchestrator(
                 tmp_path, "batched", waveform_backend=None, **{"waveform-options": {"ModeArray": [[2, 2]]}}
             )._simulate()

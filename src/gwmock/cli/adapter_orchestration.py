@@ -569,8 +569,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             A configured ``RippleBackend``, or ``None`` to let gwmock-signal build its default.
 
         Raises:
-            ValueError: If the configuration selects a non-ripple library, or sets
-                ``waveform-options``, which the batched entry point has no way to apply.
+            ValueError: If the configuration selects a library other than ripple. Settings the path
+                cannot apply at all are refused earlier, by
+                :func:`~gwmock.signal.execution_support.require_execution_supports_configuration`.
         """
         signal_config = self.orchestration_config.signal
         if signal_config is None:
@@ -582,13 +583,6 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 f"execution: batched always generates with ripple, but waveform-backend is "
                 f"{requested!r}. Substituting ripple would produce a different waveform than the "
                 f"configuration asks for. Use execution: per-event, or waveform-backend: ripple."
-            )
-
-        if self.waveform_options:
-            raise ValueError(
-                f"execution: batched cannot apply waveform-options {sorted(self.waveform_options)}; "
-                f"the batched entry point has no equivalent parameter. Use execution: per-event, or "
-                f"remove them."
             )
 
         from gwmock.signal.device_chunks import BATCHED_BACKEND_ARGUMENTS  # noqa: PLC0415
@@ -635,9 +629,14 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             canonicalise_parameters,
             require_batched_parameters_supported,
         )
+        from gwmock.signal.execution_support import require_execution_supports_configuration  # noqa: PLC0415
 
         # Validated before any events are consumed. `population_index` is checkpointed state, so
         # failing after advancing it would make a resumed run skip the events this call rejected.
+        # One check covering every setting the path does not honour, rather than a growing list of
+        # individual rejections. The per-key waveform-arguments check stays: that field *is*
+        # honoured, but only for the canonical parameters the batched entry point reads.
+        require_execution_supports_configuration(self.orchestration_config.signal, "batched")
         waveform_backend = self._batched_waveform_backend()
         require_batched_parameters_supported(canonicalise_parameters(dict(self.waveform_arguments)))
 
