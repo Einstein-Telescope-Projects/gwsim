@@ -56,9 +56,13 @@ jobs:
     # them across seven interpreter/OS combinations would multiply that for no added signal,
     # since what they exercise is orchestration rather than anything interpreter-specific.
     #
-    # `--all-extras` is load-bearing for the ripplegw-gated entries: with a plain `uv sync` those
+    # The `jax` extra is load-bearing for the ripplegw-gated entries: with a plain `uv sync` those
     # would skip, and the job would report green while testing less than it claims. The guard step
     # below turns that from a silent skip into a failure.
+    #
+    # Extras are named explicitly rather than `--all-extras`, because `cuda` pulls multi-gigabyte
+    # CUDA wheels that this runner has no GPU to use. The cost of naming them is that a new extra
+    # is not picked up here automatically -- add it to this line when one is introduced.
     #
     # It does *not* cover the gengli entry. gengli is not a declared extra of this project at all,
     # so no sync flag can install it, and that entry is separately blocked on a local glitch
@@ -80,15 +84,23 @@ jobs:
                   enable-cache: 'true'
 
             - name: Install dependencies
-              run: uv sync --group dev --all-extras
+              run: uv sync --group dev --extra sgwb --extra jax
 
             - name: Confirm the optional stack is present
               # Otherwise a missing extra turns the whole job into a silent no-op: every gated
               # entry skips and the job still passes.
+              #
+              # The required modules are read from `E2E_MATRIX` rather than listed here, so adding a
+              # matrix entry with a new `requires` cannot leave this check behind. `gengli` is the
+              # documented exception: it is not an extra of this project, and its entry is labelled
+              # "not run" -- see NOT_HERMETIC in tests/e2e/overlay.py.
               run: |
                   uv run --no-sync python -c "
                   import importlib.util as u, sys
-                  missing = [m for m in ('ripplegw', 'jax') if u.find_spec(m) is None]
+                  sys.path.append('tests')  # append, not insert: tests/signal would shadow stdlib signal
+                  from e2e.matrix import E2E_MATRIX
+                  needed = {m for e in E2E_MATRIX for m in e.requires} - {'gengli'}
+                  missing = sorted(m for m in needed if u.find_spec(m) is None)
                   sys.exit('e2e job is missing: ' + ', '.join(missing) if missing else 0)
                   "
 

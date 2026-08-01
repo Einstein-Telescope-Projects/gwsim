@@ -123,6 +123,20 @@ _OVERLAYS: dict[str, dict[str, Any]] = {
         },
         "orchestration": {"population": {"arguments": {"path": str(POPULATION_FIXTURE)}}},
     },
+    # Deliberately the same overlay as the ripple entry above: the two configs differ only by
+    # `execution`, and holding the span, rate and population identical is what makes their stored
+    # references comparable. The batched path JIT-compiles like the per-event ripple one.
+    "signal/execution/batched": {
+        "globals": {
+            "simulator-arguments": {
+                "sampling-frequency": 1024,
+                "duration": 16,
+                "total-duration": 16,
+                "start-time": _ALIGNED_START,
+            }
+        },
+        "orchestration": {"population": {"arguments": {"path": str(POPULATION_FIXTURE)}}},
+    },
 }
 
 #: Entries whose span is expected to contain a gravitational-wave signal, so an all-zero output
@@ -133,6 +147,7 @@ CONTAINS_SIGNAL: frozenset[str] = frozenset(
         "noise/uncorrelated_gaussian/quick_start",
         "signal/bbh/et_triangle_sardinia",
         "signal/waveform_backend/ripple",
+        "signal/execution/batched",
     }
 )
 
