@@ -95,6 +95,28 @@ def batched_strain_to_chunks(
         raise ValueError(f"Strain has {strain.shape[1]} detector rows but {len(produced_names)} detector names.")
 
     grid = batch.grid
+
+    # The producer enforces this today, so it is not reachable through `simulate_cbc_batch`. Checked
+    # anyway because this is a public conversion entry point: start times come from the grid's rate
+    # while the chunks are built at the batch's, so a disagreement produces chunks whose timestamps
+    # and sample spacing describe different things -- placed without complaint, wrong by a stretch
+    # factor.
+    if float(grid.sampling_frequency) != float(batch.sampling_frequency):
+        raise ValueError(
+            f"The output grid is at {grid.sampling_frequency!r} Hz but the batch is at "
+            f"{batch.sampling_frequency!r} Hz. Start times are taken from the grid and the samples "
+            f"from the batch, so the chunks would be timestamped at one rate and spaced at another."
+        )
+
+    # Integer-valued, not merely int-able. `int()` truncates, so a malformed 10.5 would place the
+    # buffer half a sample early and look entirely normal afterwards.
+    non_integral = [value for value in start_indices.tolist() if float(value) != int(float(value))]
+    if non_integral:
+        raise ValueError(
+            f"Buffer start indices must be whole samples, got {non_integral}. Truncating them would "
+            f"displace the affected events by a fraction of a sample without any later check noticing."
+        )
+
     start_times = np.array([float(grid.time_of(int(index))) for index in start_indices], dtype=float)
 
     # Checked against *both* predicates, because agreeing with the producer is not the same as

@@ -132,13 +132,40 @@ class TestConversion:
 class TestGuards:
     """Each failure this refuses to let through quietly."""
 
-    def test_an_unaligned_batch_is_refused(self):
-        """Without a grid every chunk would be resampled onto the segment, losing accuracy."""
+    def test_a_batch_without_a_grid_is_refused(self):
+        """Without a grid every chunk would be resampled onto the segment, losing accuracy.
+
+        Separate from the missing-index case below: nulling both at once would be satisfied by an
+        implementation that checked only one of them.
+        """
         batch = _batch()
         batch.grid = None
+
+        with pytest.raises(ValueError, match="without an output grid"):
+            batched_strain_to_chunks(batch)
+
+    def test_a_batch_without_start_indices_is_refused(self):
+        """The other half of the same guard, on its own."""
+        batch = _batch()
         batch.start_index = None
 
         with pytest.raises(ValueError, match="without an output grid"):
+            batched_strain_to_chunks(batch)
+
+    def test_disagreeing_sampling_frequencies_are_refused(self):
+        """Start times come from the grid and samples from the batch; at two rates they disagree."""
+        batch = _batch()
+        batch.sampling_frequency = _SAMPLING_FREQUENCY * 2
+
+        with pytest.raises(ValueError, match="timestamped at one rate and spaced at another"):
+            batched_strain_to_chunks(batch)
+
+    def test_a_fractional_start_index_is_refused(self):
+        """`int()` truncates, so this would place the buffer early and look normal afterwards."""
+        batch = _batch()
+        batch.start_index = np.asarray([0.5, 8.0])
+
+        with pytest.raises(ValueError, match="whole samples"):
             batched_strain_to_chunks(batch)
 
     def test_a_buffer_off_the_lattice_is_refused(self):
