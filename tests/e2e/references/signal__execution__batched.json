@@ -1,0 +1,51 @@
+{
+  "environment": {
+    "gwmock": "0.12.0.post17+1e40c74",
+    "gwmock-noise": "0.10.0",
+    "gwmock-pop": "0.11.4",
+    "gwmock-signal": "0.12.0",
+    "jax": "0.11.0",
+    "lalsuite": "7.26.15",
+    "numpy": "2.5.1",
+    "ripplegw": "0.3.0",
+    "scipy": "1.18.0"
+  },
+  "fingerprint": {
+    "machine": "x86_64",
+    "python": "3.12",
+    "system": "Linux"
+  },
+  "label": "signal/execution/batched",
+  "outputs": {
+    "output/signal/E-ET1_SARD_STRAIN_BBH-1577491296-16.gwf": {
+      "argmax": 4076,
+      "content_hash": "sha256:26feca19ccdc28f3d75b7cf1fad760a4b984400611cffd609a1cd4a46e6345b8",
+      "mean": 6.162626140627517e-29,
+      "n": 16384,
+      "nonzero": 4557,
+      "peak": 8.37155992267342e-22,
+      "rms": 5.450588182388899e-23,
+      "signed_peak": -8.37155992267342e-22
+    },
+    "output/signal/E-ET2_SARD_STRAIN_BBH-1577491296-16.gwf": {
+      "argmax": 4077,
+      "content_hash": "sha256:5bf0af886545494e1b3f55d0c78d2da61cc0a20c08ef499afa9f1936625b820b",
+      "mean": 3.899884972437172e-29,
+      "n": 16384,
+      "nonzero": 4557,
+      "peak": 8.88996420670017e-22,
+      "rms": 5.515358197316947e-23,
+      "signed_peak": 8.88996420670017e-22
+    },
+    "output/signal/E-ET3_SARD_STRAIN_BBH-1577491296-16.gwf": {
+      "argmax": 4078,
+      "content_hash": "sha256:22193c03be81b01630841b95cbd0676282eb018e2e14b3f6e818f50f7deb9a7f",
+      "mean": -1.008862385299467e-28,
+      "n": 16384,
+      "nonzero": 4557,
+      "peak": 8.291569211105587e-22,
+      "rms": 5.23765677059786e-23,
+      "signed_peak": -8.291569211105587e-22
+    }
+  }
+}

@@ -122,15 +122,16 @@ what guarantee the others follow. That assumption is the reason the subset is
 legitimate; if a change makes two examples take genuinely different paths, the
 matrix needs a new entry.
 
-| Label                                              | Code path it is intended to cover                                              |
-| -------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `default_config`                                   | The blank template must run unedited; noise-only, single segment               |
-| `noise/uncorrelated_gaussian/quick_start`          | Signal **and** noise in one run; CBC; GWF output                               |
-| `noise/uncorrelated_gaussian/et_triangle_sardinia` | Noise-only across **many** segments (chunking, per-segment seeds)              |
-| `signal/bbh/et_triangle_sardinia`                  | Signal-only CBC; Earth rotation; population loaded from file                   |
-| `signal/sgwb/et_triangle_sardinia`                 | `StochasticBackgroundSimulator` — a different simulator class; **HDF5** output |
-| `signal/waveform_backend/ripple`                   | A non-default waveform library resolved from config. Needs `ripplegw`          |
-| `noise/glitches/gengli/et_triangle_sardinia/e1`    | **Not run** — glitch injection, blocked on `gengli` and a local glitch fixture |
+| Label                                              | Code path it is intended to cover                                                                         |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `default_config`                                   | The blank template must run unedited; noise-only, single segment                                          |
+| `noise/uncorrelated_gaussian/quick_start`          | Signal **and** noise in one run; CBC; GWF output                                                          |
+| `noise/uncorrelated_gaussian/et_triangle_sardinia` | Noise-only across **many** segments (chunking, per-segment seeds)                                         |
+| `signal/bbh/et_triangle_sardinia`                  | Signal-only CBC; Earth rotation; population loaded from file                                              |
+| `signal/sgwb/et_triangle_sardinia`                 | `StochasticBackgroundSimulator` — a different simulator class; **HDF5** output                            |
+| `signal/waveform_backend/ripple`                   | A non-default waveform library resolved from config. Needs `ripplegw`                                     |
+| `signal/execution/batched`                         | `execution: batched` — one batched call per segment, converted back to per-event chunks. Needs `ripplegw` |
+| `noise/glitches/gengli/et_triangle_sardinia/e1`    | **Not run** — glitch injection, blocked on `gengli` and a local glitch fixture                            |
 
 Deliberately excluded, with the reason:
 

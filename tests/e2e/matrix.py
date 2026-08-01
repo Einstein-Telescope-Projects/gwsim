@@ -68,6 +68,16 @@ E2E_MATRIX: tuple[MatrixEntry, ...] = (
         requires=("ripplegw",),
     ),
     MatrixEntry(
+        label="signal/execution/batched",
+        covers=(
+            "`execution: batched` -- a segment's events generated in one call through "
+            "gwmock-signal's batched entry point, then converted back to per-event chunks. "
+            "Runs on whatever JAX backend is present, so this entry is CPU here; measured on an "
+            "RTX 2080 Ti, GPU and CPU agree far inside the gate. Needs `ripplegw`"
+        ),
+        requires=("ripplegw",),
+    ),
+    MatrixEntry(
         label="noise/glitches/gengli/et_triangle_sardinia/e1",
         covers="**Not run** -- glitch injection, blocked on `gengli` and a local glitch fixture",
         requires=("gengli",),
