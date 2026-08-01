@@ -229,10 +229,18 @@ class TestInjectBoundaryOverflow:
         )
 
     @pytest.mark.parametrize(
-        ("offset_samples", "description"),
-        [(900.0, "aligned"), (900.5, "half a sample misaligned")],
+        ("offset_samples", "description", "expected_tail"),
+        [
+            (900.0, "aligned", 300),
+            # One sample longer than the 300 that lie at or after the boundary. The chunk's sample
+            # at 999.5 is the left neighbour the *next* segment needs in order to interpolate its
+            # own grid point at 1000; dropping it would lose accuracy at every segment boundary.
+            # Verified not to be double-counted: this segment writes grid index 999 from the
+            # interpolation, and the tail supplies grid 1000 onward.
+            (900.5, "half a sample misaligned", 301),
+        ],
     )
-    def test_the_overflow_is_returned(self, offset_samples: float, description: str):
+    def test_the_overflow_is_returned(self, offset_samples: float, description: str, expected_tail: int):
         """Both branches must return the part of the chunk beyond the segment."""
         segment = self._segment()
 
@@ -242,8 +250,7 @@ class TestInjectBoundaryOverflow:
             f"a {description} chunk crossing the segment boundary returned no remainder, so its "
             f"tail was discarded instead of being carried into the next segment"
         )
-        expected = self.CHUNK_SAMPLES - (self.SEGMENT_SAMPLES - int(self.CHUNK_START_SAMPLE))
-        assert len(np.asarray(remaining)[0]) == expected
+        assert len(np.asarray(remaining)[0]) == expected_tail
 
     def test_the_returned_tail_is_not_resampled(self):
         """The tail must keep its own grid so the next segment can place it correctly.
@@ -260,6 +267,26 @@ class TestInjectBoundaryOverflow:
         assert np.all(np.asarray(remaining)[0] == 1.0), (
             "the returned tail has been interpolated; it should be the supplied samples unchanged"
         )
+
+    @pytest.mark.parametrize("offset_samples", [900.0, 900.5])
+    def test_the_caller_s_chunk_is_not_modified(self, offset_samples: float):
+        """Injection must not truncate the chunk it was handed.
+
+        ``crop`` rewrites ``_data`` in place and returns ``self``, so cropping the supplied chunk to
+        produce the remainder would hand the caller its own object back, shortened.
+        ``inject_from_list`` walks a caller-provided list, so that would mutate every element that
+        overflows.
+        """
+        segment = self._segment()
+        chunk = self._chunk(offset_samples)
+        original_length = len(np.asarray(chunk)[0])
+        original_start = float(chunk.start_time.value)
+
+        remaining = segment.inject(chunk)
+
+        assert len(np.asarray(chunk)[0]) == original_length, "the caller's chunk was truncated"
+        assert float(chunk.start_time.value) == original_start, "the caller's chunk was moved"
+        assert remaining is not chunk, "the remainder must not be the caller's own object"
 
     def test_a_chunk_inside_the_segment_returns_nothing(self):
         """The complement, so the test above cannot pass by always returning a remainder."""

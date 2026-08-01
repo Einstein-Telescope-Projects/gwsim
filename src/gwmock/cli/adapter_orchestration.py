@@ -604,12 +604,14 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             canonicalise_parameters,
         )
 
+        # Validated before any events are consumed. `population_index` is checkpointed state, so
+        # failing after advancing it would make a resumed run skip the events this call rejected.
+        waveform_backend = self._batched_waveform_backend()
+
         event_ids, events = self._events_for_this_segment()
         self._batch_injections = []
         if not events:
             return TimeSeriesList()
-
-        waveform_backend = self._batched_waveform_backend()
         parameters = canonicalise_parameters(
             {**self.waveform_arguments, **SignalAdapter.events_to_struct_of_arrays(events)}
         )

@@ -320,8 +320,17 @@ class TimeSeries(JSONSerializable):
 
         # The tail comes from the supplied chunk, unresampled, so the next segment interpolates it
         # against its own grid rather than inheriting this segment's resampling.
+        #
+        # Cropped from a copy: `crop` rewrites `_data` in place and returns `self`, so cropping the
+        # supplied chunk directly would truncate the caller's own object and hand it back as the
+        # remainder. `inject_from_list` walks a caller-provided list, so that mutates its elements.
         if supplied.end_time > self.end_time:
-            return supplied.crop(start_time=self.end_time)
+            tail = TimeSeries(
+                data=np.asarray(supplied).copy(),
+                start_time=supplied.start_time,
+                sampling_frequency=supplied.sampling_frequency,
+            )
+            return tail.crop(start_time=self.end_time)
         return None
 
     def inject_from_list(self, ts_iterable: Iterable[TimeSeries]) -> TimeSeriesList:

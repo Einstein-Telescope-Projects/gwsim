@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from gwmock.signal.device_chunks import batched_strain_to_chunks, per_event_injections
+from gwmock.signal.device_chunks import batched_strain_to_chunks
 
 _SAMPLING_FREQUENCY = 1024.0
 _EPOCH = 1577491296.0
@@ -250,31 +250,6 @@ class TestGuards:
 
         with pytest.raises(ValueError, match="Expected strain of shape"):
             batched_strain_to_chunks(batch)
-
-
-class TestProvenance:
-    """Per-event records, so the device path does not thin out provenance."""
-
-    def test_each_event_gets_its_own_parameters(self):
-        records = per_event_injections(
-            {"detector_frame_mass_1": [30.0, 25.0], "coa_time": [1.0, 2.0], "f_ref": 20.0},
-            [7, 8],
-        )
-
-        assert [record["event_id"] for record in records] == [7, 8]
-        assert records[0]["parameters"]["detector_frame_mass_1"] == pytest.approx(30.0)
-        assert records[1]["parameters"]["coa_time"] == pytest.approx(2.0)
-
-    def test_a_scalar_parameter_is_shared_by_every_event(self):
-        """A fixed value applies to all events rather than being indexed per event."""
-        records = per_event_injections({"f_ref": 20.0}, [0, 1])
-
-        assert all(record["parameters"]["f_ref"] == pytest.approx(20.0) for record in records)
-
-    def test_a_short_column_is_refused(self):
-        """Silently recording the wrong parameters would be worse than failing."""
-        with pytest.raises(ValueError, match="has 1 values but the batch has 2 events"):
-            per_event_injections({"coa_time": [1.0]}, [0, 1])
 
 
 class TestAgainstTheRealDeviceOutput:

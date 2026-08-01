@@ -210,38 +210,3 @@ def batched_strain_to_chunks(
             for event in range(strain.shape[0])
         ]
     )
-
-
-def per_event_injections(parameters: dict[str, Any], event_ids: list[int]) -> list[dict[str, Any]]:
-    """Return provenance records for a batch, one per event.
-
-    The per-event path records ``{"event_id", "parameters"}`` for each injection, and the batched
-    path has to produce the same thing or provenance silently thins out as soon as the device path is
-    used. Chunks stay per-event precisely so this remains possible.
-
-    Args:
-        parameters: The struct-of-arrays handed to the device, one entry per parameter.
-        event_ids: Population indices of the events in the batch, in the same order.
-
-    Returns:
-        One record per event, with that event's scalar parameters.
-
-    Raises:
-        ValueError: If a parameter column is shorter than the number of events.
-    """
-    records: list[dict[str, Any]] = []
-    for position, event_id in enumerate(event_ids):
-        scalars: dict[str, Any] = {}
-        for name, column in parameters.items():
-            if np.ndim(column) == 0:
-                scalars[name] = column
-                continue
-            values = np.atleast_1d(np.asarray(column))
-            if position >= values.size:
-                raise ValueError(
-                    f"Parameter '{name}' has {values.size} values but the batch has "
-                    f"{len(event_ids)} events, so event {event_id} has no value for it."
-                )
-            scalars[name] = values[position].item() if hasattr(values[position], "item") else values[position]
-        records.append({"event_id": int(event_id), "parameters": scalars})
-    return records
