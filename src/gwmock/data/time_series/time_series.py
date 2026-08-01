@@ -367,7 +367,8 @@ class TimeSeries(JSONSerializable):
 
         coa_time = (chunk.metadata.get("injection_parameters") or {}).get("coa_time")
         logger.warning(
-            "Discarding %.3f s (%d samples, %.2f%% of its energy) of the signal with coa_time %s: it "
+            "Discarding %.3f s (%d samples, %.2f%% of its unweighted strain-squared energy) of the "
+            "signal with coa_time %s: it "
             "starts at %s, before this segment begins at %s. The earlier segments it belongs to are "
             "already written, so this content cannot be placed. A compact-binary waveform starts "
             "before its coa_time, so this happens whenever coa_time falls within one waveform buffer "

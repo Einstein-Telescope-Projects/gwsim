@@ -109,6 +109,25 @@ class TestMeasurement:
 
         assert one[2] == pytest.approx(three[2]), "the fraction is per chunk, so channels cancel out"
 
+    def test_a_sample_exactly_on_the_threshold_is_not_dropped(self):
+        """The rounding tie, pinned rather than left to `searchsorted`'s default.
+
+        A sample exactly half a sample before the boundary is ambiguous by construction. It resolves
+        towards the boundary -- not counted -- which is what the slack exists to do. Untested, a
+        change of `side` would flip it silently.
+        """
+        chunk = _series(_EPOCH - 0.5 / _FS, 1024)
+
+        assert measure_content_before(_EPOCH, _FS, chunk) == (0, 0.0, 0.0)
+
+    def test_a_sample_just_past_the_threshold_is_dropped(self):
+        """The other side of the tie, so the test above pins a boundary rather than a blanket."""
+        chunk = _series(_EPOCH - 0.5 / _FS - 1.0 / _FS, 1024)
+
+        samples, _, _ = measure_content_before(_EPOCH, _FS, chunk)
+
+        assert samples == 1
+
     def test_an_empty_chunk_is_handled(self):
         assert measure_content_before(_EPOCH, _FS, _series(_EPOCH, 0)) == (0, 0.0, 0.0)
 
@@ -148,7 +167,7 @@ class TestTheWarning:
         with caplog.at_level(logging.WARNING, logger="gwmock"):
             self._segment().inject(chunk)
 
-        assert "5.88% of its energy" in caplog.text
+        assert "5.88% of its unweighted strain-squared energy" in caplog.text
 
     def test_an_ordinary_injection_is_silent(self, caplog):
         """Most injections are fine, and a warning on every one would be ignored."""
@@ -245,7 +264,7 @@ class TestTheWarning:
             self._segment().inject(_series(_EPOCH - 10.0, 1024))
 
         assert "Discarding" in caplog.text
-        assert "100.00% of its energy" in caplog.text
+        assert "100.00% of its unweighted strain-squared energy" in caplog.text
         # 1024 samples at 1024 Hz span 1 s, however far before the segment they sit. Reporting the
         # gap to the boundary instead would say 10 s here, while the message pairs the figure with a
         # sample count as though the two described the same span.

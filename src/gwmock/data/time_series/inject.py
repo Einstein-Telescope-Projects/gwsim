@@ -150,7 +150,10 @@ def measure_content_before(
     # 16384 Hz -- 2048x and 128x under the threshold. It would take a sampling frequency of 2.1 MHz
     # for float64 spacing at a GPS epoch to reach half a sample, so the slack holds across every rate
     # this package supports.
-    n_before = int(np.searchsorted(times, segment_start_time - 0.5 / sampling_frequency))
+    # `side="left"`, so a sample sitting exactly on the threshold is *not* counted as dropped.
+    # That case is a rounding tie by construction -- exactly half a sample from the boundary --
+    # and resolving it towards the boundary matches what the slack is for.
+    n_before = int(np.searchsorted(times, segment_start_time - 0.5 / sampling_frequency, side="left"))
     if n_before <= 0:
         return 0, 0.0, 0.0
 
