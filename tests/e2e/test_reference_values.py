@@ -35,11 +35,16 @@ pytestmark = pytest.mark.e2e
 
 @pytest.mark.parametrize("entry", E2E_MATRIX, ids=lambda entry: entry.label)
 def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_run):
-    """Every output file must have the content hash recorded for it.
+    """Every output file must match the statistics recorded for it.
 
-    Compared by content hash, so the check is exact: a change of one sample in one channel fails.
-    That sensitivity is deliberate -- the alternative is a tolerance, and a tolerance chosen
-    without a reason to justify it silently accepts whatever falls inside it.
+    Integer statistics -- sample count, occupancy, the peak's position -- must match exactly, since
+    no amount of floating-point drift moves them. ``peak``, ``rms`` and ``signed_peak`` may differ
+    within :data:`STATISTIC_TOLERANCE`.
+
+    The content hash is recorded and reported but is **not** the assertion. It was, until it turned
+    out not to reproduce between this project's CI runner and a local machine with identical package
+    versions. That means the check is no longer bit-for-bit: a change of one sample in one channel
+    passes. See the module docstring for the measurement and what was ruled out.
     """
     skip_if_unavailable(entry)
     directory = completed_run(entry)
