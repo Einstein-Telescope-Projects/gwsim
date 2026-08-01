@@ -260,6 +260,12 @@ class TimeSeries(JSONSerializable):
                 "This ensures time grid alignment and avoids rounding errors."
             )
 
+        # Before the early returns below, not after. A chunk lying entirely before this segment is
+        # handed back as a remainder and then dropped by `TimeSeriesMixin.simulate`, so it is
+        # discarded just as surely as a partially-early one -- and reporting only the overlapping
+        # case would leave the larger loss the quieter of the two.
+        self._report_content_before_segment(other)
+
         if other.end_time < self.start_time:
             logger.warning(
                 "The time series to inject ends before the current time series starts. No injection performed."
@@ -284,8 +290,6 @@ class TimeSeries(JSONSerializable):
         # boundary loses its tail -- and `TimeSeriesMixin.simulate` relies on that tail being
         # returned to carry the rest of the signal into the next segment.
         supplied = other
-
-        self._report_content_before_segment(supplied)
 
         # Check whether there is any offset in times
         other_start_time = other.start_time.to(self.start_time.unit)

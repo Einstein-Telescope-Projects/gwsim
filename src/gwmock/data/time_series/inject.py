@@ -124,8 +124,12 @@ def measure_content_before(
 
     Returns:
         A ``(samples, seconds, energy_fraction)`` triple describing what lies before the segment.
-        ``energy_fraction`` is the share of the chunk's summed squares that is dropped, which is
-        the quantity an SNR responds to; it is ``0.0`` for a silent chunk.
+        ``energy_fraction`` is the share of the chunk's summed squares that is dropped -- unweighted
+        strain-squared energy, ``0.0`` for a silent chunk. It is a **proxy, not an SNR loss**: a
+        matched-filter figure needs a detector PSD and frequency-domain weighting, neither of which
+        is available here. It is reported in preference to the sample fraction only because the two
+        differ by more than a factor of two in ordinary cases, and the sample fraction is the more
+        misleading of the pair.
     """
     times = np.asarray(chunk.time_array.value, dtype=float)
     if times.size == 0:
@@ -134,6 +138,17 @@ def measure_content_before(
     # Half a sample of slack. A tail carried from the previous segment starts exactly on this
     # boundary, and at GPS epochs the float64 spacing (~2.4e-7 s at 1.6e9) can put it a hair below
     # -- which would otherwise be reported as a whole dropped sample every single segment.
+    #
+    # Half a sample, rather than the ULP-scaled `alignment_tolerance` used for grid alignment,
+    # because the question here is different: a sample nearer the boundary than half a sample period
+    # rounds *to* the boundary, so counting it as dropped would be wrong however exact the arithmetic
+    # was. The cost is that up to one genuinely discarded sample can go unreported, which is bounded
+    # and negligible beside the multi-second losses this exists to surface.
+    #
+    # Measured margin: spacing(1.577e9) = 2.384e-07 s is 2.4e-4 samples at 1024 Hz and 3.9e-3 at
+    # 16384 Hz -- 2048x and 128x under the threshold. It would take a sampling frequency of 2.1 MHz
+    # for float64 spacing at a GPS epoch to reach half a sample, so the slack holds across every rate
+    # this package supports.
     n_before = int(np.searchsorted(times, segment_start_time - 0.5 / sampling_frequency))
     if n_before <= 0:
         return 0, 0.0, 0.0

@@ -13,6 +13,7 @@ it is not, and keeping it is a change to how events are scheduled, not to how th
 from __future__ import annotations
 
 import logging
+import re
 
 import numpy as np
 import pytest
@@ -219,7 +220,40 @@ class TestTheWarning:
             orchestrator.simulate()  # the segment holding coa_time
 
         assert "Discarding" in caplog.text, "an ordinary BBH config lost part of its inspiral without saying so"
-        assert "3.100 s" in caplog.text
+        # A bounded range, not the exact 3.100 s this currently prints. The value comes from LAL's
+        # conditioning, so pinning it would turn a waveform-library bump into a failure here while
+        # saying nothing about whether the reporting works. Still tight enough to fail if the
+        # measurement were the whole buffer, a single sample, or zero.
+        dropped = float(re.search(r"Discarding ([\d.]+) s", caplog.text).group(1))
+        assert 1.0 < dropped < 4.0, f"expected a few seconds of inspiral before the boundary, got {dropped}"
+
+    def test_a_chunk_lying_entirely_before_the_segment_is_reported(self, caplog):
+        """The larger loss must not be the quieter one.
+
+        ``inject`` returns early for a chunk with no overlap, and ``TimeSeriesMixin.simulate`` then
+        drops it from the cache. Reporting only the partially-early case would mean 100% of a
+        waveform vanishing with less said about it than 30% of one.
+        """
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            self._segment().inject(_series(_EPOCH - 10.0, 1024))
+
+        assert "Discarding" in caplog.text
+        assert "100.00% of its energy" in caplog.text
+
+    def test_an_off_grid_chunk_is_measured_before_it_is_resampled(self, caplog):
+        """The interpolation branch rebinds the chunk onto the segment's own grid.
+
+        Measuring after that would report what survived resampling rather than what was supplied,
+        so the loss has to be taken from the chunk as handed in.
+        """
+        off_grid = _series(_EPOCH - 0.5 + 0.5 / _FS, 2048)
+
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            self._segment().inject(off_grid)
+
+        assert "Discarding" in caplog.text
+        dropped = float(re.search(r"Discarding ([\d.]+) s", caplog.text).group(1))
+        assert dropped == pytest.approx(0.5 - 0.5 / _FS, abs=1.0 / _FS)
 
     def test_the_content_is_still_dropped(self, caplog):
         """Pins the behaviour this PR does *not* change, so a later fix has to update it knowingly."""
