@@ -56,10 +56,13 @@ an approximant ripple lacks is refused rather than served with a substitute.
 Measured on an RTX 2080 Ti on 2026-08-01, by adding the key to each preset: the
 four `signal/bbh/<network>` presets generated (`IMRPhenomXPHM`), while the four
 `signal/bns/<network>` presets were refused — `IMRPhenomPv2_NRTidalv2` is
-precessing _and_ tidal, a combination ripple does not implement. That run used a
-shortened 128 s span at 1024 Hz; it shows the approximant and the ET detector
-networks are usable on device, **not** that the shipped 4096 s, 4096 Hz, one-day
-configurations fit in GPU memory.
+precessing _and_ tidal, a combination ripple does not implement. That
+approximant is a deliberate choice, being the standard LAL model for precessing
+tidal BNS, so switching these presets to a ripple-supported tidal model to
+unlock the device path would drop precession and change the physics they
+represent. That run used a shortened 128 s span at 1024 Hz; it shows the
+approximant and the ET detector networks are usable on device, **not** that the
+shipped 4096 s, 4096 Hz, one-day configurations fit in GPU memory.
 
 `IMRPhenomXPHM` compiled once in ~100 s and then served the other three networks
 from cache. That caching holds for a fixed approximant, backend options and
