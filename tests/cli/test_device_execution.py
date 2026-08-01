@@ -27,8 +27,13 @@ _START = 1577491296.0
 _SAMPLING_FREQUENCY = 1024.0
 
 
-def _config(working_directory: Path, execution: str) -> dict[str, Any]:
-    """Return a one-segment BBH config in the given execution mode."""
+def _config(working_directory: Path, execution: str, waveform_backend: str | None = "ripple") -> dict[str, Any]:
+    """Return a one-segment BBH config in the given execution mode.
+
+    ``waveform_backend`` is omitted entirely when ``None``. That matters for the tests that must run
+    without the ``[jax]`` extra: naming ripple makes *constructing* the orchestrator instantiate
+    ``RippleBackend``, which needs ripplegw long before any generation happens.
+    """
     return {
         "globals": {
             "simulator-arguments": {
@@ -52,9 +57,9 @@ def _config(working_directory: Path, execution: str) -> dict[str, Any]:
             "signal": {
                 "source-type": "bbh",
                 "waveform-model": "IMRPhenomD",
-                # Both modes use ripple, so the comparison isolates batching rather than also
-                # changing the waveform library.
-                "waveform-backend": "ripple",
+                # Naming ripple for both modes makes the comparison isolate batching rather than
+                # also changing the waveform library.
+                **({"waveform-backend": waveform_backend} if waveform_backend is not None else {}),
                 "execution": execution,
                 "minimum-frequency": 30,
                 "detectors": ["ET-Triangle-Sardinia"],
@@ -68,11 +73,16 @@ def _config(working_directory: Path, execution: str) -> dict[str, Any]:
     }
 
 
-def _orchestrator(working_directory: Path, execution: str, **signal_overrides: Any):
+def _orchestrator(
+    working_directory: Path,
+    execution: str,
+    waveform_backend: str | None = "ripple",
+    **signal_overrides: Any,
+):
     from gwmock.cli.adapter_orchestration import AdapterOrchestrator
 
     working_directory.mkdir(parents=True, exist_ok=True)
-    raw = _config(working_directory, execution)
+    raw = _config(working_directory, execution, waveform_backend=waveform_backend)
     raw["orchestration"]["signal"].update(signal_overrides)
     config = Config.model_validate(raw)
     return AdapterOrchestrator.from_config(
@@ -162,16 +172,65 @@ class TestWaveformConfigurationIsHonoured:
         )
 
     def test_a_non_ripple_library_is_refused(self, tmp_path):
-        """The batched path is ripple-only; substituting it would ignore the configuration."""
-        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        """The batched path is ripple-only; substituting it would ignore the configuration.
+
+        Deliberately not gated on ``ripplegw``: the guard runs before anything touches the device,
+        so gating it would hide this branch from the CI job that has no extras -- which is the job
+        measuring coverage.
+        """
         with pytest.raises(ValueError, match="always generates with ripple"):
-            _orchestrator(tmp_path, "batched", **{"waveform-backend": "lal"})._simulate()
+            _orchestrator(tmp_path, "batched", waveform_backend="lal")._simulate()
 
     def test_waveform_options_are_refused(self, tmp_path):
         """There is no equivalent parameter on the batched entry point, so silence would lose them."""
-        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
         with pytest.raises(ValueError, match="cannot apply waveform-options"):
-            _orchestrator(tmp_path, "batched", **{"waveform-options": {"ModeArray": [[2, 2]]}})._simulate()
+            _orchestrator(
+                tmp_path, "batched", waveform_backend=None, **{"waveform-options": {"ModeArray": [[2, 2]]}}
+            )._simulate()
+
+
+class TestSegmentEventSelection:
+    """Which events a segment claims, tested without generating anything.
+
+    ``_events_for_this_segment`` is pure catalogue walking, so it needs no device -- and testing it
+    here rather than behind an ``importorskip`` is what keeps it covered in the CI job that installs
+    no extras.
+    """
+
+    def test_events_beyond_the_segment_are_left_for_the_next_one(self, tmp_path):
+        """The boundary rule is ``coa_time >= end_time``, and it is checkpointed state."""
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None)
+        end_time = float(getattr(orchestrator.end_time, "value", orchestrator.end_time))
+        orchestrator._population_events = (
+            {"coa_time": end_time - 1.0, "detector_frame_mass_1": 30.0},
+            {"coa_time": end_time, "detector_frame_mass_1": 30.0},
+            {"coa_time": end_time + 5.0, "detector_frame_mass_1": 30.0},
+        )
+
+        event_ids, events = orchestrator._events_for_this_segment()
+
+        assert event_ids == [0], "only the event before the segment end belongs to this segment"
+        assert len(events) == 1
+        assert int(orchestrator.population_index) == 1, (
+            "population_index must stop at the boundary; it is checkpointed, so over-consuming here "
+            "loses events on resume"
+        )
+
+    def test_an_empty_segment_consumes_nothing(self, tmp_path):
+        """A segment with no events must not advance the index or invent provenance."""
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None)
+        end_time = float(getattr(orchestrator.end_time, "value", orchestrator.end_time))
+        orchestrator._population_events = ({"coa_time": end_time + 100.0},)
+
+        chunks = orchestrator._simulate()
+
+        assert len(chunks) == 0
+        assert int(orchestrator.population_index) == 0
+        assert orchestrator._batch_injections == []
+
+    def test_the_execution_mode_comes_from_the_config(self, tmp_path):
+        assert _orchestrator(tmp_path / "a", "batched", waveform_backend=None)._execution_mode() == "batched"
+        assert _orchestrator(tmp_path / "b", "per-event", waveform_backend=None)._execution_mode() == "per-event"
 
 
 class TestCatalogueConsumption:
