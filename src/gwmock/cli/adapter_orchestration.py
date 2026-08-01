@@ -525,20 +525,24 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         """
         if self._configuration_checked or self.orchestration_config.signal is None:
             return
-        self._configuration_checked = True
 
         from gwmock.signal.execution_support import require_execution_supports_configuration  # noqa: PLC0415
 
         require_execution_supports_configuration(
             self.orchestration_config.signal, self._execution_mode(), self._source_type
         )
+        # Only after it passes. `retry_with_backoff` re-runs a failed batch on this same instance
+        # and restores `state`, which this flag is not part of -- so setting it first would let the
+        # retry sail past a configuration the first attempt refused.
+        self._configuration_checked = True
 
     def _events_for_this_segment(self) -> tuple[list[int], list[dict[str, Any]]]:
-        """Consume the population events belonging to the current segment.
+        """Return the population events belonging to the current segment, without consuming them.
 
-        Advances ``population_index`` and stops on ``coa_time >= end_time``, which is the per-event
-        loop's boundary. That matters for resume: ``population_index`` is checkpointed state, so a
-        run switched between modes must not skip or repeat events.
+        Stops on ``coa_time >= end_time``, which is the per-event loop's boundary. That matters for
+        resume: ``population_index`` is checkpointed state, so a run switched between modes must not
+        skip or repeat events. The index advances only in :meth:`_commit_consumed_events`, once
+        generation has succeeded.
 
         One difference, stated rather than glossed: the per-event loop also breaks when a *generated*
         strain starts at or after ``end_time``, a condition that cannot be evaluated before

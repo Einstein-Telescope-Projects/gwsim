@@ -223,6 +223,25 @@ class TestTheCheckIsReachedOnThePerEventPath:
 
         assert caplog.text == ""
 
+    def test_a_refused_configuration_is_refused_again_on_retry(self, tmp_path):
+        """The once-per-orchestrator guard must not turn into a once-per-orchestrator bypass.
+
+        ``retry_with_backoff`` re-runs a failed batch on the same instance and restores
+        ``simulator.state``, which this flag is not part of. Marking the check done before it passes
+        would let the second attempt run the very configuration the first one rejected -- the silent
+        drop again, reached by a different route.
+        """
+        orchestrator = _orchestrator(
+            tmp_path, "batched", waveform_backend=None, **{"waveform-options": {"ModeArray": [[2, 2]]}}
+        )
+
+        with pytest.raises(ValueError, match="would ignore settings"):
+            orchestrator._simulate()
+
+        # The retry. Without the fix this returns normally, generating from a rejected config.
+        with pytest.raises(ValueError, match="would ignore settings"):
+            orchestrator._simulate()
+
     def test_the_check_runs_once_rather_than_once_per_segment(self, tmp_path, caplog):
         """A warning repeated for every segment of a long run is noise, not a warning."""
         orchestrator = _orchestrator(tmp_path, "per-event", waveform_backend=None, **{"not-a-real-setting": "x"})
