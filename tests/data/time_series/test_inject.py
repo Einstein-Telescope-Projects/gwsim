@@ -6,7 +6,12 @@ import numpy as np
 import pytest
 from gwpy.timeseries import TimeSeries as GWpyTimeSeries
 
-from gwmock.data.time_series.inject import inject
+from gwmock.data.time_series.inject import (
+    _MAXIMUM_ALIGNMENT_TOLERANCE,
+    alignment_tolerance,
+    inject,
+    is_aligned,
+)
 
 
 class TestInjectBasic:
@@ -846,3 +851,188 @@ class TestInjectExactBoundaries:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestAlignmentTolerance:
+    """The offset-to-whole-sample test, whose tolerance has to be absolute.
+
+    ``np.isclose`` defaults to a *relative* tolerance. A fractional offset can never exceed half a
+    sample, so a relative test passes unconditionally once ``rtol * offset >= 0.5`` -- about 50,000
+    samples, or 12 s into a segment at 4096 Hz. Past that point the interpolation branch was
+    unreachable and every chunk was snapped to the nearest sample, displacing signals by up to half
+    a sample with only a debug log to show for it. The example configurations use 4096-second
+    segments, so almost every injection was in that regime.
+    """
+
+    @staticmethod
+    def _series(start_sample: float, sampling_frequency: float = 4096.0, n: int = 8, amplitude: float = 1.0):
+        """Return a flat series starting *start_sample* samples after GPS 1e9."""
+        return GWpyTimeSeries(
+            np.full(n, amplitude),
+            t0=1e9 + start_sample / sampling_frequency,
+            dt=1.0 / sampling_frequency,
+            unit="m",
+        )
+
+    @staticmethod
+    def _target(n: int, sampling_frequency: float = 4096.0):
+        return GWpyTimeSeries(np.zeros(n), t0=1e9, dt=1.0 / sampling_frequency, unit="m")
+
+    @pytest.mark.parametrize("offset_samples", [10, 1_000, 49_999, 50_001, 200_000])
+    def test_a_half_sample_offset_is_interpolated_at_every_scale(self, offset_samples: int):
+        """A half-sample offset must interpolate regardless of how far into the segment it is.
+
+        The two large values straddle the point where the old relative test stopped
+        discriminating, which is what makes this parametrisation worth having rather than one
+        convenient offset.
+
+        The injected chunk is a delta rather than a flat top-hat: interpolating a constant returns
+        the same constant in its interior, so a flat chunk cannot reveal whether it was resampled
+        or merely snapped. A delta's energy spreads across neighbouring samples, which it does not
+        if the chunk was snapped to a whole sample.
+        """
+        target = self._target(offset_samples + 4096)
+        other = GWpyTimeSeries(
+            np.array([0.0, 0.0, 1.0, 0.0, 0.0]),
+            t0=1e9 + (offset_samples + 0.5) / 4096.0,
+            dt=1.0 / 4096.0,
+            unit="m",
+        )
+
+        result = inject(target, other, interpolate_if_offset=True)
+
+        values = np.asarray(result.value)
+        occupied = np.flatnonzero(values)
+        assert occupied.size, "nothing was injected"
+        assert occupied.size > 1, (
+            f"the chunk at offset {offset_samples}+0.5 landed on a single sample, so it was snapped "
+            f"to a whole sample instead of interpolated -- displacing it by half a sample"
+        )
+
+    @pytest.mark.parametrize("offset_samples", [10, 1_000, 200_000])
+    def test_a_half_sample_offset_is_refused_when_not_interpolating(self, offset_samples: int):
+        """With interpolation disabled, a misaligned chunk must be declined, not snapped.
+
+        This is the assertion that shows the *classification* changed rather than the arithmetic:
+        the target must come back untouched.
+        """
+        target = self._target(offset_samples + 4096)
+        other = self._series(offset_samples + 0.5)
+
+        result = inject(target, other, interpolate_if_offset=False)
+
+        assert not np.any(np.asarray(result.value)), (
+            f"the chunk at offset {offset_samples}+0.5 was injected despite interpolation being "
+            f"disabled, so it was misclassified as aligned"
+        )
+
+    @pytest.mark.parametrize("sampling_frequency", [1000.0, 2000.0, 3000.0, 4000.0, 4096.0, 8192.0])
+    @pytest.mark.parametrize("offset_samples", [1_000, 1_000_000])
+    def test_a_genuinely_aligned_chunk_is_not_interpolated(self, sampling_frequency: float, offset_samples: int):
+        """Tightening the tolerance must not push real alignments onto the interpolation path.
+
+        ``offset`` comes from a GPS-scale subtraction, so an exactly-aligned chunk still carries
+        cancellation error -- zero at power-of-two rates, up to 4.0e-4 samples at 4000 Hz. The
+        non-power-of-two rates here are the cases that error appears in, and they are the reason
+        the tolerance is 1e-3 rather than something tighter.
+        """
+        target = self._target(offset_samples + 64, sampling_frequency=sampling_frequency)
+        other = self._series(offset_samples, sampling_frequency=sampling_frequency, amplitude=2.0)
+
+        result = inject(target, other, interpolate_if_offset=False)
+
+        occupied = np.flatnonzero(np.asarray(result.value))
+        assert occupied.size, (
+            f"an aligned chunk at {sampling_frequency} Hz, offset {offset_samples}, was refused -- "
+            f"the tolerance is too tight for the representation error at this rate"
+        )
+        assert np.all(np.asarray(result.value)[occupied] == 2.0), "an aligned injection must be a plain add"
+
+
+class TestIsAligned:
+    """The predicate itself, across the domain rather than at one point."""
+
+    #: Tolerance at a realistic GPS epoch and rate, ~3.9e-3 samples.
+    TOLERANCE = alignment_tolerance(1.6e9, 4096.0)
+
+    def test_zero_and_whole_offsets_are_aligned(self):
+        assert is_aligned(0.0, self.TOLERANCE)
+        assert is_aligned(1.0, self.TOLERANCE)
+        assert is_aligned(16_777_216.0, self.TOLERANCE)
+
+    def test_representation_error_counts_as_aligned(self):
+        """4.0e-4 samples is the worst measured error for a truly aligned chunk, at 4000 Hz."""
+        assert is_aligned(4.0e-4, self.TOLERANCE)
+        assert is_aligned(1_000_000 + 4.0e-4, self.TOLERANCE)
+
+    def test_a_fraction_of_a_sample_counts_as_misaligned(self):
+        assert not is_aligned(0.05, self.TOLERANCE)
+        assert not is_aligned(0.5, self.TOLERANCE)
+
+    @pytest.mark.parametrize("offset", [0.5, 50_000.5, 1_000_000.5, 16_777_216.5])
+    def test_a_half_sample_is_misaligned_at_any_magnitude(self, offset: float):
+        """The property the relative tolerance failed to provide: scale independence."""
+        assert not is_aligned(offset, self.TOLERANCE)
+
+
+class TestAlignmentToleranceDerivation:
+    """The tolerance has to track the epoch, not be a constant."""
+
+    @pytest.mark.parametrize(
+        ("epoch", "sampling_frequency", "observed_error"),
+        [
+            (1.577e9, 4000.0, 4.0e-4),  # worst error measured locally
+            (1e10, 2000.0, 1.68e-3),  # the case a fixed 1e-3 got wrong
+        ],
+    )
+    def test_the_tolerance_exceeds_the_error_a_real_alignment_carries(
+        self, epoch: float, sampling_frequency: float, observed_error: float
+    ):
+        """A tolerance below the representation error interpolates genuinely aligned chunks.
+
+        That is worse than the misclassification this check exists to prevent, and it is why the
+        tolerance is derived from the floating-point spacing rather than fixed. A hardcoded 1e-3
+        passed the first case and failed the second.
+        """
+        assert alignment_tolerance(epoch, sampling_frequency) > observed_error
+
+    def test_the_tolerance_never_reaches_half_a_sample(self):
+        """Above half a sample the check would call everything aligned -- the original bug."""
+        for epoch in (1e9, 1e10, 1e12, 1e15):
+            for sampling_frequency in (1024.0, 16384.0, 1e6):
+                assert alignment_tolerance(epoch, sampling_frequency) <= _MAXIMUM_ALIGNMENT_TOLERANCE < 0.5
+
+    @pytest.mark.parametrize(
+        ("epoch", "sampling_frequency"),
+        [(1e9, 4096.0), (1.577e9, 4096.0), (1.577e9, 4000.0), (1e10, 2000.0), (1.4e9, 2048.0)],
+    )
+    def test_it_agrees_with_gwmock_signals_lattice_tolerance(self, epoch: float, sampling_frequency: float):
+        """The same numerical-resolution decision exists in gwmock-signal; they must not diverge.
+
+        ``SamplingGrid.lattice_tolerance_samples`` reached the same ULP-scaling design
+        independently, with the same floor and ceiling. Two encodings of one decision drift apart
+        silently unless something compares them -- and the device path is about to place chunks
+        using gwmock-signal's lattice and inject them using this tolerance, so a disagreement there
+        would mean a buffer gwmock-signal calls on-lattice that gwmock calls misaligned.
+        """
+        from gwmock_signal import SamplingGrid
+
+        theirs = SamplingGrid(epoch, sampling_frequency).lattice_tolerance_samples(epoch)
+
+        assert alignment_tolerance(epoch, sampling_frequency) == pytest.approx(theirs, rel=1e-12)
+
+    def test_the_tolerance_uses_the_coarsest_magnitude_involved(self):
+        """A timestamp later than the epoch has coarser resolution, and that is what bounds error.
+
+        Taking the spacing at the epoch alone would understate the tolerance whenever the times
+        being compared sit at a larger magnitude.
+        """
+        at_epoch = alignment_tolerance(1.0, 4096.0)
+        with_later_times = alignment_tolerance(1.0, 4096.0, gps_times=[1e10])
+
+        assert with_later_times > at_epoch
+
+    def test_the_tolerance_grows_with_epoch_and_rate(self):
+        """The property that makes it correct where a constant is not."""
+        assert alignment_tolerance(1e10, 4096.0) > alignment_tolerance(1e9, 4096.0)
+        assert alignment_tolerance(1e9, 16384.0) > alignment_tolerance(1e9, 1024.0)

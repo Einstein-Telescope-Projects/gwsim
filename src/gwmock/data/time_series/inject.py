@@ -12,6 +12,97 @@ from scipy.interpolate import interp1d
 
 logger = logging.getLogger("gwmock")
 
+#: Multiple of the float64 spacing allowed as alignment error, in ULPs.
+#:
+#: 8, to match ``SamplingGrid.lattice_tolerance_samples`` in gwmock-signal, which reached the same
+#: ULP-scaling design independently and with the same floor and ceiling. This is one decision about
+#: numerical resolution encoded in two packages, and gwmock-signal's value is the older of the two,
+#: so this defers to it rather than leaving the pair to disagree by a factor of two.
+#:
+#: It is comfortably above the largest error measured for a genuinely aligned chunk here (4.0e-4
+#: samples at GPS 1.577e9, 4000 Hz) and, via the ceiling below, still far under the half sample that
+#: would make everything look aligned.
+_ALIGNMENT_SPACING_MARGIN = 8.0
+
+#: Smallest tolerance ever used, for epochs near zero where the spacing is meaningless.
+_MINIMUM_ALIGNMENT_TOLERANCE = 1e-9
+
+#: Largest tolerance ever used, in samples.
+#:
+#: A fractional offset cannot exceed 0.5 samples, so a tolerance approaching that would classify
+#: everything as aligned -- reintroducing the bug this machinery exists to prevent. 0.01 keeps a
+#: hundredth of a sample detectable. Reaching this ceiling means float64 can no longer resolve
+#: sample alignment at the given epoch and rate, which is worth saying out loud rather than
+#: silently degrading.
+_MAXIMUM_ALIGNMENT_TOLERANCE = 1e-2
+
+
+def alignment_tolerance(
+    reference_time: float,
+    sampling_frequency: float,
+    gps_times: object = None,
+) -> float:
+    """Return how far from a whole sample an offset may sit and still count as aligned.
+
+    Derived from the floating-point spacing at *reference_time* rather than fixed. The offset is
+    computed as ``(other_start - self_start) * sampling_frequency`` from two GPS-scale times, so an
+    exactly-aligned chunk still carries error of order ``spacing(epoch) * sampling_frequency``: at
+    GPS 1.6e9 and 4096 Hz that is ~1e-3 samples, and it grows with both the epoch and the rate.
+
+    A fixed tolerance therefore cannot be right everywhere. 1e-3 covers GPS 1e9-1.8e9 at 512-16384
+    Hz, but at GPS 1e10 and 2000 Hz the real error reaches ~1.7e-3 -- and a tolerance below the
+    error means genuinely aligned chunks get interpolated, which is worse than the misclassification
+    this whole check exists to avoid. Scaling with the spacing removes the domain assumption.
+
+    Args:
+        reference_time: Epoch the offset is measured from, in seconds.
+        sampling_frequency: Sample rate in Hz.
+        gps_times: Optional timestamps taking part in the comparison. The spacing is taken at the
+            largest magnitude involved, not at the epoch alone, since a time later than the epoch
+            has coarser resolution and it is the coarsest that bounds the error. Mirrors
+            ``SamplingGrid.lattice_tolerance_samples`` in gwmock-signal.
+
+    Returns:
+        Tolerance in samples, clamped to :data:`_MINIMUM_ALIGNMENT_TOLERANCE` and
+        :data:`_MAXIMUM_ALIGNMENT_TOLERANCE`.
+    """
+    magnitude = abs(float(reference_time))
+    if gps_times is not None:
+        times = np.asarray(gps_times, dtype=float)
+        if times.size:
+            magnitude = max(magnitude, float(np.max(np.abs(times))))
+    derived = _ALIGNMENT_SPACING_MARGIN * float(np.spacing(magnitude)) * float(sampling_frequency)
+    if derived > _MAXIMUM_ALIGNMENT_TOLERANCE:
+        logger.warning(
+            "Sample alignment cannot be resolved at epoch %s and %s Hz: the floating-point spacing "
+            "implies an uncertainty of %.3g samples, so alignment decisions there are unreliable. "
+            "Capping the tolerance at %s.",
+            reference_time,
+            sampling_frequency,
+            derived,
+            _MAXIMUM_ALIGNMENT_TOLERANCE,
+        )
+    return min(_MAXIMUM_ALIGNMENT_TOLERANCE, max(_MINIMUM_ALIGNMENT_TOLERANCE, derived))
+
+
+def is_aligned(offset_samples: float, tolerance: float) -> bool:
+    """Return whether *offset_samples* is a whole number of samples, within *tolerance*.
+
+    Absolute, not relative. ``np.isclose``'s default tolerance is relative, and since a fractional
+    offset can never exceed 0.5 samples, a relative test passes unconditionally once
+    ``rtol * offset >= 0.5`` -- about 50,000 samples, or 12 s into a segment at 4096 Hz. Beyond that
+    the interpolation branch was unreachable and every chunk was snapped to the nearest sample,
+    displacing signals by up to half a sample.
+
+    Args:
+        offset_samples: Offset between two series' start times, in samples.
+        tolerance: Permitted deviation in samples, from :func:`alignment_tolerance`.
+
+    Returns:
+        Whether the offset counts as aligned.
+    """
+    return bool(abs(offset_samples - round(offset_samples)) <= tolerance)
+
 
 def inject(timeseries: TimeSeries, other: TimeSeries, interpolate_if_offset: bool = True) -> TimeSeries:
     """Inject one TimeSeries into another, handling time offsets.
@@ -46,7 +137,8 @@ def inject(timeseries: TimeSeries, other: TimeSeries, interpolate_if_offset: boo
     offset = (other_times[0] - target_times[0]) / sample_spacing
 
     # Check if offset is aligned (integer number of samples)
-    if not np.isclose(offset, round(offset)):
+    tolerance = alignment_tolerance(target_times[0], 1.0 / sample_spacing, gps_times=other_times)
+    if not is_aligned(offset, tolerance):
         if not interpolate_if_offset:
             logger.debug("Non-integer offset of %s samples; not interpolating, returning original timeseries", offset)
             return timeseries
