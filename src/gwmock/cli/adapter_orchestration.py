@@ -591,7 +591,27 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 f"remove them."
             )
 
+        from gwmock.signal.device_chunks import BATCHED_BACKEND_ARGUMENTS  # noqa: PLC0415
+
         arguments = _normalize_keys(dict(getattr(signal_config, "waveform_backend_arguments", {}) or {}))
+
+        # `f_ref` is written under `waveform-arguments` because that is where the per-event path
+        # takes it, but gwmock-signal treats it as a backend option -- its own reserved-argument
+        # table says "f_ref is configured on the backend, not through waveform_arguments". Left in
+        # the parameter mapping it would reach `simulate_cbc_batch` and do nothing, so the same
+        # config key would set the reference frequency in one execution mode and be inert in the
+        # other. Routed here instead, so the two modes agree.
+        for name in sorted(BATCHED_BACKEND_ARGUMENTS & set(self.waveform_arguments)):
+            from_arguments = self.waveform_arguments[name]
+            if name in arguments and arguments[name] != from_arguments:
+                raise ValueError(
+                    f"{name} is set to {from_arguments!r} in waveform-arguments and "
+                    f"{arguments[name]!r} in waveform-backend-arguments. One value has to win and "
+                    f"picking silently would make the waveform depend on which of two keys a reader "
+                    f"happened to look at. Set it in one place."
+                )
+            arguments[name] = from_arguments
+
         if not arguments:
             return None
         return instantiate_backend("waveform", "ripple", init_kwargs=arguments)
@@ -610,6 +630,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         from gwmock_signal import SamplingGrid, simulate_cbc_batch  # noqa: PLC0415
 
         from gwmock.signal.device_chunks import (  # noqa: PLC0415
+            BATCHED_BACKEND_ARGUMENTS,
             batched_strain_to_chunks,
             canonicalise_parameters,
             require_batched_parameters_supported,
@@ -624,9 +645,12 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         self._batch_injections = []
         if not events:
             return TimeSeriesList()
-        parameters = canonicalise_parameters(
-            {**self.waveform_arguments, **SignalAdapter.events_to_struct_of_arrays(events)}
-        )
+        # Backend options are excluded: they went to the constructor in `_batched_waveform_backend`,
+        # and leaving them here too would hand `simulate_cbc_batch` a key it does not read.
+        fixed_arguments = {
+            key: value for key, value in self.waveform_arguments.items() if key not in BATCHED_BACKEND_ARGUMENTS
+        }
+        parameters = canonicalise_parameters({**fixed_arguments, **SignalAdapter.events_to_struct_of_arrays(events)})
         sampling_frequency = float(self.sampling_frequency.value)
 
         # The grid is this segment's own lattice, so every buffer starts on a sample of it and

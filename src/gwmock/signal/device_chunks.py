@@ -79,6 +79,16 @@ _PARAMETER_ALIASES: dict[str, str] = {
 #: Taken from ``gwmock_signal.jax_batch`` and ``waveform.backends.ripple``. It will drift if
 #: gwmock-signal grows a parameter; the cost of that is a spurious rejection, which is visible,
 #: rather than a silent omission, which is not.
+#:
+#: The in-plane spins are here because ripple's batch resolver reads all six components for the
+#: precessing approximants (``IMRPhenomPv2``, ``IMRPhenomXP``, ``IMRPhenomXPHM``). Omitting them
+#: rejected every precessing configuration -- the opposite failure to a silent drop, and the reason
+#: this list is checked against the library rather than written from memory.
+#:
+#: ``f_ref`` is deliberately *absent*. It is a backend option, not a per-event parameter:
+#: gwmock-signal's own ``_RESERVED_WAVEFORM_ARGUMENTS`` says "f_ref is configured on the backend,
+#: not through waveform_arguments". Passing it in this mapping does nothing at all. The
+#: orchestrator forwards it to the ripple backend instead, so the configuration key still works.
 BATCHED_PARAMETERS: frozenset[str] = frozenset(
     {
         "coa_time",
@@ -90,13 +100,23 @@ BATCHED_PARAMETERS: frozenset[str] = frozenset(
         "luminosity_distance",
         "coa_phase",
         "inclination",
+        "spin_1x",
+        "spin_1y",
         "spin_1z",
+        "spin_2x",
+        "spin_2y",
         "spin_2z",
         "lambda_1",
         "lambda_2",
-        "f_ref",
     }
 )
+
+#: Waveform arguments that configure the ripple *backend* rather than an individual event.
+#:
+#: They are accepted in ``waveform-arguments`` because that is where the per-event path takes them,
+#: and a key that changes the waveform in one execution mode must not be inert in the other. The
+#: orchestrator routes them to the backend constructor.
+BATCHED_BACKEND_ARGUMENTS: frozenset[str] = frozenset({"f_ref"})
 
 
 def require_batched_parameters_supported(waveform_arguments: dict[str, Any]) -> None:
@@ -109,12 +129,12 @@ def require_batched_parameters_supported(waveform_arguments: dict[str, Any]) -> 
     Raises:
         ValueError: If any key is not one the batched entry point reads.
     """
-    unsupported = sorted(set(waveform_arguments) - BATCHED_PARAMETERS)
+    unsupported = sorted(set(waveform_arguments) - BATCHED_PARAMETERS - BATCHED_BACKEND_ARGUMENTS)
     if unsupported:
         raise ValueError(
             f"execution: batched cannot apply these waveform-arguments: {unsupported}. The batched "
-            f"entry point reads only {sorted(BATCHED_PARAMETERS)}, and would ignore the rest "
-            f"without complaint. Use execution: per-event, or remove them."
+            f"entry point reads only {sorted(BATCHED_PARAMETERS | BATCHED_BACKEND_ARGUMENTS)}, and "
+            f"would ignore the rest without complaint. Use execution: per-event, or remove them."
         )
 
 

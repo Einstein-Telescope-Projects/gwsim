@@ -346,3 +346,75 @@ class TestBothModesAgree:
             f"{largest_difference:.3e} is {largest_difference / peak:.3e} of the peak. That makes "
             f"the execution mode a choice about the dataset rather than about how it was computed."
         )
+
+
+class TestReferenceFrequencyReachesTheBackend:
+    """`f_ref` is written under waveform-arguments but is a backend option.
+
+    gwmock-signal's own reserved-argument table says so: "f_ref is configured on the backend, not
+    through waveform_arguments". Left in the parameter mapping it reaches `simulate_cbc_batch` and is
+    read by nobody, so the same config key would set the reference frequency on the per-event path
+    and do nothing on the batched one -- two execution modes silently disagreeing about the waveform.
+    """
+
+    def test_it_is_forwarded_to_the_ripple_backend(self, tmp_path):
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        orchestrator = _orchestrator(tmp_path, "batched", **{"waveform-arguments": {"f_ref": 25.0}})
+
+        backend = orchestrator._batched_waveform_backend()
+
+        assert backend is not None, "f_ref alone must still produce a configured backend"
+        # `_f_ref` because the backend keeps it private; there is no public reader, and the
+        # alternative -- trusting that construction succeeded -- would pass without forwarding.
+        assert backend._f_ref == 25.0
+
+    def test_it_does_not_also_go_into_the_parameter_mapping(self, tmp_path):
+        """Passing it both ways would hand the batch entry point a key it does not read."""
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        captured = {}
+        orchestrator = _orchestrator(tmp_path, "batched", **{"waveform-arguments": {"f_ref": 25.0}})
+
+        import gwmock_signal
+
+        real = gwmock_signal.simulate_cbc_batch
+
+        def spy(*args, **kwargs):
+            captured.update(kwargs.get("parameters", {}))
+            return real(*args, **kwargs)
+
+        gwmock_signal.simulate_cbc_batch = spy
+        try:
+            orchestrator._simulate()
+        finally:
+            gwmock_signal.simulate_cbc_batch = real
+
+        assert captured, "the spy never saw a call, so this test proves nothing"
+        assert "f_ref" not in captured
+
+    def test_disagreeing_with_waveform_backend_arguments_is_refused(self, tmp_path):
+        """Two keys setting one physical quantity: pick silently and the waveform depends on which
+        one a reader happened to look at.
+
+        Deliberately not gated on ripplegw -- the conflict is caught before the backend is built, so
+        gating it would hide the branch from the CI job that installs no extras.
+        """
+        orchestrator = _orchestrator(
+            tmp_path,
+            "batched",
+            waveform_backend=None,
+            **{"waveform-arguments": {"f_ref": 25.0}, "waveform-backend-arguments": {"f_ref": 30.0}},
+        )
+
+        with pytest.raises(ValueError, match="f_ref is set to"):
+            orchestrator._batched_waveform_backend()
+
+    def test_agreeing_with_waveform_backend_arguments_is_accepted(self, tmp_path):
+        """Refusing a redundant but consistent pair would be gratuitous."""
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        orchestrator = _orchestrator(
+            tmp_path,
+            "batched",
+            **{"waveform-arguments": {"f_ref": 25.0}, "waveform-backend-arguments": {"f_ref": 25.0}},
+        )
+
+        assert orchestrator._batched_waveform_backend()._f_ref == 25.0

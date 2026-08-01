@@ -8,13 +8,19 @@ hoped for. One test at the end runs the real batched path to check the stub has 
 
 from __future__ import annotations
 
+import inspect
+import re
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pytest
 
-from gwmock.signal.device_chunks import batched_strain_to_chunks
+from gwmock.signal.device_chunks import (
+    BATCHED_PARAMETERS,
+    batched_strain_to_chunks,
+    require_batched_parameters_supported,
+)
 
 _SAMPLING_FREQUENCY = 1024.0
 _EPOCH = 1577491296.0
@@ -388,3 +394,63 @@ class TestSpillOverAcrossSegments:
         assert values[20] == pytest.approx(1.0), "only the second chunk covers sample 20"
         assert values[23] == pytest.approx(1.0), "the second chunk ends at sample 23"
         assert values[24] == pytest.approx(0.0), "nothing reaches sample 24"
+
+
+class TestTheParameterAllowList:
+    """What the batched path claims to read, checked against what gwmock-signal actually reads.
+
+    The list is written by hand from the library's contract, so the failure mode is drift. Two
+    directions, and they fail differently: a parameter present but unread is a silent drop, and a
+    parameter read but absent is a rejected configuration that should have worked. Both happened --
+    ``f_ref`` was the first and the in-plane spins were the second -- because nothing checked.
+
+    These tests read the library rather than a second hand-written copy of the same list, so a
+    gwmock-signal bump that renames or adds a parameter fails here instead of in a user's run.
+    """
+
+    def test_the_precessing_spin_components_are_accepted(self):
+        """Ripple's batch resolver reads all six for IMRPhenomPv2, XP and XPHM.
+
+        Omitting the in-plane four rejected every precessing configuration, which is also what the
+        bundled ET presets use.
+        """
+        spins = {f"spin_{body}{axis}": 0.1 for body in (1, 2) for axis in ("x", "y", "z")}
+
+        require_batched_parameters_supported(spins)
+
+    def test_every_in_plane_spin_ripple_reads_is_in_the_list(self):
+        """Anchored on the library's own source rather than on this test's opinion."""
+        ripple = pytest.importorskip("gwmock_signal.waveform.backends.ripple")
+        source = inspect.getsource(ripple)
+
+        read_by_ripple = set(re.findall(r'"(spin_[12][xyz])"', source))
+
+        assert read_by_ripple, "the spin names could not be found; this test has stopped checking anything"
+        assert read_by_ripple <= BATCHED_PARAMETERS, (
+            f"ripple reads {sorted(read_by_ripple - BATCHED_PARAMETERS)} but the batched path "
+            f"rejects them, so precessing configurations fail"
+        )
+
+    def test_f_ref_is_not_a_per_event_parameter(self):
+        """It configures the backend. In the parameter mapping it would be read by nobody."""
+        assert "f_ref" not in BATCHED_PARAMETERS
+
+    def test_gwmock_signal_still_agrees_that_f_ref_belongs_to_the_backend(self):
+        """The anchor for routing it to the constructor. If this changes, the routing is wrong.
+
+        Asserted against gwmock-signal's own reserved-argument table rather than against a comment
+        here, so a library that starts accepting ``f_ref`` per event fails this instead of silently
+        making the forwarding redundant.
+        """
+        ripple = pytest.importorskip("gwmock_signal.waveform.backends.ripple")
+
+        assert "f_ref" in ripple._RESERVED_WAVEFORM_ARGUMENTS
+
+    def test_f_ref_is_still_accepted_from_the_configuration(self):
+        """Rejecting it would be the opposite error: the per-event path takes it in this key."""
+        require_batched_parameters_supported({"f_ref": 20.0})
+
+    def test_an_unreadable_argument_is_still_refused(self):
+        """Guards the widening: the list must not have become permissive."""
+        with pytest.raises(ValueError, match="cannot apply these waveform-arguments"):
+            require_batched_parameters_supported({"not_a_waveform_parameter": 1.0})
