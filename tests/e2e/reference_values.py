@@ -1,13 +1,19 @@
 """Reference values for the end-to-end matrix: building them, and comparing against them.
 
-Each matrix entry has a small JSON file under ``references/`` recording, per output file, the
-content hash and a handful of summary statistics. The hash is what the tests assert on; the
-statistics exist to make a failure *diagnosable* rather than merely red.
+Each matrix entry has a small JSON file under ``references/`` recording, per output file, a content
+hash and a handful of summary statistics. **The statistics are what the tests assert on**; the hash
+is recorded and reported but not compared, for the reason set out under portability below.
 
-That split is the point. A bare hash tells you something changed and nothing about what, so
-every failure becomes a bisect. With the statistics stored alongside, a mismatch reports which
-files moved and by how much, and a one-part-in-10^15 drift from a library upgrade looks obviously
-different from a waveform that shifted by samples or changed amplitude.
+The statistics also make a failure *diagnosable* rather than merely red. A bare hash tells you
+something changed and nothing about what, so every failure becomes a bisect. With the statistics
+stored alongside, a mismatch reports which files moved and by how much, and a drift from a library
+upgrade looks obviously different from a waveform that shifted in time or changed amplitude.
+
+What this does **not** detect: a change that preserves every gated statistic. Reordering samples, or
+altering the shape between the peak and the edges, can leave ``n``, ``nonzero``, ``argmax``,
+``peak``, ``rms`` and ``signed_peak`` all intact. Sign inversion is covered, by ``signed_peak``;
+arbitrary shape change is not. Closing that needs a quantised digest of the samples, which is future
+work rather than something this claims today.
 
 A mismatch is not automatically a bug. When a dependency bump changes the last bits of a
 waveform, the right response is to look at the reported differences, decide the change is
