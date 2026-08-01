@@ -316,8 +316,9 @@ signal:
 Two things to be aware of:
 
 - This selects a **library, not a compute device.** `ripple` is JAX-based, but
-  it runs through the same per-event path as LAL; gwmock does not yet drive
-  ripple's batched on-device entry point from a configuration file.
+  on its own it runs through the same per-event path as LAL. The batched
+  on-device entry point is selected separately, with
+  [`signal.execution`](#choosing-the-execution-mode).
 - The same approximant from two libraries agrees closely but not exactly, so the
   choice changes the data. It is recorded in the run metadata as
   `orchestration.signal.waveform_backend` for that reason.
@@ -327,6 +328,45 @@ each waveform model on first use — measured on a single 8-second segment,
 `IMRPhenomD` took ~10 s end to end against ~0.7 s for LAL, and the precessing
 `IMRPhenomXPHM` ~72 s. The cost is paid once per process, so it amortises over a
 long run.
+
+### Choosing the execution mode
+
+`signal.execution` selects **how** a segment's events are computed,
+independently of which library computes them:
+
+| Value                 | Behaviour                                                                  |
+| --------------------- | -------------------------------------------------------------------------- |
+| `per-event` (default) | Loop over the segment's events, one waveform at a time.                    |
+| `batched`             | Hand the whole segment to gwmock-signal's batched entry point in one call. |
+
+```yaml
+orchestration:
+    signal:
+        execution: batched
+        waveform-model: IMRPhenomD
+        waveform-backend: ripple
+```
+
+Batched is the **GPU-capable** path, but this key does not choose a device.
+Whether it runs on a GPU depends only on the installed JAX backend:
+
+- `pip install 'gwmock[jax]'` — batched, on the CPU.
+- `pip install 'gwmock[cuda]'` — batched, on a GPU (Linux x86_64, CUDA 12).
+
+Nothing in the output distinguishes the two and no warning is raised for the CPU
+case. Check with `python -c "import jax; print(jax.devices())"`.
+
+Two constraints. The batched path always generates with `ripple` whatever
+`waveform-backend` names — a different library is refused rather than silently
+substituted. And it refuses any signal setting it cannot apply
+(`waveform-options`, `signal.arguments`, `signal.parameters`), so a
+configuration that reaches the generator unchanged is the only one that runs.
+
+GPU and CPU results are **not** bit-identical. Measured on an RTX 2080 Ti, they
+agree to ~4e-13 of peak — a sub-sample time shift, not an accuracy difference.
+Neither is known to be more correct.
+
+See `examples/signal/execution/batched` for a runnable configuration.
 
 For SGWB studies, use `signal.source-type: sgwb`. Constructor options for the
 SGWB backend belong under `signal.arguments`, while spectrum parameters passed

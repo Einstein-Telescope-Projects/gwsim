@@ -5,7 +5,8 @@ configuration -- shortened by :mod:`tests.e2e.overlay`, never edited in place --
 run completed and wrote data of the expected shape.
 
 Marked ``e2e`` and therefore excluded from the default run: they generate data and take seconds
-to minutes each. The ``e2e`` CI job runs them with every extra installed.
+to minutes each. The ``e2e`` CI job runs them with the ``sgwb`` and ``jax`` extras installed (not ``cuda``:
+the runner has no GPU).
 
 Scope of what is checked here is deliberately structural. Whether the output *matches a stored
 reference* comes later, and depends on first establishing that each path is reproducible at all.

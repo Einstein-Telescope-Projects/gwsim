@@ -37,9 +37,15 @@ end.
 **By waveform library** — `signal.waveform-backend` chooses which library
 generates the polarizations: `lal` (the default), `pycbc`, `ripple`, or
 `gwsignal`. Any signal example accepts it. It names a **library, not a compute
-device** — `ripple` generates ripple waveforms through the same per-event path,
-since gwmock does not yet drive ripple's batched on-device path from a
-configuration file.
+device** — `ripple` alone still generates through the per-event path.
+
+**By execution mode** — `signal.execution` is the separate key that chooses
+_how_ a segment's events are computed: `per-event` (the default) or `batched`,
+which hands the whole segment to gwmock-signal's batched entry point in one
+call. Batched is the GPU-capable path, but whether it _runs_ on a GPU depends on
+the installed JAX backend, not on the key: `gwmock[jax]` gives batched on the
+CPU, `gwmock[cuda]` gives a GPU. Check with
+`python -c "import jax; print(jax.devices())"`.
 
 **By detector network** — every `<network>` above is one of
 `et_triangle_sardinia`, `et_triangle_emr`, `et_2l_aligned`, `et_2l_misaligned`.
@@ -73,7 +79,9 @@ A **subset** of these examples is the end-to-end matrix: the configs driven
 through the real CLI by the `e2e` test suite.
 
 Those tests are excluded from the default run — they generate data — and run in
-their own CI job with every extra installed. To run them yourself:
+their own CI job, which installs the `sgwb` and `jax` extras. `cuda` is
+deliberately left out there: the runner has no GPU, and its wheels are
+multi-gigabyte. To run them yourself:
 
 ```bash
 uv run pytest -m e2e --no-cov
