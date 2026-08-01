@@ -70,6 +70,13 @@ class TestMeasurement:
         assert samples == 512
         assert seconds == pytest.approx(0.5)
 
+    @pytest.mark.parametrize("gap", [0.5, 2.0, 10.0])
+    def test_the_duration_always_matches_the_sample_count(self, gap: float):
+        """The warning prints the two side by side, so they have to describe the same span."""
+        samples, seconds, _ = measure_content_before(_EPOCH, _FS, _series(_EPOCH - gap, 512))
+
+        assert seconds == pytest.approx(samples / _FS)
+
     def test_the_energy_fraction_is_the_share_of_summed_squares(self):
         """Not the share of samples -- an SNR responds to energy, and the two differ a lot.
 
@@ -239,6 +246,10 @@ class TestTheWarning:
 
         assert "Discarding" in caplog.text
         assert "100.00% of its energy" in caplog.text
+        # 1024 samples at 1024 Hz span 1 s, however far before the segment they sit. Reporting the
+        # gap to the boundary instead would say 10 s here, while the message pairs the figure with a
+        # sample count as though the two described the same span.
+        assert "1.000 s" in caplog.text
 
     def test_an_off_grid_chunk_is_measured_before_it_is_resampled(self, caplog):
         """The interpolation branch rebinds the chunk onto the segment's own grid.

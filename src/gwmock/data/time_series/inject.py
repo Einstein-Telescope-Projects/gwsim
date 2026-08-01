@@ -124,6 +124,7 @@ def measure_content_before(
 
     Returns:
         A ``(samples, seconds, energy_fraction)`` triple describing what lies before the segment.
+        ``seconds`` is the span of those samples, so it always agrees with ``samples``.
         ``energy_fraction`` is the share of the chunk's summed squares that is dropped -- unweighted
         strain-squared energy, ``0.0`` for a silent chunk. It is a **proxy, not an SNR loss**: a
         matched-filter figure needs a detector PSD and frequency-domain weighting, neither of which
@@ -157,7 +158,11 @@ def measure_content_before(
     total = float(np.sum(np.square(data)))
     dropped = float(np.sum(np.square(data[:, :n_before])))
     fraction = dropped / total if total > 0.0 else 0.0
-    return n_before, float(segment_start_time - times[0]), fraction
+    # The span of the dropped samples, not the gap from the chunk's start to the boundary. The
+    # two differ whenever the chunk ends before the boundary: 1024 samples sitting 10 s early
+    # span 1 s, and the warning pairs this figure with the sample count as though they agreed.
+    # Deriving it from the count also avoids subtracting two close GPS-scale times.
+    return n_before, n_before / sampling_frequency, fraction
 
 
 def inject(timeseries: TimeSeries, other: TimeSeries, interpolate_if_offset: bool = True) -> TimeSeries:
