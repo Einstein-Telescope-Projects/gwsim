@@ -12,6 +12,7 @@ would make the choice of mode change the dataset rather than only how it was com
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -182,11 +183,74 @@ class TestWaveformConfigurationIsHonoured:
             _orchestrator(tmp_path, "batched", waveform_backend="lal")._simulate()
 
     def test_waveform_options_are_refused(self, tmp_path):
-        """There is no equivalent parameter on the batched entry point, so silence would lose them."""
-        with pytest.raises(ValueError, match="cannot apply waveform-options"):
+        """There is no equivalent parameter on the batched entry point, so silence would lose them.
+
+        Refused by the general consumption check rather than a rule of its own -- see
+        ``tests/signal/test_execution_support.py``. Kept here because this exercises it through the
+        orchestrator, confirming the check is actually reached on the real path.
+        """
+        with pytest.raises(ValueError, match="would ignore settings"):
             _orchestrator(
                 tmp_path, "batched", waveform_backend=None, **{"waveform-options": {"ModeArray": [[2, 2]]}}
             )._simulate()
+
+
+class TestTheCheckIsReachedOnThePerEventPath:
+    """The per-event warnings are worth nothing if nothing calls them.
+
+    Every other test of this check calls the helper directly, which cannot tell a wired-up check
+    from a dead one. These go through ``_simulate`` on the default path instead. The population is
+    emptied first so the per-event loop returns without generating anything -- the check runs at the
+    top of ``_simulate``, before any of that.
+    """
+
+    @staticmethod
+    def _simulate_nothing(tmp_path: Path, **signal_overrides: Any) -> None:
+        orchestrator = _orchestrator(tmp_path, "per-event", waveform_backend=None, **signal_overrides)
+        orchestrator._population_events = []
+        orchestrator._simulate()
+
+    def test_an_unrecognised_key_warns_through_the_orchestrator(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            self._simulate_nothing(tmp_path, **{"not-a-real-setting": "x"})
+
+        assert "not a recognised setting" in caplog.text
+
+    def test_an_ordinary_configuration_warns_about_nothing(self, tmp_path, caplog):
+        """Guards the opposite failure: a check that fires on every run stops being read."""
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            self._simulate_nothing(tmp_path)
+
+        assert caplog.text == ""
+
+    def test_a_refused_configuration_is_refused_again_on_retry(self, tmp_path):
+        """The once-per-orchestrator guard must not turn into a once-per-orchestrator bypass.
+
+        ``retry_with_backoff`` re-runs a failed batch on the same instance and restores
+        ``simulator.state``, which this flag is not part of. Marking the check done before it passes
+        would let the second attempt run the very configuration the first one rejected -- the silent
+        drop again, reached by a different route.
+        """
+        orchestrator = _orchestrator(
+            tmp_path, "batched", waveform_backend=None, **{"waveform-options": {"ModeArray": [[2, 2]]}}
+        )
+
+        with pytest.raises(ValueError, match="would ignore settings"):
+            orchestrator._simulate()
+
+        # The retry. Without the fix this returns normally, generating from a rejected config.
+        with pytest.raises(ValueError, match="would ignore settings"):
+            orchestrator._simulate()
+
+    def test_the_check_runs_once_rather_than_once_per_segment(self, tmp_path, caplog):
+        """A warning repeated for every segment of a long run is noise, not a warning."""
+        orchestrator = _orchestrator(tmp_path, "per-event", waveform_backend=None, **{"not-a-real-setting": "x"})
+        orchestrator._population_events = []
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            orchestrator._simulate()
+            orchestrator._simulate()
+
+        assert caplog.text.count("not a recognised setting") == 1
 
 
 class TestSegmentEventSelection:

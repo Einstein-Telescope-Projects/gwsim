@@ -99,6 +99,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         self._population_events = tuple(population_events)
         self._population_metadata = dict(population_metadata)
         self._source_type = source_type
+        self._configuration_checked = False
         self._source_detector_specs = tuple(source_detector_specs)
         self._signal_network = detector_network
         self._detector_resolution = detector_resolution
@@ -476,6 +477,8 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
 
     def _simulate(self) -> TimeSeriesList:
         """Generate signal chunks for the current segment from population events."""
+        self._require_configuration_supported()
+
         if not self._population_events and self._source_type == "sgwb":
             return self._simulate_stationary_signal_segment()
 
@@ -512,12 +515,34 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         signal_config = self.orchestration_config.signal
         return "per-event" if signal_config is None else str(getattr(signal_config, "execution", "per-event"))
 
-    def _events_for_this_segment(self) -> tuple[list[int], list[dict[str, Any]]]:
-        """Consume the population events belonging to the current segment.
+    def _require_configuration_supported(self) -> None:
+        """Check the signal settings against what the chosen execution path actually reads.
 
-        Advances ``population_index`` and stops on ``coa_time >= end_time``, which is the per-event
-        loop's boundary. That matters for resume: ``population_index`` is checkpointed state, so a
-        run switched between modes must not skip or repeat events.
+        Runs before any events are consumed: ``population_index`` is checkpointed state, so failing
+        after advancing it would make a resumed run skip the events this call rejected. Runs once
+        per orchestrator rather than once per segment, so a warning is not repeated for every
+        segment of a long run.
+        """
+        if self._configuration_checked or self.orchestration_config.signal is None:
+            return
+
+        from gwmock.signal.execution_support import require_execution_supports_configuration  # noqa: PLC0415
+
+        require_execution_supports_configuration(
+            self.orchestration_config.signal, self._execution_mode(), self._source_type
+        )
+        # Only after it passes. `retry_with_backoff` re-runs a failed batch on this same instance
+        # and restores `state`, which this flag is not part of -- so setting it first would let the
+        # retry sail past a configuration the first attempt refused.
+        self._configuration_checked = True
+
+    def _events_for_this_segment(self) -> tuple[list[int], list[dict[str, Any]]]:
+        """Return the population events belonging to the current segment, without consuming them.
+
+        Stops on ``coa_time >= end_time``, which is the per-event loop's boundary. That matters for
+        resume: ``population_index`` is checkpointed state, so a run switched between modes must not
+        skip or repeat events. The index advances only in :meth:`_commit_consumed_events`, once
+        generation has succeeded.
 
         One difference, stated rather than glossed: the per-event loop also breaks when a *generated*
         strain starts at or after ``end_time``, a condition that cannot be evaluated before
@@ -569,8 +594,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             A configured ``RippleBackend``, or ``None`` to let gwmock-signal build its default.
 
         Raises:
-            ValueError: If the configuration selects a non-ripple library, or sets
-                ``waveform-options``, which the batched entry point has no way to apply.
+            ValueError: If the configuration selects a library other than ripple. Settings the path
+                cannot apply at all are refused earlier, by
+                :func:`~gwmock.signal.execution_support.require_execution_supports_configuration`.
         """
         signal_config = self.orchestration_config.signal
         if signal_config is None:
@@ -582,13 +608,6 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 f"execution: batched always generates with ripple, but waveform-backend is "
                 f"{requested!r}. Substituting ripple would produce a different waveform than the "
                 f"configuration asks for. Use execution: per-event, or waveform-backend: ripple."
-            )
-
-        if self.waveform_options:
-            raise ValueError(
-                f"execution: batched cannot apply waveform-options {sorted(self.waveform_options)}; "
-                f"the batched entry point has no equivalent parameter. Use execution: per-event, or "
-                f"remove them."
             )
 
         from gwmock.signal.device_chunks import BATCHED_BACKEND_ARGUMENTS  # noqa: PLC0415
@@ -636,8 +655,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             require_batched_parameters_supported,
         )
 
-        # Validated before any events are consumed. `population_index` is checkpointed state, so
-        # failing after advancing it would make a resumed run skip the events this call rejected.
+        # The per-key waveform-arguments check is separate from the whole-config one run by
+        # `_require_configuration_supported`: that field *is* honoured, but only for the canonical
+        # parameters the batched entry point reads.
         waveform_backend = self._batched_waveform_backend()
         require_batched_parameters_supported(canonicalise_parameters(dict(self.waveform_arguments)))
 
