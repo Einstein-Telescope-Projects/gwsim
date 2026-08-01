@@ -15,6 +15,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 from .matrix import E2E_MATRIX
 
@@ -121,3 +122,47 @@ def test_each_matrix_entry_states_a_distinct_code_path():
     """Two entries claiming the same coverage means one of them is not earning its runtime."""
     claims = [entry.covers for entry in E2E_MATRIX]
     assert len(set(claims)) == len(claims), "two matrix entries claim to cover the same code path"
+
+
+class TestBundledPresetsAgainstTheBatchedPath:
+    """Which shipped example configs can actually use `execution: batched`.
+
+    Verified on an RTX 2080 Ti (HTCondor, 2026-08-01): all four BBH ET presets run on the device,
+    `IMRPhenomXPHM` compiling once in ~100 s and then serving every network from cache. The BNS
+    presets cannot run there at all, and that is a property of the *shipped configurations* rather
+    than of any code in this repository -- so it is pinned here, against the real files.
+
+    ``tests/signal/test_adapter_batch.py`` already covers the refusal *mechanism* with a synthetic
+    approximant. What that cannot catch is a preset drifting onto an approximant Ripple lacks, or a
+    future allow-list quietly accepting one it does not implement.
+    """
+
+    @staticmethod
+    def _waveform_model(label: str) -> str:
+        config = yaml.safe_load((_EXAMPLES / label / "config.yaml").read_text())
+        return config["orchestration"]["signal"]["waveform-model"]
+
+    def test_the_bbh_presets_use_an_approximant_ripple_implements(self):
+        ripple = pytest.importorskip("gwmock_signal.waveform.backends.ripple")
+        available = set(ripple.RippleBackend().available_approximants())
+
+        for label in sorted(p.parent.name for p in (_EXAMPLES / "bbh").glob("*/config.yaml")):
+            model = self._waveform_model(f"bbh/{label}")
+            assert model in available, f"bbh/{label} uses {model}, which the device path cannot generate"
+
+    def test_the_bns_presets_use_an_approximant_ripple_does_not_implement(self):
+        """Pins a known limitation, so that lifting it is a deliberate act rather than a surprise.
+
+        `IMRPhenomPv2_NRTidalv2` is precessing *and* tidal. Ripple has precessing models and tidal
+        models but not that combination, so `execution: batched` refuses these outright. If ripple
+        ever gains it, this test fails and the BNS presets become device-capable -- update it then.
+        """
+        ripple = pytest.importorskip("gwmock_signal.waveform.backends.ripple")
+        available = set(ripple.RippleBackend().available_approximants())
+
+        for label in sorted(p.parent.name for p in (_EXAMPLES / "bns").glob("*/config.yaml")):
+            model = self._waveform_model(f"bns/{label}")
+            assert model not in available, (
+                f"bns/{label} uses {model}, which ripple now implements — the batched path is no "
+                f"longer blocked for the BNS presets, so this test and their comments need updating"
+            )

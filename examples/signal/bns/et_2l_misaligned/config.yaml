@@ -1,3 +1,11 @@
+# Binary-neutron-star signals for an ET network.
+#
+# NOTE: this preset cannot use `execution: batched`. It generates with
+# `IMRPhenomPv2_NRTidalv2`, which is precessing *and* tidal; ripple — the only library the
+# batched path generates with — implements precessing models and tidal models, but not that
+# combination. Selecting `execution: batched` here is refused outright rather than silently
+# served with a different approximant. Use the default per-event path, which uses LAL.
+# Verified against ripple 0.3.0 on 2026-08-01.
 globals:
     simulator-arguments:
         sampling-frequency: 4096
