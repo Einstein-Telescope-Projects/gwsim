@@ -1,13 +1,19 @@
 """Reference values for the end-to-end matrix: building them, and comparing against them.
 
-Each matrix entry has a small JSON file under ``references/`` recording, per output file, the
-content hash and a handful of summary statistics. The hash is what the tests assert on; the
-statistics exist to make a failure *diagnosable* rather than merely red.
+Each matrix entry has a small JSON file under ``references/`` recording, per output file, a content
+hash and a handful of summary statistics. **The statistics are what the tests assert on**; the hash
+is recorded and reported but not compared, for the reason set out under portability below.
 
-That split is the point. A bare hash tells you something changed and nothing about what, so
-every failure becomes a bisect. With the statistics stored alongside, a mismatch reports which
-files moved and by how much, and a one-part-in-10^15 drift from a library upgrade looks obviously
-different from a waveform that shifted by samples or changed amplitude.
+The statistics also make a failure *diagnosable* rather than merely red. A bare hash tells you
+something changed and nothing about what, so every failure becomes a bisect. With the statistics
+stored alongside, a mismatch reports which files moved and by how much, and a drift from a library
+upgrade looks obviously different from a waveform that shifted in time or changed amplitude.
+
+What this does **not** detect: a change that preserves every gated statistic. Reordering samples, or
+altering the shape between the peak and the edges, can leave ``n``, ``nonzero``, ``argmax``,
+``peak``, ``rms`` and ``signed_peak`` all intact. Sign inversion is covered, by ``signed_peak``;
+arbitrary shape change is not. Closing that needs a quantised digest of the samples, which is future
+work rather than something this claims today.
 
 A mismatch is not automatically a bug. When a dependency bump changes the last bits of a
 waveform, the right response is to look at the reported differences, decide the change is
@@ -22,13 +28,25 @@ Regenerate with::
 Review the resulting diff before committing it. The references are small JSON in the repository
 rather than an opaque archive precisely so that an update shows up as a reviewable change.
 
-**Portability, and how far it has been established.** These hashes are known to reproduce
-bit-for-bit between a local Linux/x86_64 machine and GitHub's ubuntu-latest runner on the same
-Python -- measured, not assumed. Nothing is known about macOS, ARM, or a different BLAS.
+**Portability: measured, and it does not hold.** An earlier run suggested these hashes reproduced
+bit-for-bit between a local Linux/x86_64 machine and GitHub's ubuntu-latest runner. That was wrong.
+With identical package versions -- numpy, scipy, lalsuite, jax and ripplegw all unchanged -- CI and
+local now disagree in the last bits. The observable difference is confined to ``mean``, at 1e-16 to
+1e-12 relative, while ``peak``, ``rms``, ``argmax`` and ``nonzero`` are identical: floating-point
+reassociation, not a change in the data.
 
-So an exact match is only demanded when the run's :func:`fingerprint` matches the reference's.
-Elsewhere the statistics are compared with :data:`STATISTIC_TOLERANCE` and the test skips, saying
-which environments were involved.
+The fingerprint cannot separate those two environments, because both are Linux/x86_64 on the same
+Python. Widening it to CPU or BLAS identity is not something this can do reliably.
+
+So the exact hash is no longer the assertion. It is recorded and reported, but what *fails* a run is
+a statistic moving beyond :data:`STATISTIC_TOLERANCE` -- integer statistics exactly, float
+magnitudes within tolerance. That is weaker than a bit-for-bit check and the weakening is real: a
+change of one sample in one channel now passes. What it buys is a check that means the same thing on
+every machine, rather than one that is green only where the references happened to be generated.
+
+``mean`` is excluded from the gate. It is a sum, so its last bits depend on summation order rather
+than on the data -- the reason sums were left out of the statistics in the first place, before it was
+added back to catch sign inversions. It stays as a diagnostic, where being sensitive is useful.
 
 Note what the fingerprint deliberately does *not* include: package versions. A dependency bump
 changing a waveform is precisely what these references exist to surface, so putting versions in the
@@ -137,7 +155,7 @@ def summarise(samples: np.ndarray) -> dict[str, Any]:
 
     Chosen so that the *kind* of a change is often readable from the numbers: ``peak`` and ``rms``
     move when amplitudes change, ``argmax`` when something shifts in time, ``nonzero`` when a
-    signal appears or vanishes, and ``mean`` when signs invert.
+    signal appears or vanishes, and ``signed_peak`` when signs invert.
 
     These triage a difference; they do not explain every one. A phase change that preserves the
     amplitude envelope, or a permutation of channels within a file, can leave all of them
@@ -151,8 +169,13 @@ def summarise(samples: np.ndarray) -> dict[str, Any]:
         "peak": float(np.max(np.abs(finite))) if finite.size else 0.0,
         "rms": float(np.sqrt(np.mean(finite**2))) if finite.size else 0.0,
         "argmax": int(np.argmax(np.abs(finite))) if finite.size else 0,
-        # Signed, so an inversion shows up. `peak` and `rms` are both magnitudes and would not
-        # move at all if every sample changed sign.
+        # Signed, so an inversion shows up: `peak` and `rms` are magnitudes and would not move at
+        # all if every sample changed sign. Taken at the peak rather than as a mean because it is
+        # then O(peak) instead of near zero -- an inversion moves it by twice the peak -- and
+        # because it is a single sample rather than a sum, so it carries no summation-order noise.
+        "signed_peak": float(finite[int(np.argmax(np.abs(finite)))]) if finite.size else 0.0,
+        # Kept for diagnosis only. It is a sum, so its last bits track summation order rather than
+        # the data, which is why it is not part of the gate below.
         "mean": float(np.mean(finite)) if finite.size else 0.0,
     }
 
@@ -219,7 +242,11 @@ def statistic_differences(stored: dict[str, Any], produced: dict[str, Any]) -> l
         for key in ("n", "nonzero", "argmax"):
             if before.get(key) != after.get(key):
                 differences.append(f"{name}: {key} {before.get(key)!r} -> {after.get(key)!r}")
-        for key in ("peak", "rms", "mean"):
+        # `mean` is deliberately absent: it is a sum, so its last bits track summation order rather
+        # than the data, and it is the statistic that moved between machines. `signed_peak` covers
+        # what `mean` was added for -- a full sign inversion -- without that noise, since it is a
+        # single sample of magnitude `peak` rather than a near-zero sum.
+        for key in ("peak", "rms", "signed_peak"):
             old, new = float(before.get(key, 0.0)), float(after.get(key, 0.0))
             # A NaN makes every comparison below false, so it would be read as "no difference".
             # Non-finite values are the difference.
@@ -254,7 +281,7 @@ def describe_difference(stored: dict[str, Any], produced: dict[str, Any]) -> str
         if before.get("content_hash") == after.get("content_hash"):
             continue
         lines.append(f"  {name}:")
-        for key in ("n", "nonzero", "argmax", "peak", "rms", "mean"):
+        for key in ("n", "nonzero", "argmax", "peak", "rms", "signed_peak", "mean"):
             old, new = before.get(key), after.get(key)
             if old == new:
                 continue
@@ -263,7 +290,10 @@ def describe_difference(stored: dict[str, Any], produced: dict[str, Any]) -> str
                 lines.append(f"    {key}: {old!r} -> {new!r}  (relative change {relative:.3e})")
             else:
                 lines.append(f"    {key}: {old!r} -> {new!r}")
-        if all(before.get(key) == after.get(key) for key in ("n", "nonzero", "argmax", "peak", "rms", "mean")):
+        if all(
+            before.get(key) == after.get(key)
+            for key in ("n", "nonzero", "argmax", "peak", "rms", "signed_peak", "mean")
+        ):
             lines.append("    every recorded statistic is unchanged; the difference is below them")
 
     changed_environment = {

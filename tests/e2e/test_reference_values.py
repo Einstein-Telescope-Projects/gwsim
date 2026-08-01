@@ -20,7 +20,6 @@ import pytest
 
 from .matrix import E2E_MATRIX, MatrixEntry
 from .reference_values import (
-    STATISTIC_TOLERANCE,
     WRITE_ENVIRONMENT_VARIABLE,
     build_reference,
     describe_difference,
@@ -36,11 +35,16 @@ pytestmark = pytest.mark.e2e
 
 @pytest.mark.parametrize("entry", E2E_MATRIX, ids=lambda entry: entry.label)
 def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_run):
-    """Every output file must have the content hash recorded for it.
+    """Every output file must match the statistics recorded for it.
 
-    Compared by content hash, so the check is exact: a change of one sample in one channel fails.
-    That sensitivity is deliberate -- the alternative is a tolerance, and a tolerance chosen
-    without a reason to justify it silently accepts whatever falls inside it.
+    Integer statistics -- sample count, occupancy, the peak's position -- must match exactly, since
+    no amount of floating-point drift moves them. ``peak``, ``rms`` and ``signed_peak`` may differ
+    within :data:`STATISTIC_TOLERANCE`.
+
+    The content hash is recorded and reported but is **not** the assertion. It was, until it turned
+    out not to reproduce between this project's CI runner and a local machine with identical package
+    versions. That means the check is no longer bit-for-bit: a change of one sample in one channel
+    passes. See the module docstring for the measurement and what was ruled out.
     """
     skip_if_unavailable(entry)
     directory = completed_run(entry)
@@ -77,33 +81,31 @@ def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_r
         f"would prove nothing: {unhashed}"
     )
 
-    if produced.get("fingerprint") != stored.get("fingerprint"):
-        # A different numerical stack. Requiring identical bits here would fail for reasons that
-        # say nothing about gwmock, so the statistics are compared instead -- and the weaker check
-        # is stated rather than passed off as the strong one.
-        differences = statistic_differences(stored_outputs, produced_outputs)
-        assert not differences, (
-            f"'{entry.label}' differs from its reference by more than floating-point drift.\n"
-            f"  reference environment: {stored.get('fingerprint')}\n"
-            f"  this environment:      {produced.get('fingerprint')}\n  " + "\n  ".join(differences)
-        )
-        pytest.skip(
-            f"exact comparison not applicable: reference generated on {stored.get('fingerprint')}, "
-            f"this is {produced.get('fingerprint')}; statistics agree to within "
-            f"{STATISTIC_TOLERANCE:g} relative"
-        )
+    # The statistics are the gate, not the hash. Identical bits turned out not to be reproducible
+    # between this project's CI runner and a local machine with the same package versions -- the
+    # difference is confined to summation order -- so a bit-for-bit assertion is green only where
+    # the references were generated. See the module docstring.
+    differences = statistic_differences(stored_outputs, produced_outputs)
+    assert not differences, (
+        f"'{entry.label}' differs from its reference by more than floating-point drift. This is a "
+        f"prompt to look, not necessarily a bug -- if the change is harmless, regenerate with "
+        f"`{WRITE_ENVIRONMENT_VARIABLE}=1 uv run pytest -m e2e --no-cov`.\n"
+        f"  reference environment: {stored.get('fingerprint')}\n"
+        f"  this environment:      {produced.get('fingerprint')}\n  " + "\n  ".join(differences)
+    )
 
-    differing = [
+    identical = [
         name
         for name in stored_outputs
-        if stored_outputs[name]["content_hash"] != produced_outputs[name]["content_hash"]
+        if stored_outputs[name]["content_hash"] == produced_outputs[name]["content_hash"]
     ]
-    assert not differing, (
-        f"'{entry.label}' no longer matches its stored reference. This is a prompt to look, not "
-        f"necessarily a bug -- if the change is harmless, regenerate with "
-        f"`{WRITE_ENVIRONMENT_VARIABLE}=1 uv run pytest -m e2e --no-cov`.\n"
-        f"{describe_difference(stored, produced)}"
-    )
+    if len(identical) != len(stored_outputs) and produced.get("fingerprint") == stored.get("fingerprint"):
+        # Same environment, statistics agree, bits do not. Worth saying rather than passing in
+        # silence: it is the signal that the references were written somewhere subtly different.
+        print(
+            f"note: {entry.label} matches its reference statistically but not bit-for-bit "
+            f"({len(stored_outputs) - len(identical)} of {len(stored_outputs)} files differ)"
+        )
 
 
 def test_every_runnable_entry_has_a_reference():
