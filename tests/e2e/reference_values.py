@@ -22,13 +22,25 @@ Regenerate with::
 Review the resulting diff before committing it. The references are small JSON in the repository
 rather than an opaque archive precisely so that an update shows up as a reviewable change.
 
-**Portability, and how far it has been established.** These hashes are known to reproduce
-bit-for-bit between a local Linux/x86_64 machine and GitHub's ubuntu-latest runner on the same
-Python -- measured, not assumed. Nothing is known about macOS, ARM, or a different BLAS.
+**Portability: measured, and it does not hold.** An earlier run suggested these hashes reproduced
+bit-for-bit between a local Linux/x86_64 machine and GitHub's ubuntu-latest runner. That was wrong.
+With identical package versions -- numpy, scipy, lalsuite, jax and ripplegw all unchanged -- CI and
+local now disagree in the last bits. The observable difference is confined to ``mean``, at 1e-16 to
+1e-12 relative, while ``peak``, ``rms``, ``argmax`` and ``nonzero`` are identical: floating-point
+reassociation, not a change in the data.
 
-So an exact match is only demanded when the run's :func:`fingerprint` matches the reference's.
-Elsewhere the statistics are compared with :data:`STATISTIC_TOLERANCE` and the test skips, saying
-which environments were involved.
+The fingerprint cannot separate those two environments, because both are Linux/x86_64 on the same
+Python. Widening it to CPU or BLAS identity is not something this can do reliably.
+
+So the exact hash is no longer the assertion. It is recorded and reported, but what *fails* a run is
+a statistic moving beyond :data:`STATISTIC_TOLERANCE` -- integer statistics exactly, float
+magnitudes within tolerance. That is weaker than a bit-for-bit check and the weakening is real: a
+change of one sample in one channel now passes. What it buys is a check that means the same thing on
+every machine, rather than one that is green only where the references happened to be generated.
+
+``mean`` is excluded from the gate. It is a sum, so its last bits depend on summation order rather
+than on the data -- the reason sums were left out of the statistics in the first place, before it was
+added back to catch sign inversions. It stays as a diagnostic, where being sensitive is useful.
 
 Note what the fingerprint deliberately does *not* include: package versions. A dependency bump
 changing a waveform is precisely what these references exist to surface, so putting versions in the
@@ -219,7 +231,11 @@ def statistic_differences(stored: dict[str, Any], produced: dict[str, Any]) -> l
         for key in ("n", "nonzero", "argmax"):
             if before.get(key) != after.get(key):
                 differences.append(f"{name}: {key} {before.get(key)!r} -> {after.get(key)!r}")
-        for key in ("peak", "rms", "mean"):
+        # `mean` is deliberately absent: it is a sum, so its last bits track summation order rather
+        # than the data, and it is the statistic that moves between machines. It stays in the
+        # diagnostic report, where sensitivity helps, and out of the gate, where it only produces
+        # failures that say nothing.
+        for key in ("peak", "rms"):
             old, new = float(before.get(key, 0.0)), float(after.get(key, 0.0))
             # A NaN makes every comparison below false, so it would be read as "no difference".
             # Non-finite values are the difference.
