@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 from astropy.units import second  # pylint: disable=no-name-in-module
@@ -102,6 +102,70 @@ def is_aligned(offset_samples: float, tolerance: float) -> bool:
         Whether the offset counts as aligned.
     """
     return bool(abs(offset_samples - round(offset_samples)) <= tolerance)
+
+
+def measure_content_before(
+    segment_start_time: float, sampling_frequency: float, chunk: Any
+) -> tuple[int, float, float]:
+    """Measure the part of *chunk* lying before *segment_start_time*, which injection discards.
+
+    :func:`inject` crops a chunk to the target's span, so anything earlier is dropped. Forward
+    overflow is different: it is returned as a tail and carried into the next segment. Backward
+    overflow has nowhere to go, because the segments it belongs to have already been written.
+
+    That matters for compact-binary sources, whose inspiral *precedes* ``coa_time`` while the
+    segment claiming an event is the one ``coa_time`` falls in. A waveform buffer therefore starts
+    before its own segment whenever ``coa_time`` lands within one buffer length of the boundary.
+
+    Args:
+        segment_start_time: Start of the segment being injected into, in the chunk's time unit.
+        sampling_frequency: Sample rate of the segment, in Hz.
+        chunk: The time series about to be injected.
+
+    Returns:
+        A ``(samples, seconds, energy_fraction)`` triple describing what lies before the segment.
+        ``seconds`` is the span of those samples, so it always agrees with ``samples``.
+        ``energy_fraction`` is the share of the chunk's summed squares that is dropped -- unweighted
+        strain-squared energy, ``0.0`` for a silent chunk. It is a **proxy, not an SNR loss**: a
+        matched-filter figure needs a detector PSD and frequency-domain weighting, neither of which
+        is available here. It is reported in preference to the sample fraction only because the two
+        differ by more than a factor of two in ordinary cases, and the sample fraction is the more
+        misleading of the pair.
+    """
+    times = np.asarray(chunk.time_array.value, dtype=float)
+    if times.size == 0:
+        return 0, 0.0, 0.0
+
+    # Half a sample of slack. A tail carried from the previous segment starts exactly on this
+    # boundary, and at GPS epochs the float64 spacing (~2.4e-7 s at 1.6e9) can put it a hair below
+    # -- which would otherwise be reported as a whole dropped sample every single segment.
+    #
+    # Half a sample, rather than the ULP-scaled `alignment_tolerance` used for grid alignment,
+    # because the question here is different: a sample nearer the boundary than half a sample period
+    # rounds *to* the boundary, so counting it as dropped would be wrong however exact the arithmetic
+    # was. The cost is that up to one genuinely discarded sample can go unreported, which is bounded
+    # and negligible beside the multi-second losses this exists to surface.
+    #
+    # Measured margin: spacing(1.577e9) = 2.384e-07 s is 2.4e-4 samples at 1024 Hz and 3.9e-3 at
+    # 16384 Hz -- 2048x and 128x under the threshold. It would take a sampling frequency of 2.1 MHz
+    # for float64 spacing at a GPS epoch to reach half a sample, so the slack holds across every rate
+    # this package supports.
+    # `side="left"`, so a sample sitting exactly on the threshold is *not* counted as dropped.
+    # That case is a rounding tie by construction -- exactly half a sample from the boundary --
+    # and resolving it towards the boundary matches what the slack is for.
+    n_before = int(np.searchsorted(times, segment_start_time - 0.5 / sampling_frequency, side="left"))
+    if n_before <= 0:
+        return 0, 0.0, 0.0
+
+    data = np.atleast_2d(np.asarray(chunk, dtype=float))
+    total = float(np.sum(np.square(data)))
+    dropped = float(np.sum(np.square(data[:, :n_before])))
+    fraction = dropped / total if total > 0.0 else 0.0
+    # The span of the dropped samples, not the gap from the chunk's start to the boundary. The
+    # two differ whenever the chunk ends before the boundary: 1024 samples sitting 10 s early
+    # span 1 s, and the warning pairs this figure with the sample count as though they agreed.
+    # Deriving it from the count also avoids subtracting two close GPS-scale times.
+    return n_before, n_before / sampling_frequency, fraction
 
 
 def inject(timeseries: TimeSeries, other: TimeSeries, interpolate_if_offset: bool = True) -> TimeSeries:

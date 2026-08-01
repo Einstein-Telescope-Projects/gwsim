@@ -14,7 +14,7 @@ from gwpy.types.index import Index
 from scipy.interpolate import interp1d
 
 from gwmock.data.serialize.serializable import JSONSerializable
-from gwmock.data.time_series.inject import alignment_tolerance, inject, is_aligned
+from gwmock.data.time_series.inject import alignment_tolerance, inject, is_aligned, measure_content_before
 
 logger = logging.getLogger("gwmock")
 
@@ -260,6 +260,12 @@ class TimeSeries(JSONSerializable):
                 "This ensures time grid alignment and avoids rounding errors."
             )
 
+        # Before the early returns below, not after. A chunk lying entirely before this segment is
+        # handed back as a remainder and then dropped by `TimeSeriesMixin.simulate`, so it is
+        # discarded just as surely as a partially-early one -- and reporting only the overlapping
+        # case would leave the larger loss the quieter of the two.
+        self._report_content_before_segment(other)
+
         if other.end_time < self.start_time:
             logger.warning(
                 "The time series to inject ends before the current time series starts. No injection performed."
@@ -343,6 +349,37 @@ class TimeSeries(JSONSerializable):
                 target.override_unit(source.unit)
             return tail.crop(start_time=self.end_time)
         return None
+
+    def _report_content_before_segment(self, chunk: TimeSeries) -> None:
+        """Warn that content starting before this segment is about to be dropped.
+
+        Reported rather than fixed. Placing it would mean writing into segments already on disk, so
+        the loss is real either way -- but it was silent, and a truncated inspiral looks like a
+        perfectly ordinary signal. Saying how much went, per signal, is what lets a run be judged.
+        """
+        samples, seconds, energy_fraction = measure_content_before(
+            float(self.start_time.to(chunk.start_time.unit).value),
+            float(self.sampling_frequency.value),
+            chunk,
+        )
+        if samples <= 0:
+            return
+
+        coa_time = (chunk.metadata.get("injection_parameters") or {}).get("coa_time")
+        logger.warning(
+            "Discarding %.3f s (%d samples, %.2f%% of its unweighted strain-squared energy) of the "
+            "signal with coa_time %s: it "
+            "starts at %s, before this segment begins at %s. The earlier segments it belongs to are "
+            "already written, so this content cannot be placed. A compact-binary waveform starts "
+            "before its coa_time, so this happens whenever coa_time falls within one waveform buffer "
+            "of a segment boundary; a longer segment duration makes it rarer but not impossible.",
+            seconds,
+            samples,
+            100.0 * energy_fraction,
+            "unknown" if coa_time is None else coa_time,
+            chunk.start_time,
+            self.start_time,
+        )
 
     def inject_from_list(self, ts_iterable: Iterable[TimeSeries]) -> TimeSeriesList:
         """Inject multiple TimeSeries from an iterable into the current TimeSeries.
