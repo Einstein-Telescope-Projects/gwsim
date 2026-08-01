@@ -4,8 +4,8 @@
 # identical to signal/bbh/et_triangle_sardinia -- diff the two to see only that key change.
 #
 # This selects a LIBRARY, not a compute device. ripple runs through the same per-event path
-# as LAL here; gwmock does not yet drive ripple's batched on-device entry point from a
-# configuration file.
+# as LAL here. To drive ripple's batched entry point instead, see
+# signal/execution/batched, which is this example plus `execution: batched`.
 #
 # Requires the extra:  pip install 'gwmock[jax]'
 #

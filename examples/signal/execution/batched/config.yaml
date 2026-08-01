@@ -1,0 +1,69 @@
+# Generate a segment's events together, through gwmock-signal's batched entry point.
+#
+# `execution: batched` changes HOW the waveforms are computed, not what they are. Instead of
+# looping over a segment's events one at a time, the whole segment's events are handed to
+# gwmock-signal's `simulate_cbc_batch` in one call. The chunks that come back are still
+# per-event, so gwmock's own assembler places them and per-injection provenance is unchanged.
+#
+# Otherwise identical to signal/waveform_backend/ripple -- diff the two to see only the
+# `execution` key change.
+#
+# WHAT THIS DOES AND DOES NOT GIVE YOU
+#
+# Batched is the path that CAN run on a GPU. Whether it DOES depends entirely on the JAX
+# backend present, not on this key:
+#
+#   pip install 'gwmock[jax]'    ->  batched, on the CPU
+#   pip install 'gwmock[cuda]'   ->  batched, on a GPU (Linux x86_64, CUDA 12 driver)
+#
+# Nothing in the output distinguishes the two, and no warning is raised for the CPU case.
+# Check with:  python -c "import jax; print(jax.devices())"
+#
+# CONSTRAINTS
+#
+# The batched path always generates with ripple, whatever `waveform-backend` says -- naming a
+# different library is refused rather than silently substituted. It also refuses any signal
+# setting it cannot apply (`waveform-options`, `arguments`, `parameters`), so a configuration
+# that reaches the generator unchanged is the only one that runs.
+#
+# Requires the extra:  pip install 'gwmock[jax]'   (or 'gwmock[cuda]')
+globals:
+    simulator-arguments:
+        sampling-frequency: 4096
+        duration: 4096
+        total-duration: 4096
+        # 1 Jan 2030, as the noise examples use. Chosen to contain the population's event
+        # (GPS 1577491300).
+        start-time: 1577491218
+        seed: 42
+    working-directory: .
+    output-directory: output
+    metadata-directory: metadata
+
+orchestration:
+    population:
+        backend: FilePopulationLoader
+        source-type: bbh
+        n-samples: 1
+        arguments:
+            # Pinned to a commit rather than `main`, so the input to this example cannot change
+            # under it -- the same reasoning as the ripple example it is derived from.
+            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/9fa389516dfd8b818670b0ae4359e9be04f30e5e/examples/signal/bbh_population.csv
+    signal:
+        # The one key that separates this from signal/waveform_backend/ripple.
+        execution: batched
+        waveform-model: IMRPhenomD
+        waveform-backend: ripple
+        waveform-backend-arguments:
+            taper_fraction: 0.05
+        minimum-frequency: 20
+        earth-rotation: true
+        detectors:
+            - ET-Triangle-Sardinia
+        output:
+            output_directory: signal
+            file_name:
+                'E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration
+                }}.gwf'
+            arguments:
+                channel: '{{ detectors }}:STRAIN'

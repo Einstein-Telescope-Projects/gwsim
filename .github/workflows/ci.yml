@@ -56,9 +56,13 @@ jobs:
     # them across seven interpreter/OS combinations would multiply that for no added signal,
     # since what they exercise is orchestration rather than anything interpreter-specific.
     #
-    # `--all-extras` is load-bearing for the ripplegw-gated entries: with a plain `uv sync` those
+    # The `jax` extra is load-bearing for the ripplegw-gated entries: with a plain `uv sync` those
     # would skip, and the job would report green while testing less than it claims. The guard step
     # below turns that from a silent skip into a failure.
+    #
+    # Extras are named explicitly rather than `--all-extras`, because `cuda` pulls multi-gigabyte
+    # CUDA wheels that this runner has no GPU to use. The cost of naming them is that a new extra
+    # is not picked up here automatically -- add it to this line when one is introduced.
     #
     # It does *not* cover the gengli entry. gengli is not a declared extra of this project at all,
     # so no sync flag can install it, and that entry is separately blocked on a local glitch
@@ -80,7 +84,7 @@ jobs:
                   enable-cache: 'true'
 
             - name: Install dependencies
-              run: uv sync --group dev --all-extras
+              run: uv sync --group dev --extra sgwb --extra jax
 
             - name: Confirm the optional stack is present
               # Otherwise a missing extra turns the whole job into a silent no-op: every gated
