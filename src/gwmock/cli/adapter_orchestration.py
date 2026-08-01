@@ -99,6 +99,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         self._population_events = tuple(population_events)
         self._population_metadata = dict(population_metadata)
         self._source_type = source_type
+        self._configuration_checked = False
         self._source_detector_specs = tuple(source_detector_specs)
         self._signal_network = detector_network
         self._detector_resolution = detector_resolution
@@ -476,6 +477,8 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
 
     def _simulate(self) -> TimeSeriesList:
         """Generate signal chunks for the current segment from population events."""
+        self._require_configuration_supported()
+
         if not self._population_events and self._source_type == "sgwb":
             return self._simulate_stationary_signal_segment()
 
@@ -511,6 +514,24 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         """Return how this segment's events should be generated."""
         signal_config = self.orchestration_config.signal
         return "per-event" if signal_config is None else str(getattr(signal_config, "execution", "per-event"))
+
+    def _require_configuration_supported(self) -> None:
+        """Check the signal settings against what the chosen execution path actually reads.
+
+        Runs before any events are consumed: ``population_index`` is checkpointed state, so failing
+        after advancing it would make a resumed run skip the events this call rejected. Runs once
+        per orchestrator rather than once per segment, so a warning is not repeated for every
+        segment of a long run.
+        """
+        if self._configuration_checked or self.orchestration_config.signal is None:
+            return
+        self._configuration_checked = True
+
+        from gwmock.signal.execution_support import require_execution_supports_configuration  # noqa: PLC0415
+
+        require_execution_supports_configuration(
+            self.orchestration_config.signal, self._execution_mode(), self._source_type
+        )
 
     def _events_for_this_segment(self) -> tuple[list[int], list[dict[str, Any]]]:
         """Consume the population events belonging to the current segment.
@@ -629,14 +650,10 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             canonicalise_parameters,
             require_batched_parameters_supported,
         )
-        from gwmock.signal.execution_support import require_execution_supports_configuration  # noqa: PLC0415
 
-        # Validated before any events are consumed. `population_index` is checkpointed state, so
-        # failing after advancing it would make a resumed run skip the events this call rejected.
-        # One check covering every setting the path does not honour, rather than a growing list of
-        # individual rejections. The per-key waveform-arguments check stays: that field *is*
-        # honoured, but only for the canonical parameters the batched entry point reads.
-        require_execution_supports_configuration(self.orchestration_config.signal, "batched")
+        # The per-key waveform-arguments check is separate from the whole-config one run by
+        # `_require_configuration_supported`: that field *is* honoured, but only for the canonical
+        # parameters the batched entry point reads.
         waveform_backend = self._batched_waveform_backend()
         require_batched_parameters_supported(canonicalise_parameters(dict(self.waveform_arguments)))
 

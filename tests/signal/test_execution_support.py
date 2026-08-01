@@ -2,7 +2,7 @@
 
 Three bugs in the batched path shared one shape: a setting was read from the configuration and never
 forwarded to the generator, so the run produced plausible output while quietly disregarding what it
-had been told. Each was found separately, by review.
+had been told.
 
 The fix is not a fourth special case but an inverted default: the batched path declares what it
 honours, and anything else the user set is refused. A configuration key added later therefore fails
@@ -51,12 +51,12 @@ class TestBatchedRefusesWhatItIgnores:
     @pytest.mark.parametrize(
         ("setting", "value"),
         [
-            # The bug found by review: no equivalent parameter on the batched entry point.
+            # No equivalent parameter on the batched entry point.
             ("waveform-options", {"ModeArray": [[2, 2]]}),
-            # Found by writing this check: these configure the simulator's constructor, and the
-            # batched path bypasses the simulator entirely.
+            # These configure the simulator's constructor, and the batched path bypasses the
+            # simulator entirely.
             ("arguments", {"segment_duration": 8}),
-            # Also found by writing this check: read only by the stochastic path.
+            # Read only by the stochastic path.
             ("parameters", {"omega_ref": 1e-9}),
         ],
     )
@@ -83,6 +83,25 @@ class TestBatchedRefusesWhatItIgnores:
         with pytest.raises(ValueError, match="not-a-real-setting"):
             require_execution_supports_configuration(_config(**{"not-a-real-setting": "IMRPhenomD"}), "batched")
 
+    def test_an_unrecognised_key_inside_a_nested_block_is_refused(self):
+        """Checking only the top level would leave the rule with an escape hatch.
+
+        ``output`` is a model that allows extras too, so ``output.<typo>`` validates and is never
+        read -- and because ``output`` as a whole is honoured, a top-level-only check would wave it
+        through. That is the same silent drop, one level down.
+        """
+        configuration = _config(**{"output": {"file_name": "x.gwf", "not-a-real-setting": 1}, "execution": "batched"})
+
+        with pytest.raises(ValueError, match=r"output\.not-a-real-setting"):
+            require_execution_supports_configuration(configuration, "batched")
+
+    def test_known_nested_settings_are_still_accepted(self):
+        """The nested check must reject unknown keys, not every nested block."""
+        require_execution_supports_configuration(
+            _config(**{"output": {"file_name": "x.gwf", "arguments": {"channel": "H1:STRAIN"}}}),
+            "batched",
+        )
+
     def test_defaults_are_not_treated_as_configured(self):
         """Only what the user wrote counts; otherwise every configuration would be refused.
 
@@ -107,9 +126,30 @@ class TestPerEventWarnsRatherThanRefuses:
     def test_parameters_warns_for_cbc(self, caplog):
         """Pre-existing: only the stochastic path reads it, so CBC runs discard it silently."""
         with caplog.at_level(logging.WARNING, logger="gwmock"):
-            require_execution_supports_configuration(_config(**{"parameters": {"a": 1}}), "per-event")
+            require_execution_supports_configuration(_config(**{"parameters": {"a": 1}}), "per-event", "bbh")
 
         assert "stochastic-background path" in caplog.text
+
+    def test_parameters_does_not_warn_for_sgwb(self, caplog):
+        """The stochastic path genuinely reads them, so warning there would be simply wrong.
+
+        ``_simulate_stationary_signal_segment`` merges ``signal_parameters`` into what it passes to
+        the simulator, which is the one case where this setting has an effect.
+        """
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            require_execution_supports_configuration(
+                _config(**{"source-type": "sgwb", "parameters": {"omega_ref": 1e-9}}), "per-event", "sgwb"
+            )
+
+        assert caplog.text == ""
+
+    def test_an_unrecognised_key_inside_a_nested_block_warns(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            require_execution_supports_configuration(
+                _config(**{"output": {"file_name": "x.gwf", "not-a-real-setting": 1}}), "per-event"
+            )
+
+        assert "output.not-a-real-setting" in caplog.text
 
     def test_a_plain_configuration_warns_about_nothing(self, caplog):
         """Otherwise every ordinary run would emit noise, and the warnings would stop being read."""

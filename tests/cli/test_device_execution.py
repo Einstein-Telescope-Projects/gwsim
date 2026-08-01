@@ -12,6 +12,7 @@ would make the choice of mode change the dataset rather than only how it was com
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -192,6 +193,45 @@ class TestWaveformConfigurationIsHonoured:
             _orchestrator(
                 tmp_path, "batched", waveform_backend=None, **{"waveform-options": {"ModeArray": [[2, 2]]}}
             )._simulate()
+
+
+class TestTheCheckIsReachedOnThePerEventPath:
+    """The per-event warnings are worth nothing if nothing calls them.
+
+    Every other test of this check calls the helper directly, which cannot tell a wired-up check
+    from a dead one. These go through ``_simulate`` on the default path instead. The population is
+    emptied first so the per-event loop returns without generating anything -- the check runs at the
+    top of ``_simulate``, before any of that.
+    """
+
+    @staticmethod
+    def _simulate_nothing(tmp_path: Path, **signal_overrides: Any) -> None:
+        orchestrator = _orchestrator(tmp_path, "per-event", waveform_backend=None, **signal_overrides)
+        orchestrator._population_events = []
+        orchestrator._simulate()
+
+    def test_an_unrecognised_key_warns_through_the_orchestrator(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            self._simulate_nothing(tmp_path, **{"not-a-real-setting": "x"})
+
+        assert "not a recognised setting" in caplog.text
+
+    def test_an_ordinary_configuration_warns_about_nothing(self, tmp_path, caplog):
+        """Guards the opposite failure: a check that fires on every run stops being read."""
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            self._simulate_nothing(tmp_path)
+
+        assert caplog.text == ""
+
+    def test_the_check_runs_once_rather_than_once_per_segment(self, tmp_path, caplog):
+        """A warning repeated for every segment of a long run is noise, not a warning."""
+        orchestrator = _orchestrator(tmp_path, "per-event", waveform_backend=None, **{"not-a-real-setting": "x"})
+        orchestrator._population_events = []
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            orchestrator._simulate()
+            orchestrator._simulate()
+
+        assert caplog.text.count("not a recognised setting") == 1
 
 
 class TestSegmentEventSelection:
