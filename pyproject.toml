@@ -181,6 +181,22 @@ docstring-code-format = true # Format code in docstrings
 # PLC0415: allow import statements not at the top level
 # PLR2004: allow magic values in the unit tests
 
+# TEMPORARY development pin. Remove when gwmock-signal cuts a release containing the
+# continuous-wave simulator, then raise the floor in `dependencies` to that version.
+#
+# Development-only: `[tool.uv.sources]` is not carried into the published wheel, so nobody
+# installing gwmock from PyPI inherits a git dependency. Build with `uv build --no-sources` while
+# this is present.
+#
+# One pin is enough, which is worth stating because it is not obvious. gwmock-signal carries its
+# own sources pin of ripplegw to the geocentre fix (GW-JAX-Team/ripple#141), and uv honours that
+# when gwmock-signal is consumed as a git dependency -- verified by removing an explicit ripplegw
+# pin here and re-resolving with `--upgrade-package ripplegw`, which still produced
+# ripplegw 0.3.1.dev3 from the git URL. Duplicating it here would only create a second place to
+# drift from.
+[tool.uv.sources]
+gwmock-signal = { git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git", rev = "589da1c" }
+
 [[tool.uv.index]]
 name = "testpypi"
 url = "https://test.pypi.org/simple/"

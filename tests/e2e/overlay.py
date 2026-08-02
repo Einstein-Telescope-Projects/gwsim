@@ -50,6 +50,12 @@ _ALIGNED_START = 1577491296.0
 #: skipped rather than run against a remote URL. Removing an entry from here requires adding a
 #: local fixture for whatever it downloads.
 NOT_HERMETIC: dict[str, str] = {
+    "signal/cw/et_triangle_sardinia": (
+        "needs a local ephemeris fixture; the example names LALPulsar tables that ripple fetches "
+        "and caches at runtime, and earth00-40-DE405.dat.gz alone is 16 MB compressed -- too "
+        "large to commit, and truncating it to the test span would mean shipping fabricated "
+        "ephemeris data"
+    ),
     "noise/glitches/gengli/et_triangle_sardinia/e1": (
         "needs a local blip-glitch population fixture; the example reads one from "
         "sandbox.zenodo.org, whose records are purged"

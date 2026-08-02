@@ -1,0 +1,4 @@
+right_ascension,declination,frequency,initial_phase,amplitude_plus,amplitude_cross,polarization_angle
+1.1,0.3,20.0,0.4,1.0e-24,7.0e-25,0.2
+2.7,-0.6,35.0,1.9,6.0e-25,4.0e-25,1.1
+4.2,0.9,52.5,2.8,3.0e-25,2.1e-25,0.7

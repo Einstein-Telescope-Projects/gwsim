@@ -700,10 +700,10 @@ requires-dist = [
     { name = "filelock", specifier = ">=3.16.0" },
     { name = "gwmock-noise", specifier = ">=0.10.0" },
     { name = "gwmock-pop", specifier = ">=0.11.4" },
-    { name = "gwmock-signal", specifier = ">=0.12.0" },
-    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'cuda'", specifier = ">=0.12.0" },
-    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'jax'", specifier = ">=0.12.0" },
-    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.12.0" },
+    { name = "gwmock-signal", git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git?rev=589da1c" },
+    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'cuda'", git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git?rev=589da1c" },
+    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'jax'", git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git?rev=589da1c" },
+    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git?rev=589da1c" },
     { name = "h5py", specifier = ">=3.12.1" },
     { name = "jax", extras = ["cuda12"], marker = "extra == 'cuda'", specifier = ">=0.11.0" },
     { name = "psutil", specifier = ">=6.1.0" },
@@ -768,17 +768,13 @@ wheels = [
 
 [[package]]
 name = "gwmock-signal"
-version = "0.12.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.12.1.dev6+g589da1ceb"
+source = { git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git?rev=589da1c#589da1ceba8c631f397390b4afd708ca8f145059" }
 dependencies = [
     { name = "gwpy" },
     { name = "lalsuite" },
     { name = "pyyaml" },
     { name = "typer" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/86/c2/fffef0b3ecc721e59c4de9a470e3dc334189c3f53980229c7e8056a9c877/gwmock_signal-0.12.0.tar.gz", hash = "sha256:0c9e4500ef52b5e0c39e4ae237ee2847cf70ba8f965d871f7c3b935c8bdf4fab", size = 409193, upload-time = "2026-07-30T21:53:27.212Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/ea/bd09fd9ba83dc230955fa43ca27055c290df37b3c1c7412567f97cd5f8df/gwmock_signal-0.12.0-py3-none-any.whl", hash = "sha256:82803a04d4e3f3a8819ed7fa34391ff323f0273758fd97750050133fd198da53", size = 147684, upload-time = "2026-07-30T21:53:25.799Z" },
 ]
 
 [package.optional-dependencies]
@@ -2531,15 +2527,11 @@ wheels = [
 
 [[package]]
 name = "ripplegw"
-version = "0.3.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.3.1.dev3"
+source = { git = "https://github.com/GW-JAX-Team/ripple.git?rev=400afb4#400afb4d41d2fbc6a85f3aac7ad8c07eb64fa641" }
 dependencies = [
     { name = "jax" },
     { name = "jaxtyping" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ee/4b/0497feefa9e502e717be8ac797a401eac2c9eb916bc682d98aeef3a97d91/ripplegw-0.3.0.tar.gz", hash = "sha256:9e2a415a94bf4aaa3d90a2426298cda4c0c1feaaecd8468745dcabc54abfb3d2", size = 479776, upload-time = "2026-07-29T10:33:36.347Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/cb/b9573f0ceae67274946ab633060053d7509d0d2f833f5f306aa593c13d4b/ripplegw-0.3.0-py3-none-any.whl", hash = "sha256:2aa86258b3b1714a92602d02c5edb58e7305b73bcd4136f5121345414cb7e302", size = 224968, upload-time = "2026-07-29T10:33:34.881Z" },
 ]
 
 [[package]]

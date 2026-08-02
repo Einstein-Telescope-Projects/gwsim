@@ -1,0 +1,84 @@
+# Continuous waves from a catalogue of isolated pulsars, for an ET network.
+#
+# A continuous wave is unlike the other signal examples here. It is not a transient placed at a
+# coalescence time but a signal that is *on* for the entire observation, so every source in the
+# catalogue contributes to every segment. There is no spill-over between segments and no
+# `coa_time`; the population file is a list of pulsars, not a list of events.
+#
+# THE ONE SETTING TO UNDERSTAND: `reference-time-ssb`.
+#
+# A pulsar is specified by a frequency, a phase and its spindown terms, and those numbers are
+# meaningless without the instant they refer to. `reference-time-ssb` is that instant, at the
+# solar-system barycentre -- the epoch at which the frequency *is* `frequency` and the phase *is*
+# `initial_phase`. It must match the convention the catalogue was written in, and it must be the
+# same value for the whole run.
+#
+# It has no default, deliberately. Left to itself the underlying library takes the first sample of
+# whatever it is handed, which restarts the phase at every segment boundary -- producing data where
+# each segment looks perfectly correct and a coherent search over the run finds nothing.
+#
+# Requires the `jax` extra, and a gwmock built against a gwmock-signal that has the continuous-wave
+# simulator. Until that is on PyPI, `pip install 'gwmock[jax]'` will resolve a released
+# gwmock-signal without it and this example will fail to find the `cw` source type; install from a
+# checkout instead, where `[tool.uv.sources]` pins the right revision:
+#
+#     uv sync --extra jax
+#
+# THE EPHEMERIS PATHS ARE BARE NAMES BELOW, AND THAT MEANS THEY ARE DOWNLOADED.
+#
+# ripple resolves a bare LALPulsar name by fetching it and caching it under
+# ~/.cache/ripplegw/ephemeris. That is convenient for trying the example and wrong for a run whose
+# provenance matters: nothing records which tables produced the data, and a fresh machine silently
+# fetches its own copy. For anything you intend to keep, replace these with absolute paths to
+# tables you chose -- LALSuite ships them, or copy the cached files somewhere durable.
+globals:
+    simulator-arguments:
+        sampling-frequency: 512
+        duration: 4096
+        total-duration: 1 day
+        # 1 Jan 2030, matching the other ET examples.
+        start-time: 1577491218
+        seed: 42
+    working-directory: .
+    output-directory: output
+    metadata-directory: metadata
+
+orchestration:
+    population:
+        backend: FilePopulationLoader
+        source-type: cw
+        n-samples: 3
+        arguments:
+            # The catalogue that ships beside this file. A relative path, not a URL: the other
+            # signal examples pin a remote population to a commit, but this one has no published
+            # artifact to point at, and a `main` URL would 404 until it merged.
+            #
+            # Relative to the working directory, so it resolves only from inside the examples tree.
+            # `gwmock config --get` copies this file alone and not the catalogue next to it, so
+            # after copying, either point this at a catalogue of your own or fetch
+            # examples/signal/cw_population.csv and give its absolute path.
+            path: ../../cw_population.csv
+    signal:
+        source-type: cw
+        detectors:
+            - ET-Triangle-Sardinia
+        # Carried by the shared signal schema and ignored by this source type: a continuous wave
+        # is monochromatic apart from its spindown and Doppler modulation, so there is no
+        # low-frequency cutoff to apply. Left at a plausible value rather than removed, because the
+        # schema expects it.
+        minimum-frequency: 10
+        # Required, not optional: a signal lasting months cannot use a constant antenna pattern,
+        # and the simulator refuses `false` outright rather than producing plausible-looking data.
+        earth-rotation: true
+        arguments:
+            # Constructor arguments for the continuous-wave backend.
+            earth_ephemeris: earth00-40-DE405.dat.gz
+            sun_ephemeris: sun00-40-DE405.dat.gz
+            # The catalogue's epoch. See the note at the top of this file.
+            reference_time_ssb: 1577491218.0
+        output:
+            output_directory: signal
+            file_name:
+                'E-{{ detectors }}_STRAIN_CW-{{ start_time }}-{{ duration }}.gwf'
+            arguments:
+                channel: '{{ detectors }}:STRAIN'
