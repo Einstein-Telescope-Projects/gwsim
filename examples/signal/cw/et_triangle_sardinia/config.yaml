@@ -1,0 +1,63 @@
+# Continuous waves from a catalogue of isolated pulsars, for an ET network.
+#
+# A continuous wave is unlike the other signal examples here. It is not a transient placed at a
+# coalescence time but a signal that is *on* for the entire observation, so every source in the
+# catalogue contributes to every segment. There is no spill-over between segments and no
+# `coa_time`; the population file is a list of pulsars, not a list of events.
+#
+# THE ONE SETTING TO UNDERSTAND: `reference-time-ssb`.
+#
+# A pulsar is specified by a frequency, a phase and its spindown terms, and those numbers are
+# meaningless without the instant they refer to. `reference-time-ssb` is that instant, at the
+# solar-system barycentre -- the epoch at which the frequency *is* `frequency` and the phase *is*
+# `initial_phase`. It must match the convention the catalogue was written in, and it must be the
+# same value for the whole run.
+#
+# It has no default, deliberately. Left to itself the underlying library takes the first sample of
+# whatever it is handed, which restarts the phase at every segment boundary -- producing data where
+# each segment looks perfectly correct and a coherent search over the run finds nothing.
+#
+# Requires the extra:  pip install 'gwmock[jax]'
+#
+# The ephemeris files are named explicitly rather than left to be downloaded, so a run records
+# which tables produced its data. Fetch them once from LALSuite, or let ripple cache them by
+# running any CW simulation, then point these at the cached copies.
+globals:
+    simulator-arguments:
+        sampling-frequency: 512
+        duration: 4096
+        total-duration: 1 day
+        # 1 Jan 2030, matching the other ET examples.
+        start-time: 1577491218
+        seed: 42
+    working-directory: .
+    output-directory: output
+    metadata-directory: metadata
+
+orchestration:
+    population:
+        backend: FilePopulationLoader
+        source-type: cw
+        n-samples: 3
+        arguments:
+            path: https://raw.githubusercontent.com/Leuven-Gravity-Institute/gwmock/main/examples/signal/cw_population.csv
+    signal:
+        source-type: cw
+        detectors:
+            - ET-Triangle-Sardinia
+        minimum-frequency: 10
+        # Required, not optional: a signal lasting months cannot use a constant antenna pattern,
+        # and the simulator refuses `false` outright rather than producing plausible-looking data.
+        earth-rotation: true
+        arguments:
+            # Constructor arguments for the continuous-wave backend.
+            earth_ephemeris: earth00-40-DE405.dat.gz
+            sun_ephemeris: sun00-40-DE405.dat.gz
+            # The catalogue's epoch. See the note at the top of this file.
+            reference_time_ssb: 1577491218.0
+        output:
+            output_directory: signal
+            file_name:
+                'E-{{ detectors }}_STRAIN_CW-{{ start_time }}-{{ duration }}.gwf'
+            arguments:
+                channel: '{{ detectors }}:STRAIN'

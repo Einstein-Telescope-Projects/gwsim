@@ -300,9 +300,20 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         )
         population_events = list(population_adapter.iter_event_parameters())
         sort_key = population_config.sort_by
-        if sort_key:
-            if population_events and any(sort_key not in event for event in population_events):
+        if sort_key and population_events:
+            missing = [sort_key not in event for event in population_events]
+            explicit = "sort_by" in getattr(population_config, "model_fields_set", set())
+            if all(missing) and not explicit:
+                # The default key is `coa_time`, which only compact-binary catalogues carry. A
+                # continuous-wave catalogue has no coalescence time and no ordering that means
+                # anything -- every source contributes to every segment. Absent from *every* event
+                # with the key left at its default is that case, so the file's own order stands.
+                # Absent from only some is a broken catalogue, and asking for a key nothing has is
+                # a mistake worth reporting; both still raise below.
+                sort_key = None
+            elif any(missing):
                 raise ValueError(f"Population event ordering key '{sort_key}' is missing from one or more events.")
+        if sort_key and population_events:
             population_events.sort(key=lambda event: event[sort_key])
         return population_events, population_adapter.metadata, population_adapter.source_type
 
@@ -481,6 +492,14 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
 
         if not self._population_events and self._source_type == "sgwb":
             return self._simulate_stationary_signal_segment()
+
+        # Continuous waves fit neither branch above. They are stationary -- on for the whole run,
+        # with no coalescence time and no spill-over into later segments -- but unlike a stochastic
+        # background they have discrete sources, a catalogue of pulsars that must all be summed
+        # into every segment. So the events are *not* consumed as the per-event loop consumes them:
+        # `population_index` never advances, because every pulsar contributes to every segment.
+        if self._source_type == "cw":
+            return self._simulate_continuous_wave_segment()
 
         if self._execution_mode() == "batched":
             return self._simulate_batched_segment()
@@ -702,6 +721,64 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         for chunk, record in zip(chunks, self._batch_injections, strict=True):
             chunk.metadata.update({"injection_parameters": dict(record["parameters"])})
         return chunks
+
+    def _simulate_continuous_wave_segment(self) -> TimeSeriesList:
+        """Sum every pulsar in the catalogue into one chunk spanning this segment.
+
+        Every source contributes to every segment, so this walks the whole catalogue each time and
+        leaves ``population_index`` alone -- advancing it would drop pulsars from later segments.
+        Each call adds to the running total by passing the previous result back as the background,
+        which is how the backend composes sources.
+
+        Returns:
+            A single chunk covering the segment, or an empty list if there are no pulsars.
+        """
+        if self.signal_adapter is None or not self._population_events:
+            return TimeSeriesList()
+
+        n_samples = round(float(self.duration.value) * float(self.sampling_frequency.value))
+        epoch = float(self.start_time.value)
+        sampling_frequency = float(self.sampling_frequency.value)
+        total = {
+            detector: GWpyTimeSeries(
+                np.zeros(n_samples, dtype=float),
+                t0=epoch,
+                sample_rate=sampling_frequency,
+                unit="strain",
+            )
+            for detector in self.signal_adapter.detector_names
+        }
+
+        strain = None
+        self._batch_injections = []
+        for source_id, source in enumerate(self._population_events):
+            parameters = {**self.waveform_arguments, **dict(source)}
+            strain = self.signal_adapter.simulate(
+                parameters,
+                sampling_frequency=sampling_frequency,
+                minimum_frequency=self.minimum_frequency,
+                waveform_options=self.waveform_options,
+                background=total,
+                earth_rotation=self.earth_rotation,
+            )
+            # Feed the running total back in, so the next pulsar adds to it rather than to zeros.
+            total = {
+                detector: GWpyTimeSeries(
+                    np.asarray(strain[index], dtype=float),
+                    t0=epoch,
+                    sample_rate=sampling_frequency,
+                    unit="strain",
+                )
+                for index, detector in enumerate(self.signal_adapter.detector_names)
+            }
+            # Recorded for every segment, not once: a continuous wave is present in all of them, so
+            # attributing it to one frame the way a transient is attributed would be wrong.
+            self._batch_injections.append({"event_id": source_id, "parameters": dict(source)})
+
+        if strain is None:  # pragma: no cover - guarded by the empty-catalogue check above
+            return TimeSeriesList()
+        strain.metadata.update({"continuous_wave_sources": len(self._population_events)})
+        return TimeSeriesList([strain])
 
     def _simulate_stationary_signal_segment(self) -> TimeSeriesList:
         """Generate one stationary signal chunk spanning the active segment."""
