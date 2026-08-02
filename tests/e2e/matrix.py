@@ -78,6 +78,16 @@ E2E_MATRIX: tuple[MatrixEntry, ...] = (
         requires=("ripplegw",),
     ),
     MatrixEntry(
+        label="signal/cw/et_triangle_sardinia",
+        covers=(
+            "**Not run** -- the continuous-wave branch of `_simulate`, the one path where a "
+            "population is never consumed and every source contributes to every segment. Blocked "
+            "on a local ephemeris fixture: the example resolves bare LALPulsar table names, which "
+            "ripple fetches at runtime, and the smaller of the two is 16 MB compressed"
+        ),
+        requires=("ripplegw",),
+    ),
+    MatrixEntry(
         label="noise/glitches/gengli/et_triangle_sardinia/e1",
         covers="**Not run** -- glitch injection, blocked on `gengli` and a local glitch fixture",
         requires=("gengli",),

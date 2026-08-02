@@ -32,7 +32,7 @@ end.
 | Stochastic background                     | `signal/sgwb/<network>`                        |
 | Signals from a different waveform library | `signal/waveform_backend/ripple`               |
 | Batched generation (the GPU-capable path) | `signal/execution/batched`                     |
-| Continuous waves from pulsars             | `signal/cw/<network>`                          |
+| Continuous waves from pulsars             | `signal/cw/et_triangle_sardinia`               |
 | A blank starting point                    | `default_config`                               |
 
 **By waveform library** — `signal.waveform-backend` chooses which library
@@ -92,7 +92,7 @@ each is runnable without editing.
 | `signal/sgwb/<network>`                            | background + noise | Triangle Sardinia, 2L aligned | 16 s; signal written as **HDF5**, noise as GWF                                                                                               |
 | `signal/waveform_backend/ripple`                   | signal             | Triangle Sardinia             | Waveforms from **ripple** rather than LAL. Needs `gwmock[jax]`                                                                               |
 | `signal/execution/batched`                         | signal             | Triangle Sardinia             | A segment's events generated in one batched call. Needs `gwmock[jax]`; add `gwmock[cuda]` for a GPU                                          |
-| `signal/cw/<network>`                              | signal             | Triangle Sardinia             | Continuous waves from a pulsar catalogue. Always-on, so every source is in every segment. Needs `gwmock[jax]` and LALPulsar ephemeris tables |
+| `signal/cw/et_triangle_sardinia`                   | signal             | Triangle Sardinia             | Continuous waves from a pulsar catalogue. Always-on, so every source is in every segment. Needs `gwmock[jax]` and LALPulsar ephemeris tables |
 
 The glitch examples are per-detector rather than per-network because each
 detector draws from its own glitch population file.
@@ -163,6 +163,7 @@ matrix needs a new entry.
 | `signal/sgwb/et_triangle_sardinia`                 | `StochasticBackgroundSimulator` — a different simulator class; **HDF5** output                            |
 | `signal/waveform_backend/ripple`                   | A non-default waveform library resolved from config. Needs `ripplegw`                                     |
 | `signal/execution/batched`                         | `execution: batched` — one batched call per segment, converted back to per-event chunks. Needs `ripplegw` |
+| `signal/cw/et_triangle_sardinia`                   | **Not run** — the continuous-wave branch of `_simulate`, blocked on a local ephemeris fixture             |
 | `noise/glitches/gengli/et_triangle_sardinia/e1`    | **Not run** — glitch injection, blocked on `gengli` and a local glitch fixture                            |
 
 Deliberately excluded, with the reason:
