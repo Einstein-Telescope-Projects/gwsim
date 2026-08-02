@@ -1,15 +1,19 @@
-"""Wiring continuous waves through the orchestrator.
+"""Continuous waves through the orchestrator, against the real waveform backend.
 
-A continuous wave fits neither route the orchestrator already had. The stationary branch runs only
-when there are *no* population events, because a stochastic background has no sources; the
-per-event loop consumes events and expects each to carry a ``coa_time``. A continuous wave is
-stationary *and* has sources -- a catalogue of pulsars, every one of which contributes to every
-segment -- so it gets its own branch.
+What is here is only what a real backend can establish: that the phase joins up across a segment
+boundary, and that two pulsars compose into their sum. Both are physical claims about generated
+strain, and a fake backend asserting either would be asserting its own arithmetic.
 
-The load-bearing test here is :meth:`TestPhaseCoherence.test_segments_join_up_through_the_orchestrator`.
+The load-bearing test is :meth:`TestPhaseCoherence.test_segments_join_up_through_the_orchestrator`.
 The simulator guarantees coherence only if ``reference_time_ssb`` reaches it as one value for the
 whole run; plumbing that derived it per segment would produce frames that look entirely normal and
 are useless to a coherent search.
+
+This module needs ``ripplegw`` and a cached ephemeris, so it skips wherever those are absent --
+including CI. Everything that does *not* need a waveform lives in ``test_continuous_wave_wiring.py``
+instead, which runs everywhere: routing, the refusals, the ordering exemption and its source-type
+gate, provenance, and that the population index never advances. Adding a wiring-level test here
+rather than there means it will not run on any push.
 """
 
 from __future__ import annotations
@@ -128,84 +132,8 @@ class TestPhaseCoherence:
         assert worst < 1e-9, f"segments disagree with the continuous run by {worst:.3e} of peak"
 
 
-class TestTheOrderingExemption:
-    """Skipping the `coa_time` sort is for continuous waves only, and that gate is load-bearing."""
-
-    def test_a_compact_binary_catalogue_without_coa_time_still_raises(self, tmp_path):
-        """Without the source-type gate this regresses into silent, plausible corruption.
-
-        The per-event loop breaks on ``coa_time >= end_time``; when the key is absent that test is
-        never true, so every event lands in the first segment. A `bbh` catalogue that lost the
-        column -- a header typo, a dropped field -- would produce a full-looking run with every
-        coalescence time wrong. It used to raise, and must keep raising.
-        """
-        catalogue = tmp_path / "no_coa_time.csv"
-        catalogue.write_text("detector_frame_mass_1,detector_frame_mass_2,luminosity_distance\n30.0,25.0,400.0\n")
-        config = _config(tmp_path, duration=64, total=64)
-        config["orchestration"]["population"].update(
-            {"source-type": "bbh", "n-samples": 1, "arguments": {"path": str(catalogue)}}
-        )
-        config["orchestration"]["signal"]["source-type"] = "bbh"
-        config["orchestration"]["signal"]["waveform-model"] = "IMRPhenomD"
-        config["orchestration"]["signal"].pop("arguments")
-
-        parsed = Config.model_validate(config)
-        global_arguments = dict(parsed.globals.simulator_arguments)
-
-        with pytest.raises(ValueError, match="ordering key 'coa_time' is missing"):
-            AdapterOrchestrator.from_config(parsed.orchestration, global_simulator_arguments=global_arguments)
-
-
-class TestUnsupportedCombinations:
-    """What the branch refuses, and why refusing beats ignoring."""
-
-    def test_the_batched_execution_mode_is_refused(self, tmp_path):
-        """The CW branch dispatches before the batched check, so silence would mean substitution.
-
-        A configuration asking for `execution: batched` would otherwise get the per-source loop --
-        output produced through a different execution mode than the one requested, with nothing
-        anywhere saying so.
-        """
-        config = _config(tmp_path, duration=64, total=64)
-        config["orchestration"]["signal"]["execution"] = "batched"
-        parsed = Config.model_validate(config)
-        orchestrator = AdapterOrchestrator.from_config(
-            parsed.orchestration, global_simulator_arguments=dict(parsed.globals.simulator_arguments)
-        )
-
-        with pytest.raises(ValueError, match="execution: batched is not available for continuous waves"):
-            orchestrator._simulate()
-
-
 class TestTheCatalogueReachesEverySegment:
     """Every pulsar contributes to every segment, unlike an event that is consumed once."""
-
-    def test_the_population_index_never_advances(self, tmp_path):
-        """Advancing it would silently drop sources from later segments.
-
-        The per-event loop consumes events by advancing ``population_index``; for a catalogue whose
-        sources are all permanently present, that would leave the second segment short and the
-        output still plausible.
-        """
-        orchestrator = _orchestrator(tmp_path, duration=64, total=128)
-
-        _segment(orchestrator)
-        assert int(orchestrator.population_index) == 0
-
-        orchestrator.update_state()
-        _segment(orchestrator)
-        assert int(orchestrator.population_index) == 0
-
-    def test_every_source_is_recorded_for_every_segment(self, tmp_path):
-        """Provenance lists all pulsars each time, because all of them are present each time."""
-        orchestrator = _orchestrator(tmp_path, duration=64, total=128, n_pulsars=2)
-
-        _segment(orchestrator)
-        assert len(orchestrator._batch_injections) == 2
-
-        orchestrator.update_state()
-        _segment(orchestrator)
-        assert len(orchestrator._batch_injections) == 2
 
     def test_two_pulsars_give_the_sum_of_the_two_alone(self, tmp_path):
         """The catalogue must be *summed*, and this checks the sum rather than merely a difference.
