@@ -303,13 +303,18 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         if sort_key and population_events:
             missing = [sort_key not in event for event in population_events]
             explicit = "sort_by" in getattr(population_config, "model_fields_set", set())
-            if all(missing) and not explicit:
+            source_type = (population_config.source_type or "").lower()
+            if all(missing) and not explicit and source_type == "cw":
                 # The default key is `coa_time`, which only compact-binary catalogues carry. A
                 # continuous-wave catalogue has no coalescence time and no ordering that means
-                # anything -- every source contributes to every segment. Absent from *every* event
-                # with the key left at its default is that case, so the file's own order stands.
-                # Absent from only some is a broken catalogue, and asking for a key nothing has is
-                # a mistake worth reporting; both still raise below.
+                # anything -- every source contributes to every segment -- so the file's own order
+                # stands.
+                #
+                # Gated on the source type, not merely on the key being absent everywhere. Without
+                # that gate a compact-binary catalogue that lost its `coa_time` column, to a header
+                # typo say, would stop raising and start running unsorted: the per-event loop never
+                # breaks when `coa_time` is None, so every event would land in the first segment
+                # and the output would look entirely reasonable with every coalescence time wrong.
                 sort_key = None
             elif any(missing):
                 raise ValueError(f"Population event ordering key '{sort_key}' is missing from one or more events.")
@@ -395,7 +400,13 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             "orchestration": {
                 "source_type": self._source_type,
                 "population_events_total": len(self._population_events),
-                "population_events_remaining": len(self._population_events) - int(self.population_index),
+                # "Remaining" counts events still to be consumed, which only means something for a
+                # source consumed once. Every continuous-wave source is present in every segment,
+                # so nothing is ever consumed and the count would read as the full catalogue
+                # forever -- true but misleading. Reported as null there instead.
+                "population_events_remaining": (
+                    None if self._source_type == "cw" else len(self._population_events) - int(self.population_index)
+                ),
                 "population": {
                     "metadata": self._population_metadata,
                     "seed": self._population_seed,
@@ -488,6 +499,17 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
 
     def _simulate(self) -> TimeSeriesList:
         """Generate signal chunks for the current segment from population events."""
+        # Ahead of the general check, which would otherwise answer a continuous-wave request for
+        # the batched path by complaining that `signal.arguments` would be ignored. True, but not
+        # the reason: the batched entry point generates coalescences from a catalogue of events,
+        # and a continuous wave is not one. The specific message is the useful one.
+        if self._source_type == "cw" and self._execution_mode() == "batched":
+            raise ValueError(
+                "execution: batched is not available for continuous waves. The batched entry point "
+                "generates compact-binary events from a catalogue of coalescences; a continuous "
+                "wave has no coalescence and is present in every segment. Use execution: per-event, "
+                "which is the default."
+            )
         self._require_configuration_supported()
 
         if not self._population_events and self._source_type == "sgwb":
@@ -773,6 +795,15 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             }
             # Recorded for every segment, not once: a continuous wave is present in all of them, so
             # attributing it to one frame the way a transient is attributed would be wrong.
+            #
+            # Known limitation, tracked as `gwmock/per-event-provenance-on-segments`. The per-batch
+            # metadata written from this list is correct and is the documented source of truth, so
+            # parameter-based lookup finds every frame. But `update_signal_index` assigns
+            # `index[event_id] = ...` rather than merging, so the id fast path keeps only the last
+            # frame written for each pulsar -- `gwmock find-signal --id N` returns one frame where
+            # a continuous wave is in all of them. Fixing it means letting an index entry hold
+            # several frames and metadata files, which is a schema change and belongs with that
+            # item rather than here. A continuous wave makes it universal rather than occasional.
             self._batch_injections.append({"event_id": source_id, "parameters": dict(source)})
 
         if strain is None:  # pragma: no cover - guarded by the empty-catalogue check above

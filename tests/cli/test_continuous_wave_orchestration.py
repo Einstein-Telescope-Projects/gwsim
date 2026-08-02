@@ -128,6 +128,55 @@ class TestPhaseCoherence:
         assert worst < 1e-9, f"segments disagree with the continuous run by {worst:.3e} of peak"
 
 
+class TestTheOrderingExemption:
+    """Skipping the `coa_time` sort is for continuous waves only, and that gate is load-bearing."""
+
+    def test_a_compact_binary_catalogue_without_coa_time_still_raises(self, tmp_path):
+        """Without the source-type gate this regresses into silent, plausible corruption.
+
+        The per-event loop breaks on ``coa_time >= end_time``; when the key is absent that test is
+        never true, so every event lands in the first segment. A `bbh` catalogue that lost the
+        column -- a header typo, a dropped field -- would produce a full-looking run with every
+        coalescence time wrong. It used to raise, and must keep raising.
+        """
+        catalogue = tmp_path / "no_coa_time.csv"
+        catalogue.write_text("detector_frame_mass_1,detector_frame_mass_2,luminosity_distance\n30.0,25.0,400.0\n")
+        config = _config(tmp_path, duration=64, total=64)
+        config["orchestration"]["population"].update(
+            {"source-type": "bbh", "n-samples": 1, "arguments": {"path": str(catalogue)}}
+        )
+        config["orchestration"]["signal"]["source-type"] = "bbh"
+        config["orchestration"]["signal"]["waveform-model"] = "IMRPhenomD"
+        config["orchestration"]["signal"].pop("arguments")
+
+        parsed = Config.model_validate(config)
+        global_arguments = dict(parsed.globals.simulator_arguments)
+
+        with pytest.raises(ValueError, match="ordering key 'coa_time' is missing"):
+            AdapterOrchestrator.from_config(parsed.orchestration, global_simulator_arguments=global_arguments)
+
+
+class TestUnsupportedCombinations:
+    """What the branch refuses, and why refusing beats ignoring."""
+
+    def test_the_batched_execution_mode_is_refused(self, tmp_path):
+        """The CW branch dispatches before the batched check, so silence would mean substitution.
+
+        A configuration asking for `execution: batched` would otherwise get the per-source loop --
+        output produced through a different execution mode than the one requested, with nothing
+        anywhere saying so.
+        """
+        config = _config(tmp_path, duration=64, total=64)
+        config["orchestration"]["signal"]["execution"] = "batched"
+        parsed = Config.model_validate(config)
+        orchestrator = AdapterOrchestrator.from_config(
+            parsed.orchestration, global_simulator_arguments=dict(parsed.globals.simulator_arguments)
+        )
+
+        with pytest.raises(ValueError, match="execution: batched is not available for continuous waves"):
+            orchestrator._simulate()
+
+
 class TestTheCatalogueReachesEverySegment:
     """Every pulsar contributes to every segment, unlike an event that is consumed once."""
 
@@ -158,11 +207,31 @@ class TestTheCatalogueReachesEverySegment:
         _segment(orchestrator)
         assert len(orchestrator._batch_injections) == 2
 
-    def test_adding_a_pulsar_changes_the_output(self, tmp_path):
-        """Guards the summation: a loop that overwrote instead of accumulating would pass a
-        one-source test and lose every source but the last."""
-        one = _segment(_orchestrator(tmp_path / "one", duration=64, total=64, n_pulsars=1))
-        two = _segment(_orchestrator(tmp_path / "two", duration=64, total=64, n_pulsars=2))
+    def test_two_pulsars_give_the_sum_of_the_two_alone(self, tmp_path):
+        """The catalogue must be *summed*, and this checks the sum rather than merely a difference.
 
-        assert not np.allclose(one, two, rtol=0, atol=0), "the second pulsar made no difference"
-        assert np.isfinite(two).all()
+        Detecting that a second source changed the output would also pass for an implementation
+        that overwrote, scaled, or otherwise distorted the total. Comparing against the two sources
+        generated separately and added pins the actual composition.
+        """
+        first_only = _segment(_orchestrator(tmp_path / "first", duration=64, total=64, n_pulsars=1))
+        both = _segment(_orchestrator(tmp_path / "both", duration=64, total=64, n_pulsars=2))
+
+        # The second pulsar alone, obtained by removing the first from the catalogue.
+        second_dir = tmp_path / "second"
+        second_dir.mkdir(parents=True, exist_ok=True)
+        rows = _PULSARS.splitlines()
+        (second_dir / "only.csv").write_text(rows[0] + "\n" + rows[2] + "\n")
+        config = _config(second_dir, duration=64, total=64, n_pulsars=1)
+        config["orchestration"]["population"]["arguments"]["path"] = str(second_dir / "only.csv")
+        parsed = Config.model_validate(config)
+        second_only = _segment(
+            AdapterOrchestrator.from_config(
+                parsed.orchestration, global_simulator_arguments=dict(parsed.globals.simulator_arguments)
+            )
+        )
+
+        expected = first_only + second_only
+        peak = float(np.max(np.abs(expected)))
+        worst = float(np.max(np.abs(both - expected))) / peak
+        assert worst < 1e-9, f"two pulsars together differ from their sum by {worst:.3e} of peak"
