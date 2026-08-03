@@ -43,7 +43,13 @@ def main() -> int:
     for line in MANIFEST.read_text(encoding="utf-8").splitlines():
         if not line.strip() or line.startswith("#"):
             continue
-        digest, name = line.split()
+        fields = line.split()
+        if len(fields) != 2:
+            # Reported rather than raised: an unpacking traceback exits non-zero too, but it names
+            # Python internals instead of the file the reader has to fix.
+            print(f"::error::{MANIFEST}: cannot read {line!r}; expected '<sha256>  <filename>'")
+            return 1
+        digest, name = fields
         expected_by_name[name] = digest
 
     if not expected_by_name:

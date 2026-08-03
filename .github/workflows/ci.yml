@@ -137,6 +137,35 @@ jobs:
             - name: Verify the ephemeris tables against their recorded hashes
               run: uv run --no-sync python tests/data/verify_ephemeris.py
 
+            # Asserts the outcome, not just the prerequisites. Everything above removes a *reason*
+            # to skip -- the extra is installed, the tables are present and verified -- but nothing
+            # so far would notice a re-added `skipif`, a renamed module or a changed marker quietly
+            # emptying this job, which is the exact failure it was added to fix. So the
+            # continuous-wave modules are run by name and the report is read back: zero collected,
+            # or anything skipped, fails.
+            - name: Confirm the continuous-wave tests actually ran
+              run: |
+                  uv run --no-sync pytest --no-cov -q \
+                      --junitxml=cw-report.xml \
+                      tests/cli/test_continuous_wave_orchestration.py \
+                      tests/cli/test_continuous_wave_wiring.py
+                  uv run --no-sync python - <<'CHECK'
+                  import sys
+                  import xml.etree.ElementTree as ET
+
+                  suite = ET.parse("cw-report.xml").getroot().find("testsuite")
+                  total = int(suite.get("tests", 0))
+                  skipped = int(suite.get("skipped", 0))
+                  print(f"continuous-wave tests: {total} collected, {skipped} skipped")
+                  if total == 0:
+                      print("::error::no continuous-wave tests were collected; this job is a no-op")
+                      sys.exit(1)
+                  if skipped:
+                      print(f"::error::{skipped} continuous-wave test(s) skipped; this job exists "
+                            "because they silently stopped running once already")
+                      sys.exit(1)
+                  CHECK
+
             - name: Run tests with pytest (JAX backend)
               run: uv run --no-sync pytest
 
@@ -149,6 +178,14 @@ jobs:
 
     e2e:
         runs-on: ubuntu-latest
+        # The same ephemeris pinning as `test-jax`, because jobs do not share a filesystem and the
+        # continuous-wave entry runs *here*. Without this the entry resolves its bare table names by
+        # downloading from lalsuite `master` unverified, which could generate against tables that
+        # differ from `tests/data/ephemeris.sha256` and then compare them against a stored
+        # reference -- passing whenever the difference happened to stay inside tolerance.
+        env:
+            RIPPLEGW_CACHE_DIR: ${{ github.workspace }}/.ephemeris-cache
+            EPHEMERIS_FILES: earth00-40-DE405.dat.gz sun00-40-DE405.dat.gz
         steps:
             - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
               with:
@@ -183,6 +220,33 @@ jobs:
                   missing = sorted(m for m in needed if u.find_spec(m) is None)
                   sys.exit('e2e job is missing: ' + ', '.join(missing) if missing else 0)
                   "
+
+            - name: Cache LALPulsar ephemeris tables
+              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+              with:
+                  path: ${{ github.workspace }}/.ephemeris-cache
+                  key:
+                      lalpulsar-ephemeris-${{
+                      hashFiles('tests/data/ephemeris.sha256') }}
+
+            - name: Fetch ephemeris tables if not cached
+              run: |
+                  for attempt in 1 2 3; do
+                      # shellcheck disable=SC2086 -- word splitting is the point here.
+                      if uv run --no-sync ripplegw-fetch-ephemeris $EPHEMERIS_FILES; then
+                          exit 0
+                      fi
+                      if [ "$attempt" -lt 3 ]; then
+                          echo "ephemeris fetch attempt $attempt failed; retrying"
+                          sleep $((attempt * 10))
+                      fi
+                  done
+                  echo "::error::could not fetch the LALPulsar ephemeris tables from" \
+                       "git.ligo.org after three attempts; the continuous-wave entry needs them"
+                  exit 1
+
+            - name: Verify the ephemeris tables against their recorded hashes
+              run: uv run --no-sync python tests/data/verify_ephemeris.py
 
             - name: Run end-to-end tests
               run: uv run --no-sync pytest -m e2e --no-cov

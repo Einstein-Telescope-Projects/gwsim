@@ -9,11 +9,16 @@ The simulator guarantees coherence only if ``reference_time_ssb`` reaches it as 
 whole run; plumbing that derived it per segment would produce frames that look entirely normal and
 are useless to a coherent search.
 
-This module needs ``ripplegw`` and a cached ephemeris, so it skips wherever those are absent --
-including CI. Everything that does *not* need a waveform lives in ``test_continuous_wave_wiring.py``
-instead, which runs everywhere: routing, the refusals, the ordering exemption and its source-type
-gate, provenance, and that the population index never advances. Adding a wiring-level test here
-rather than there means it will not run on any push.
+This module needs ``ripplegw`` and the LALPulsar ephemeris tables, and it **does** run in CI: the
+`test-jax` job installs the extra, caches the tables and verifies them against
+``tests/data/ephemeris.sha256``. It used to skip when they were absent, which on a fresh runner was
+always, so it ran nowhere while the suite reported green. There is no skip gate now -- absent
+tables fail.
+
+Everything that does *not* need a waveform lives in ``test_continuous_wave_wiring.py``, which runs
+in the default job too: routing, the refusals, the ordering exemption and its source-type gate,
+provenance, and that the population index never advances. Put a wiring-level test there rather than
+here, so it is covered without the optional extra.
 """
 
 from __future__ import annotations

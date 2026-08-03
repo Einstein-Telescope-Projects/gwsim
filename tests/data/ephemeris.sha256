@@ -16,5 +16,10 @@
 # If verification fails: either the cache is corrupt (clear it and refetch) or upstream changed
 # the tables. The second case is worth understanding before updating these lines, because it
 # means the reference trajectories moved.
+#
+# **Updating these hashes changes generated strain, so regenerate the continuous-wave e2e
+# reference in the same commit** -- `tests/e2e/references/signal__cw__et_triangle_sardinia.json`
+# was produced against the tables below. Nothing enforces that pairing: split across two commits,
+# the reference comparison fails on the second one and looks like a code regression.
 4995647b2c47617c90804ad0bc814ce42b426f1e5015a90cf939bcdd0c20ea67  earth00-40-DE405.dat.gz
 0b132dc5a712ebc16661a10cb88409e2577c16723c64f98e9b9b4d265510700f  sun00-40-DE405.dat.gz
