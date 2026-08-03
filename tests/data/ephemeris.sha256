@@ -1,0 +1,20 @@
+# SHA-256 of the LALPulsar ephemeris tables the continuous-wave tests generate against.
+#
+# These are physics inputs, not build artefacts: they define the Earth and Sun trajectories the
+# barycentring uses, so a change to their content changes generated strain. ripple fetches them
+# from lalsuite `master` -- an unpinned moving target -- and caches them by name only, so without
+# this file a changed upstream table, or a corrupted cached copy, would be used silently and show
+# up as a numerical difference nobody could attribute.
+#
+# Two things use it. CI derives its cache identifier from this file, so editing it invalidates
+# the cache; and a verification step rejects tables that do not match, rather than letting a bad
+# copy reach a test as a confusing parse error.
+#
+# Recorded 2026-08-03 from ripplegw's own download of
+# https://git.ligo.org/lscsoft/lalsuite/-/raw/master/lalpulsar/lib/<name>.
+#
+# If verification fails: either the cache is corrupt (clear it and refetch) or upstream changed
+# the tables. The second case is worth understanding before updating these lines, because it
+# means the reference trajectories moved.
+4995647b2c47617c90804ad0bc814ce42b426f1e5015a90cf939bcdd0c20ea67  earth00-40-DE405.dat.gz
+0b132dc5a712ebc16661a10cb88409e2577c16723c64f98e9b9b4d265510700f  sun00-40-DE405.dat.gz
