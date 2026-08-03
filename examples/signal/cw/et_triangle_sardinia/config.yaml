@@ -17,10 +17,14 @@
 # whatever it is handed, which restarts the phase at every segment boundary -- producing data where
 # each segment looks perfectly correct and a coherent search over the run finds nothing.
 #
-# Requires the `jax` extra, and a gwmock built against a gwmock-signal that has the continuous-wave
-# simulator. Until that is on PyPI, `pip install 'gwmock[jax]'` will resolve a released
-# gwmock-signal without it and this example will fail to find the `cw` source type; install from a
-# checkout instead, where `[tool.uv.sources]` pins the right revision:
+# Requires the `jax` extra:  pip install 'gwmock[jax]'
+#
+# That is enough to resolve the continuous-wave source type -- gwmock-signal 0.13.0 registers it --
+# but not enough to *run* it. The simulator generates at the geocentre so one projection route
+# serves every source type, and released ripplegw returns NaN for every sample there
+# (`arccos(lz / rd)` is 0/0 at the Earth centre). It is refused rather than written, so a run fails
+# with a message naming the cause. Until GW-JAX-Team/ripple#141 reaches a ripplegw release, this
+# example needs a checkout of gwmock, where the pin in pyproject.toml supplies the fixed revision:
 #
 #     uv sync --extra jax
 #

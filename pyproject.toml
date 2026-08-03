@@ -45,19 +45,22 @@ sgwb = ["gwmock-signal[sgwb]>=0.13.0"]
 # installed this way batches the work and runs it on the CPU. That is a supported configuration --
 # it is the one the test suite exercises -- but it is not device execution, and nothing at runtime
 # distinguishes the two beyond `jax.devices()`. Use the `cuda` extra below for a GPU.
-jax = ["gwmock-signal[jax]>=0.13.0"]
+# `ripplegw` is named explicitly so the development pin at the bottom of this file applies
+# to it. uv honours a source only for a package the project *declares*, and ripple would
+# otherwise arrive transitively through `gwmock-signal[jax]`; a source alone left the lock
+# resolving ripplegw 0.3.0 from the registry. Declaring it here rather than in a dev group
+# keeps it on the extras that need it -- a dev group would put ripple and JAX into every
+# plain `uv sync`, which would un-skip the ripple-gated tests in the default CI job and make
+# that job quietly test something other than what it claims. The published wheel gains only
+# `ripplegw>=0.3` under these extras, a registry floor that was already transitive, and no
+# git URL: verified with a plain `uv build`, which is what the release workflow runs.
+jax = ["gwmock-signal[jax]>=0.13.0", "ripplegw>=0.3"]
 # The same path with an actual GPU backend. Linux x86_64 with a CUDA 12 driver only; there is no
 # macOS or Windows wheel, which is why this is separate from `jax` rather than folded into it.
-cuda = ["gwmock-signal[jax]>=0.13.0", "jax[cuda12]>=0.11.0"]
+cuda = ["gwmock-signal[jax]>=0.13.0", "ripplegw>=0.3", "jax[cuda12]>=0.11.0"]
 
 [dependency-groups]
 dev = [
-  # Declared here only so the `[tool.uv.sources]` pin below applies to it. uv honours a source
-  # for a package the project *declares*; ripplegw reaches gwmock transitively through
-  # `gwmock-signal[jax]`, and a source alone did not redirect it -- the lock resolved
-  # ripplegw 0.3.0 from the registry until this line existed. A dev group keeps it out of the
-  # published wheel, where a git dependency must never appear. Remove together with the pin.
-  "ripplegw>=0.3",
   "prek>=0.4.11",
   "pytest-cov>=7.1.0",
   "pytest-mock>=3.15.1",
@@ -187,8 +190,17 @@ docstring-code-format = true # Format code in docstrings
 # PLC0415: allow import statements not at the top level
 # PLR2004: allow magic values in the unit tests
 
-# TEMPORARY development pin. Remove when a ripplegw release carries the geocentre fix
-# (GW-JAX-Team/ripple#141), then raise the floor in the `jax` extra to that version.
+# TEMPORARY development pin. When a ripplegw release carries the geocentre fix
+# (GW-JAX-Team/ripple#141), do all of this together, or the paths below silently fall back to a
+# ripple without the fix:
+#
+#   1. delete this table;
+#   2. raise the `ripplegw>=0.3` floor in the `jax` and `cuda` extras above to that release;
+#   3. do the same in gwmock-signal, which carries its own copy of this pin;
+#   4. re-lock.
+#
+# Leaving the declarations without the table, or the table without the declarations, resolves
+# ripplegw 0.3.0 again -- and that is the version that returns NaN at the geocentre.
 #
 # Development-only: `[tool.uv.sources]` is not carried into the published wheel, so nobody
 # installing gwmock from PyPI inherits a git dependency. Build with `uv build --no-sources` while

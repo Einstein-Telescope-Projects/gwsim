@@ -667,9 +667,11 @@ dependencies = [
 cuda = [
     { name = "gwmock-signal", extra = ["jax"] },
     { name = "jax", extra = ["cuda12"] },
+    { name = "ripplegw" },
 ]
 jax = [
     { name = "gwmock-signal", extra = ["jax"] },
+    { name = "ripplegw" },
 ]
 sgwb = [
     { name = "gwmock-signal", extra = ["sgwb"] },
@@ -686,7 +688,6 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-github-actions-annotate-failures" },
     { name = "pytest-mock" },
-    { name = "ripplegw" },
 ]
 docs = [
     { name = "mkdocstrings-python" },
@@ -710,6 +711,8 @@ requires-dist = [
     { name = "psutil", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.9.0" },
     { name = "pymap3d", specifier = ">=3.2.0" },
+    { name = "ripplegw", marker = "extra == 'cuda'", git = "https://github.com/GW-JAX-Team/ripple.git?rev=400afb4" },
+    { name = "ripplegw", marker = "extra == 'jax'", git = "https://github.com/GW-JAX-Team/ripple.git?rev=400afb4" },
     { name = "textual", specifier = ">=2.0.0" },
     { name = "tqdm", specifier = ">=4.67.0" },
     { name = "typer", specifier = ">=0.19.0" },
@@ -725,7 +728,6 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "pytest-github-actions-annotate-failures", specifier = ">=0.4.2" },
     { name = "pytest-mock", specifier = ">=3.15.1" },
-    { name = "ripplegw", git = "https://github.com/GW-JAX-Team/ripple.git?rev=400afb4" },
 ]
 docs = [
     { name = "mkdocstrings-python", specifier = ">=2.0.5" },
