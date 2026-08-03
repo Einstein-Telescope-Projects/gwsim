@@ -38,6 +38,14 @@ _TEST_SEED = 20260731
 #: run is reproducible and needs no network.
 POPULATION_FIXTURE = EXAMPLES_DIR / "signal" / "bbh_population.csv"
 
+#: In-repo pulsar catalogue for the continuous-wave entry.
+#:
+#: The example points at this file with a path relative to the examples tree, which does not
+#: survive being copied into a test working directory -- the run failed with
+#: `FileNotFoundError: ../../cw_population.csv`. Repointed absolutely for the same reason every
+#: other entry's population is: the overlay owns where inputs come from.
+CW_POPULATION_FIXTURE = EXAMPLES_DIR / "signal" / "cw_population.csv"
+
 #: The single event in :data:`POPULATION_FIXTURE`.
 _FIXTURE_EVENT_GPS = 1577491300.0
 
@@ -50,12 +58,6 @@ _ALIGNED_START = 1577491296.0
 #: skipped rather than run against a remote URL. Removing an entry from here requires adding a
 #: local fixture for whatever it downloads.
 NOT_HERMETIC: dict[str, str] = {
-    "signal/cw/et_triangle_sardinia": (
-        "needs a local ephemeris fixture; the example names LALPulsar tables that ripple fetches "
-        "and caches at runtime, and earth00-40-DE405.dat.gz alone is 16 MB compressed -- too "
-        "large to commit, and truncating it to the test span would mean shipping fabricated "
-        "ephemeris data"
-    ),
     "noise/glitches/gengli/et_triangle_sardinia/e1": (
         "needs a local blip-glitch population fixture; the example reads one from "
         "sandbox.zenodo.org, whose records are purged"
@@ -129,6 +131,26 @@ _OVERLAYS: dict[str, dict[str, Any]] = {
         },
         "orchestration": {"population": {"arguments": {"path": str(POPULATION_FIXTURE)}}},
     },
+    # A continuous wave is on for the whole run, so there is no event to bracket and nothing to
+    # align a start time to -- the only thing to shorten is the span. Kept multi-segment on
+    # purpose: this entry exists to cover the branch where a population is never consumed and
+    # every source contributes to every segment, and one segment could not distinguish that from
+    # the per-event path.
+    #
+    # The ephemeris the example names is fetched by ripple on first use; CI caches it and verifies
+    # it against `tests/data/ephemeris.sha256`. That is why this entry is no longer in
+    # NOT_HERMETIC: the tables are obtained once and their content is pinned, rather than being
+    # re-downloaded per run or trusted unchecked.
+    "signal/cw/et_triangle_sardinia": {
+        "globals": {
+            "simulator-arguments": {
+                "sampling-frequency": 256,
+                "duration": 8,
+                "total-duration": 16,
+            }
+        },
+        "orchestration": {"population": {"arguments": {"path": str(CW_POPULATION_FIXTURE)}}},
+    },
     # Deliberately the same overlay as the ripple entry above: the two configs differ only by
     # `execution`, and holding the span, rate and population identical is what makes their stored
     # references comparable. The batched path JIT-compiles like the per-event ripple one.
@@ -154,6 +176,9 @@ CONTAINS_SIGNAL: frozenset[str] = frozenset(
         "signal/bbh/et_triangle_sardinia",
         "signal/waveform_backend/ripple",
         "signal/execution/batched",
+        # Every pulsar is present in every segment, so any span contains signal -- unlike the
+        # transient entries, whose span has to be aligned to an event.
+        "signal/cw/et_triangle_sardinia",
     }
 )
 

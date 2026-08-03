@@ -1,9 +1,11 @@
 """The continuous-wave branch of the orchestrator, exercised without a waveform library.
 
-``test_continuous_wave_orchestration.py`` covers the same branch against the real backend, which
-is where phase coherence and the numerical composition are established. That module needs
-``ripplegw`` and a cached ephemeris, so it skips everywhere those are absent -- including CI, which
-left the branch reported as uncovered and, more to the point, unexercised on every push.
+``test_continuous_wave_orchestration.py`` covers the same branch against the real backend, which is
+where phase coherence and the numerical composition are established. That module needs ``ripplegw``
+and the LALPulsar ephemeris tables, so it runs in the `test-jax` job rather than the default one.
+
+This module runs everywhere, which is the point of separating them: the wiring is covered without
+the optional extra, and only claims that need real strain depend on it.
 
 What is checked here is the wiring: which route a `cw` configuration takes, what it refuses, what
 it records, and that the catalogue is summed rather than overwritten. None of that involves a

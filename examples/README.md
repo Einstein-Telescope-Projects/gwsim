@@ -163,7 +163,7 @@ matrix needs a new entry.
 | `signal/sgwb/et_triangle_sardinia`                 | `StochasticBackgroundSimulator` — a different simulator class; **HDF5** output                            |
 | `signal/waveform_backend/ripple`                   | A non-default waveform library resolved from config. Needs `ripplegw`                                     |
 | `signal/execution/batched`                         | `execution: batched` — one batched call per segment, converted back to per-event chunks. Needs `ripplegw` |
-| `signal/cw/et_triangle_sardinia`                   | **Not run** — the continuous-wave branch of `_simulate`, blocked on a local ephemeris fixture             |
+| `signal/cw/et_triangle_sardinia`                   | The continuous-wave branch of `_simulate`; multi-segment, since one segment cannot distinguish it         |
 | `noise/glitches/gengli/et_triangle_sardinia/e1`    | **Not run** — glitch injection, blocked on `gengli` and a local glitch fixture                            |
 
 Deliberately excluded, with the reason:

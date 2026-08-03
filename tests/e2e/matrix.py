@@ -80,10 +80,11 @@ E2E_MATRIX: tuple[MatrixEntry, ...] = (
     MatrixEntry(
         label="signal/cw/et_triangle_sardinia",
         covers=(
-            "**Not run** -- the continuous-wave branch of `_simulate`, the one path where a "
-            "population is never consumed and every source contributes to every segment. Blocked "
-            "on a local ephemeris fixture: the example resolves bare LALPulsar table names, which "
-            "ripple fetches at runtime, and the smaller of the two is 16 MB compressed"
+            "The continuous-wave branch of `_simulate` -- the one path where a population is never "
+            "consumed and every source contributes to every segment. Multi-segment on purpose: a "
+            "single segment cannot distinguish that from the per-event path. Needs `ripplegw` and "
+            "the LALPulsar ephemeris tables, which CI caches and verifies against "
+            "`tests/data/ephemeris.sha256`"
         ),
         requires=("ripplegw",),
     ),

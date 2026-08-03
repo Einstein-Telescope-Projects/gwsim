@@ -9,11 +9,16 @@ The simulator guarantees coherence only if ``reference_time_ssb`` reaches it as 
 whole run; plumbing that derived it per segment would produce frames that look entirely normal and
 are useless to a coherent search.
 
-This module needs ``ripplegw`` and a cached ephemeris, so it skips wherever those are absent --
-including CI. Everything that does *not* need a waveform lives in ``test_continuous_wave_wiring.py``
-instead, which runs everywhere: routing, the refusals, the ordering exemption and its source-type
-gate, provenance, and that the population index never advances. Adding a wiring-level test here
-rather than there means it will not run on any push.
+This module needs ``ripplegw`` and the LALPulsar ephemeris tables, and it **does** run in CI: the
+`test-jax` job installs the extra, caches the tables and verifies them against
+``tests/data/ephemeris.sha256``. It used to skip when they were absent, which on a fresh runner was
+always, so it ran nowhere while the suite reported green. There is no skip gate now -- absent
+tables fail.
+
+Everything that does *not* need a waveform lives in ``test_continuous_wave_wiring.py``, which runs
+in the default job too: routing, the refusals, the ordering exemption and its source-type gate,
+provenance, and that the population index never advances. Put a wiring-level test there rather than
+here, so it is covered without the optional extra.
 """
 
 from __future__ import annotations
@@ -32,7 +37,22 @@ from gwmock.cli.utils.config import Config
 _EPOCH = 1577491218.0
 _FS = 64.0
 _DETECTORS = ["H1", "L1"]
-_EPHEMERIS = Path.home() / ".cache/ripplegw/ephemeris"
+
+
+def _ephemeris_directory() -> Path:
+    """Return where ripple keeps its cached ephemeris tables, asking ripple rather than guessing.
+
+    This was hardcoded to ``~/.cache/ripplegw/ephemeris``, which is the *Linux* default. Ripple
+    uses ``~/Library/Caches`` on macOS and honours ``RIPPLEGW_CACHE_DIR`` above both, so the
+    hardcoded path made these tests skip on macOS -- and skip in CI generally -- even where the
+    tables were present. Reading the location from ripple cannot drift from it.
+    """
+    from ripplegw.waveforms.cw.ephemeris import _cache_dir
+
+    return Path(_cache_dir())
+
+
+_EPHEMERIS = _ephemeris_directory()
 
 _PULSARS = (
     "right_ascension,declination,frequency,initial_phase,amplitude_plus,amplitude_cross,polarization_angle\n"
@@ -41,11 +61,12 @@ _PULSARS = (
 )
 
 
-def _ephemeris_available() -> bool:
-    return (_EPHEMERIS / "earth00-40-DE405.dat.gz").is_file() and (_EPHEMERIS / "sun00-40-DE405.dat.gz").is_file()
-
-
-pytestmark = pytest.mark.skipif(not _ephemeris_available(), reason="LALPulsar ephemeris tables are not cached locally")
+# No skip gate. These tests used to skip when the tables were not cached, which meant they never
+# ran in CI at all: the ephemeris is fetched on demand, so "not cached" was the normal state on a
+# fresh runner, and the module reported skipped rather than absent. A test that stops running
+# silently is worse than one that fails. CI now caches the tables, verifies them against
+# `tests/data/ephemeris.sha256`, and fails the job if it cannot obtain them; locally, ripple
+# fetches them on first use.
 
 
 def _config(tmp_path: Path, *, duration: float, total: float, n_pulsars: int = 2) -> dict[str, Any]:

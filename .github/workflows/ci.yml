@@ -7,6 +7,13 @@ on:
     workflow_dispatch:
     workflow_call:
 
+# Least privilege for every job here: they check out, install, test and upload coverage, and none
+# writes to the repository. Set at workflow level rather than on the job this branch adds, because
+# `test` and `e2e` were relying on the repository default too -- pinning one job and leaving its
+# siblings open would read as though the others had been considered and approved.
+permissions:
+    contents: read
+
 jobs:
     test:
         strategy:
@@ -67,8 +74,125 @@ jobs:
     # It does *not* cover the gengli entry. gengli is not a declared extra of this project at all,
     # so no sync flag can install it, and that entry is separately blocked on a local glitch
     # fixture. It stays skipped here -- see NOT_HERMETIC in tests/e2e/overlay.py.
+    test-jax:
+        # The ripple/JAX-gated unit tests, which the `test` job cannot reach: it installs the dev
+        # group only, so every `importorskip("ripplegw")` there skips. That left the
+        # continuous-wave orchestration tests -- and the device-path tests -- running nowhere in
+        # CI while the suite reported green.
+        #
+        # One cell rather than the six of `test`: this exists to run the gated tests at all, and
+        # the code it covers is the same on every interpreter. Widen it if a version-specific
+        # failure ever appears.
+        runs-on: ubuntu-latest
+        # Pins ripple's ephemeris cache to one path. Its default is platform-dependent, so caching
+        # a hard-coded path would silently miss; RIPPLEGW_CACHE_DIR is a *base*, and ripple appends
+        # `ripplegw/ephemeris` to it, which is why the cached path is the base rather than the leaf.
+        env:
+            RIPPLEGW_CACHE_DIR: ${{ github.workspace }}/.ephemeris-cache
+            EPHEMERIS_FILES: earth00-40-DE405.dat.gz sun00-40-DE405.dat.gz
+        steps:
+            - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+              with:
+                  persist-credentials: false
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+              with:
+                  python-version: '3.12'
+                  enable-cache: 'true'
+
+            - name: Install dependencies with the JAX extra
+              run: uv sync --group dev --extra jax
+
+            - name: Confirm ripple is importable
+              # Otherwise this job silently becomes the thing it was added to fix: every gated test
+              # skips and the job still reports green.
+              run: uv run --no-sync python -c "import ripplegw"
+
+            # The continuous-wave tests need LALPulsar ephemeris tables, which ripple fetches from
+            # git.ligo.org on first use. Cached so the job does not depend on that service on every
+            # run; the identifier comes from the manifest, so accepting new tables invalidates it in
+            # the same commit that records them.
+            - name: Cache LALPulsar ephemeris tables
+              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+              with:
+                  path: ${{ github.workspace }}/.ephemeris-cache
+                  key:
+                      lalpulsar-ephemeris-${{
+                      hashFiles('tests/data/ephemeris.sha256') }}
+
+            # Fatal on failure, deliberately. The alternative is for the continuous-wave tests to
+            # skip, which is how they came to run nowhere in the first place.
+            - name: Fetch ephemeris tables if not cached
+              run: |
+                  for attempt in 1 2 3; do
+                      # shellcheck disable=SC2086 -- word splitting is the point here.
+                      if uv run --no-sync ripplegw-fetch-ephemeris $EPHEMERIS_FILES; then
+                          exit 0
+                      fi
+                      if [ "$attempt" -lt 3 ]; then
+                          echo "ephemeris fetch attempt $attempt failed; retrying"
+                          sleep $((attempt * 10))
+                      fi
+                  done
+                  echo "::error::could not fetch the LALPulsar ephemeris tables from" \
+                       "git.ligo.org after three attempts; the continuous-wave tests need them"
+                  exit 1
+
+            # These are physics inputs, taken from lalsuite `master` and keyed by name alone, so a
+            # changed upstream table or a corrupt cached copy would otherwise be used silently.
+            - name: Verify the ephemeris tables against their recorded hashes
+              run: uv run --no-sync python tests/data/verify_ephemeris.py
+
+            # Asserts the outcome, not just the prerequisites. Everything above removes a *reason*
+            # to skip -- the extra is installed, the tables are present and verified -- but nothing
+            # so far would notice a re-added `skipif`, a renamed module or a changed marker quietly
+            # emptying this job, which is the exact failure it was added to fix. So the
+            # continuous-wave modules are run by name and the report is read back: zero collected,
+            # or anything skipped, fails.
+            - name: Confirm the continuous-wave tests actually ran
+              run: |
+                  uv run --no-sync pytest --no-cov -q \
+                      --junitxml=cw-report.xml \
+                      tests/cli/test_continuous_wave_orchestration.py \
+                      tests/cli/test_continuous_wave_wiring.py
+                  uv run --no-sync python - <<'CHECK'
+                  import sys
+                  import xml.etree.ElementTree as ET
+
+                  suite = ET.parse("cw-report.xml").getroot().find("testsuite")
+                  total = int(suite.get("tests", 0))
+                  skipped = int(suite.get("skipped", 0))
+                  print(f"continuous-wave tests: {total} collected, {skipped} skipped")
+                  if total == 0:
+                      print("::error::no continuous-wave tests were collected; this job is a no-op")
+                      sys.exit(1)
+                  if skipped:
+                      print(f"::error::{skipped} continuous-wave test(s) skipped; this job exists "
+                            "because they silently stopped running once already")
+                      sys.exit(1)
+                  CHECK
+
+            - name: Run tests with pytest (JAX backend)
+              run: uv run --no-sync pytest
+
+            - name: Upload coverage to Codecov (JAX backend)
+              if: ${{ !cancelled() }}
+              uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+              with:
+                  token: ${{ secrets.CODECOV_TOKEN }}
+                  flags: jax
+
     e2e:
         runs-on: ubuntu-latest
+        # The same ephemeris pinning as `test-jax`, because jobs do not share a filesystem and the
+        # continuous-wave entry runs *here*. Without this the entry resolves its bare table names by
+        # downloading from lalsuite `master` unverified, which could generate against tables that
+        # differ from `tests/data/ephemeris.sha256` and then compare them against a stored
+        # reference -- passing whenever the difference happened to stay inside tolerance.
+        env:
+            RIPPLEGW_CACHE_DIR: ${{ github.workspace }}/.ephemeris-cache
+            EPHEMERIS_FILES: earth00-40-DE405.dat.gz sun00-40-DE405.dat.gz
         steps:
             - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
               with:
@@ -104,5 +228,74 @@ jobs:
                   sys.exit('e2e job is missing: ' + ', '.join(missing) if missing else 0)
                   "
 
+            - name: Cache LALPulsar ephemeris tables
+              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+              with:
+                  path: ${{ github.workspace }}/.ephemeris-cache
+                  key:
+                      lalpulsar-ephemeris-${{
+                      hashFiles('tests/data/ephemeris.sha256') }}
+
+            - name: Fetch ephemeris tables if not cached
+              run: |
+                  for attempt in 1 2 3; do
+                      # shellcheck disable=SC2086 -- word splitting is the point here.
+                      if uv run --no-sync ripplegw-fetch-ephemeris $EPHEMERIS_FILES; then
+                          exit 0
+                      fi
+                      if [ "$attempt" -lt 3 ]; then
+                          echo "ephemeris fetch attempt $attempt failed; retrying"
+                          sleep $((attempt * 10))
+                      fi
+                  done
+                  echo "::error::could not fetch the LALPulsar ephemeris tables from" \
+                       "git.ligo.org after three attempts; the continuous-wave entry needs them"
+                  exit 1
+
+            - name: Verify the ephemeris tables against their recorded hashes
+              run: uv run --no-sync python tests/data/verify_ephemeris.py
+
             - name: Run end-to-end tests
-              run: uv run --no-sync pytest -m e2e --no-cov
+              run:
+                  uv run --no-sync pytest -m e2e --no-cov
+                  --junitxml=e2e-report.xml
+
+            # The same outcome check the continuous-wave unit modules get, for the same reason. The
+            # e2e tests call `skip_if_unavailable(entry)` before running, so a matrix entry can skip
+            # itself -- a missing extra, or an entry put back into NOT_HERMETIC -- and this job would
+            # still report green. `NOT_HERMETIC` entries are expected to skip and are read from the
+            # source of truth rather than listed here, so adding one cannot leave this check behind.
+            - name: Confirm every runnable matrix entry actually ran
+              if: ${{ !cancelled() }}
+              run: |
+                  uv run --no-sync python - <<'CHECK'
+                  import sys
+                  import xml.etree.ElementTree as ET
+
+                  sys.path.append("tests")  # append: tests/signal would shadow stdlib signal
+                  from e2e.matrix import E2E_MATRIX
+                  from e2e.overlay import NOT_HERMETIC
+
+                  expected_to_skip = set(NOT_HERMETIC)
+                  runnable = [e.label for e in E2E_MATRIX if e.label not in expected_to_skip]
+
+                  root = ET.parse("e2e-report.xml").getroot()
+                  cases = list(root.iter("testcase"))
+                  if not cases:
+                      print("::error::the e2e run collected no tests at all")
+                      sys.exit(1)
+
+                  missing = []
+                  for label in runnable:
+                      mine = [c for c in cases if label in (c.get("name") or "")]
+                      if not mine:
+                          missing.append(f"{label}: no test referenced it")
+                      elif all(c.find("skipped") is not None for c in mine):
+                          missing.append(f"{label}: every test referencing it skipped")
+                  if missing:
+                      print("::error::matrix entries that did not run, though not in NOT_HERMETIC:")
+                      for line in missing:
+                          print(f"::error::{line}")
+                      sys.exit(1)
+                  print(f"all {len(runnable)} runnable matrix entries ran")
+                  CHECK
