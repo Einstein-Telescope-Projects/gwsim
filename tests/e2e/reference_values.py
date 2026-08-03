@@ -85,18 +85,43 @@ _RECORDED_PACKAGES = (
     "ripplegw",
     "jax",
     # Astropy supplies sidereal time to the projection, and `astropy-iers-data` is the Earth
-    # orientation table behind it. Both belong here because they are the *most frequent* reason
-    # this comparison moves, not a rare one: the IERS table is republished weekly, and the
-    # projection uses real UT1-UTC from it rather than assuming zero.
+    # orientation table behind it. These are the *most frequent* reason this comparison moves, so
+    # they belong here: the table is republished weekly.
     #
-    # Added after a lock-file bump moved a BBH peak by 1.6e-06 and the report said "no recorded
-    # package version changed, so a dependency bump does not explain this" -- which pointed the
-    # next reader at a code regression that did not exist. Measured cause: the table revised
-    # UT1-UTC by 2.740 ms, rotating GMST by 2.0e-07 rad (matching 2.740e-3 s x 7.2921e-5 rad/s),
-    # which moves the antenna pattern and so the strain.
+    # Added after a lock-file bump moved a BBH peak by 1.569e-06 and the report said "no recorded
+    # package version changed, so a dependency bump does not explain this" -- pointing the next
+    # reader at a code regression that did not exist.
+    #
+    # What actually moves, stated precisely because the obvious reading is wrong. The examples run
+    # at GPS 1577491296, which is 2030-01-01 -- about 885 days *beyond* the end of the packaged
+    # IERS table. Astropy clamps UT1-UTC to the table's final value there, so what changes each
+    # week is not a revised measurement for 2030 but the clamped edge following the table's new
+    # end date: -0.044955 s to -0.047695 s, a step of 2.740 ms. That rotates GMST by 1.9976e-07
+    # rad, matching 2.740e-3 s x 7.2921e-5 rad/s to 0.02%.
+    #
+    # Because the epoch rides the table edge, this churn is structural rather than incidental: a
+    # test epoch *inside* the table would move only when a finalised value is revised. That is a
+    # design question, not something to fix by widening a tolerance.
     "astropy",
     "astropy-iers-data",
+    # The C library behind Astropy's time and coordinate transforms; a change here moves sidereal
+    # time for the same reason astropy itself does.
+    "pyerfa",
+    # The implementation actually executing JAX computations on the device path.
+    "jaxlib",
 )
+
+#: Why this is a curated list rather than the full environment.
+#:
+#: `gwmock.cli.utils.environment.capture_environment` records *every* installed distribution, and a
+#: reference could store that instead -- which would make this diagnostic exhaustive by
+#: construction and remove the class of false negative that motivated adding astropy above.
+#:
+#: The cost is churn: every reference file would be rewritten whenever any development tool moved,
+#: which buries a real numerical change in noise and trains readers to skim the diff. So the list
+#: is deliberately confined to packages whose output can reach generated data. When a comparison
+#: fails and nothing here explains it, the run's own metadata carries the complete environment.
+_RECORDED_PACKAGES_ARE_CURATED = True
 
 
 #: Relative tolerance applied to ``peak`` and ``rms`` when the exact comparison is not available.
@@ -106,6 +131,17 @@ _RECORDED_PACKAGES = (
 #: far above the last-bit differences a different BLAS or libm produces for the same algorithm.
 #: Nobody has measured how far apart two platforms actually land, so treat it as a bound on what
 #: this check can detect rather than as a statement about numerical agreement.
+#:
+#: **One legitimate drift now exceeds it**, which the paragraph above no longer describes
+#: correctly. A weekly `astropy-iers-data` release moves the clamped Earth-orientation value at
+#: these examples' 2030 epoch, and that reached 1.569e-06 on one detector -- above this bound. So
+#: the comparison fails roughly weekly on a change that is not a defect.
+#:
+#: Left at 1e-06 deliberately. Raising it to sit above routine Earth-orientation movement would
+#: also stop it detecting a projection regression of the same size, and projection errors are
+#: exactly what it exists to catch. The alternative -- running the examples at an epoch inside the
+#: IERS table, where only a revised finalised value moves anything -- fixes the cause instead of
+#: hiding it, and is the open question rather than this number.
 STATISTIC_TOLERANCE = 1e-6
 
 

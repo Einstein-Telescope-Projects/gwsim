@@ -40,7 +40,10 @@ This produces GWF frame files with simulated noise and injected CBC signals for
 the triangular ET configuration, plus a `.metadata.json` provenance record
 containing the resolved configuration, seeds, package versions, and SHA-256
 hashes of every output file. That metadata file can be fed back to
-`gwmock simulate` to reproduce the run bit-for-bit.
+`gwmock simulate` to reproduce the run bit-for-bit. (One caveat, in
+[Reproducibility](reproducibility.md): Earth-orientation data is not pinned by a
+package version, so a run reproduced long after it was made can differ in
+sidereal time.)
 
 The main CLI commands:
 
