@@ -84,6 +84,18 @@ _RECORDED_PACKAGES = (
     "lalsuite",
     "ripplegw",
     "jax",
+    # Astropy supplies sidereal time to the projection, and `astropy-iers-data` is the Earth
+    # orientation table behind it. Both belong here because they are the *most frequent* reason
+    # this comparison moves, not a rare one: the IERS table is republished weekly, and the
+    # projection uses real UT1-UTC from it rather than assuming zero.
+    #
+    # Added after a lock-file bump moved a BBH peak by 1.6e-06 and the report said "no recorded
+    # package version changed, so a dependency bump does not explain this" -- which pointed the
+    # next reader at a code regression that did not exist. Measured cause: the table revised
+    # UT1-UTC by 2.740 ms, rotating GMST by 2.0e-07 rad (matching 2.740e-3 s x 7.2921e-5 rad/s),
+    # which moves the antenna pattern and so the strain.
+    "astropy",
+    "astropy-iers-data",
 )
 
 
