@@ -22,7 +22,7 @@ classifiers = [
 requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
-  "gwmock-signal>=0.12.0", # 0.12.0 first exports the on-device entry points simulate_segments needs
+  "gwmock-signal>=0.13.0", # 0.13.0 is the first release carrying the continuous-wave simulator
   "gwmock-noise>=0.10.0",
   "gwmock-pop>=0.11.4",
   "typer>=0.19.0",         # Literal-type CLI options; the SPEC 0 floor (0.13) predates them
@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sgwb = ["gwmock-signal[sgwb]>=0.12.0"]
+sgwb = ["gwmock-signal[sgwb]>=0.13.0"]
 # The batched signal path. Without this extra `SignalAdapter.simulate_segments` and
 # `execution: batched` raise, because gwmock-signal's batched entry points need JAX and ripple,
 # which the base install omits.
@@ -45,10 +45,19 @@ sgwb = ["gwmock-signal[sgwb]>=0.12.0"]
 # installed this way batches the work and runs it on the CPU. That is a supported configuration --
 # it is the one the test suite exercises -- but it is not device execution, and nothing at runtime
 # distinguishes the two beyond `jax.devices()`. Use the `cuda` extra below for a GPU.
-jax = ["gwmock-signal[jax]>=0.12.0"]
+# `ripplegw` is named explicitly so the development pin at the bottom of this file applies
+# to it. uv honours a source only for a package the project *declares*, and ripple would
+# otherwise arrive transitively through `gwmock-signal[jax]`; a source alone left the lock
+# resolving ripplegw 0.3.0 from the registry. Declaring it here rather than in a dev group
+# keeps it on the extras that need it -- a dev group would put ripple and JAX into every
+# plain `uv sync`, which would un-skip the ripple-gated tests in the default CI job and make
+# that job quietly test something other than what it claims. The published wheel gains only
+# `ripplegw>=0.3` under these extras, a registry floor that was already transitive, and no
+# git URL: verified with a plain `uv build`, which is what the release workflow runs.
+jax = ["gwmock-signal[jax]>=0.13.0", "ripplegw>=0.3"]
 # The same path with an actual GPU backend. Linux x86_64 with a CUDA 12 driver only; there is no
 # macOS or Windows wheel, which is why this is separate from `jax` rather than folded into it.
-cuda = ["gwmock-signal[jax]>=0.12.0", "jax[cuda12]>=0.11.0"]
+cuda = ["gwmock-signal[jax]>=0.13.0", "ripplegw>=0.3", "jax[cuda12]>=0.11.0"]
 
 [dependency-groups]
 dev = [
@@ -181,21 +190,36 @@ docstring-code-format = true # Format code in docstrings
 # PLC0415: allow import statements not at the top level
 # PLR2004: allow magic values in the unit tests
 
-# TEMPORARY development pin. Remove when gwmock-signal cuts a release containing the
-# continuous-wave simulator, then raise the floor in `dependencies` to that version.
+# TEMPORARY development pin. When a ripplegw release carries the geocentre fix
+# (GW-JAX-Team/ripple#141), do all of this together, or the paths below silently fall back to a
+# ripple without the fix:
+#
+#   1. delete this table;
+#   2. raise the `ripplegw>=0.3` floor in the `jax` and `cuda` extras above to that release;
+#   3. do the same in gwmock-signal, which carries its own copy of this pin;
+#   4. re-lock.
+#
+# Leaving the declarations without the table, or the table without the declarations, resolves
+# ripplegw 0.3.0 again -- and that is the version that returns NaN at the geocentre.
 #
 # Development-only: `[tool.uv.sources]` is not carried into the published wheel, so nobody
 # installing gwmock from PyPI inherits a git dependency. Build with `uv build --no-sources` while
 # this is present.
 #
-# One pin is enough, which is worth stating because it is not obvious. gwmock-signal carries its
-# own sources pin of ripplegw to the geocentre fix (GW-JAX-Team/ripple#141), and uv honours that
-# when gwmock-signal is consumed as a git dependency -- verified by removing an explicit ripplegw
-# pin here and re-resolving with `--upgrade-package ripplegw`, which still produced
-# ripplegw 0.3.1.dev3 from the git URL. Duplicating it here would only create a second place to
-# drift from.
+# Why it moved here. Until gwmock-signal 0.13.0 this file pinned *gwmock-signal* to a git
+# revision, and that was enough on its own: gwmock-signal carries its own sources pin of ripplegw,
+# and uv honours a git dependency's sources. Consuming the release instead breaks that inheritance
+# -- a wheel does not carry `[tool.uv.sources]` -- so resolving `gwmock-signal[jax]>=0.13.0` from
+# PyPI produces ripplegw 0.3.0, the version without the fix. Measured, not assumed: a scratch
+# project depending only on `gwmock-signal[jax]>=0.13.0` locks `ripplegw 0.3.0` from the registry.
+#
+# What that costs without this pin. The continuous-wave simulator generates polarizations at the
+# geocentre so one projection route serves every source type; released ripplegw evaluates the
+# detector latitude as `arccos(lz / rd)`, which is 0/0 there, and returns NaN for every sample.
+# gwmock-signal 0.13.0 refuses that rather than writing it, so the failure is loud -- but
+# continuous waves would simply not work in this repository's own development and CI.
 [tool.uv.sources]
-gwmock-signal = { git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git", rev = "589da1c" }
+ripplegw = { git = "https://github.com/GW-JAX-Team/ripple.git", rev = "400afb4" }
 
 [[tool.uv.index]]
 name = "testpypi"

@@ -667,9 +667,11 @@ dependencies = [
 cuda = [
     { name = "gwmock-signal", extra = ["jax"] },
     { name = "jax", extra = ["cuda12"] },
+    { name = "ripplegw" },
 ]
 jax = [
     { name = "gwmock-signal", extra = ["jax"] },
+    { name = "ripplegw" },
 ]
 sgwb = [
     { name = "gwmock-signal", extra = ["sgwb"] },
@@ -700,15 +702,17 @@ requires-dist = [
     { name = "filelock", specifier = ">=3.16.0" },
     { name = "gwmock-noise", specifier = ">=0.10.0" },
     { name = "gwmock-pop", specifier = ">=0.11.4" },
-    { name = "gwmock-signal", git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git?rev=589da1c" },
-    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'cuda'", git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git?rev=589da1c" },
-    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'jax'", git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git?rev=589da1c" },
-    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git?rev=589da1c" },
+    { name = "gwmock-signal", specifier = ">=0.13.0" },
+    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'cuda'", specifier = ">=0.13.0" },
+    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'jax'", specifier = ">=0.13.0" },
+    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.13.0" },
     { name = "h5py", specifier = ">=3.12.1" },
     { name = "jax", extras = ["cuda12"], marker = "extra == 'cuda'", specifier = ">=0.11.0" },
     { name = "psutil", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.9.0" },
     { name = "pymap3d", specifier = ">=3.2.0" },
+    { name = "ripplegw", marker = "extra == 'cuda'", git = "https://github.com/GW-JAX-Team/ripple.git?rev=400afb4" },
+    { name = "ripplegw", marker = "extra == 'jax'", git = "https://github.com/GW-JAX-Team/ripple.git?rev=400afb4" },
     { name = "textual", specifier = ">=2.0.0" },
     { name = "tqdm", specifier = ">=4.67.0" },
     { name = "typer", specifier = ">=0.19.0" },
@@ -768,13 +772,17 @@ wheels = [
 
 [[package]]
 name = "gwmock-signal"
-version = "0.12.1.dev6+g589da1ceb"
-source = { git = "https://github.com/Leuven-Gravity-Institute/gwmock-signal.git?rev=589da1c#589da1ceba8c631f397390b4afd708ca8f145059" }
+version = "0.13.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "gwpy" },
     { name = "lalsuite" },
     { name = "pyyaml" },
     { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c1/ac/ef9fd787daae0b03c5d6b0ed5d09c973484e6cba6f57cddddac1fe50e8c0/gwmock_signal-0.13.0.tar.gz", hash = "sha256:72838b14ca0545ff25dcf36c61e42a6e1e46319677eecacfc0a756ec9fc40513", size = 437126, upload-time = "2026-08-03T11:39:51.144Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/06/6e/2eaa611c36e9c695678cf373f4e1d77d897b9bf2c55b82ed4940565aff99/gwmock_signal-0.13.0-py3-none-any.whl", hash = "sha256:31feb76bd44a1835a8dbe1f218a7e3ada81d9541b183fc813c0d6afdc5ab6f0c", size = 162065, upload-time = "2026-08-03T11:39:49.839Z" },
 ]
 
 [package.optional-dependencies]
