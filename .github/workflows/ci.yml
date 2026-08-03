@@ -7,6 +7,13 @@ on:
     workflow_dispatch:
     workflow_call:
 
+# Least privilege for every job here: they check out, install, test and upload coverage, and none
+# writes to the repository. Set at workflow level rather than on the job this branch adds, because
+# `test` and `e2e` were relying on the repository default too -- pinning one job and leaving its
+# siblings open would read as though the others had been considered and approved.
+permissions:
+    contents: read
+
 jobs:
     test:
         strategy:
@@ -249,4 +256,46 @@ jobs:
               run: uv run --no-sync python tests/data/verify_ephemeris.py
 
             - name: Run end-to-end tests
-              run: uv run --no-sync pytest -m e2e --no-cov
+              run:
+                  uv run --no-sync pytest -m e2e --no-cov
+                  --junitxml=e2e-report.xml
+
+            # The same outcome check the continuous-wave unit modules get, for the same reason. The
+            # e2e tests call `skip_if_unavailable(entry)` before running, so a matrix entry can skip
+            # itself -- a missing extra, or an entry put back into NOT_HERMETIC -- and this job would
+            # still report green. `NOT_HERMETIC` entries are expected to skip and are read from the
+            # source of truth rather than listed here, so adding one cannot leave this check behind.
+            - name: Confirm every runnable matrix entry actually ran
+              if: ${{ !cancelled() }}
+              run: |
+                  uv run --no-sync python - <<'CHECK'
+                  import sys
+                  import xml.etree.ElementTree as ET
+
+                  sys.path.append("tests")  # append: tests/signal would shadow stdlib signal
+                  from e2e.matrix import E2E_MATRIX
+                  from e2e.overlay import NOT_HERMETIC
+
+                  expected_to_skip = set(NOT_HERMETIC)
+                  runnable = [e.label for e in E2E_MATRIX if e.label not in expected_to_skip]
+
+                  root = ET.parse("e2e-report.xml").getroot()
+                  cases = list(root.iter("testcase"))
+                  if not cases:
+                      print("::error::the e2e run collected no tests at all")
+                      sys.exit(1)
+
+                  missing = []
+                  for label in runnable:
+                      mine = [c for c in cases if label in (c.get("name") or "")]
+                      if not mine:
+                          missing.append(f"{label}: no test referenced it")
+                      elif all(c.find("skipped") is not None for c in mine):
+                          missing.append(f"{label}: every test referencing it skipped")
+                  if missing:
+                      print("::error::matrix entries that did not run, though not in NOT_HERMETIC:")
+                      for line in missing:
+                          print(f"::error::{line}")
+                      sys.exit(1)
+                  print(f"all {len(runnable)} runnable matrix entries ran")
+                  CHECK
