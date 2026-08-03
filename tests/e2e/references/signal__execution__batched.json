@@ -1,13 +1,17 @@
 {
   "environment": {
-    "gwmock": "0.12.0.post17+1e40c74",
+    "astropy": "8.0.1",
+    "astropy-iers-data": "0.2026.8.3.0.53.6",
+    "gwmock": "0.12.0.post25+b328dab",
     "gwmock-noise": "0.10.0",
     "gwmock-pop": "0.11.4",
-    "gwmock-signal": "0.12.0",
+    "gwmock-signal": "0.13.0",
     "jax": "0.11.0",
+    "jaxlib": "0.11.0",
     "lalsuite": "7.26.15",
     "numpy": "2.5.1",
-    "ripplegw": "0.3.0",
+    "pyerfa": "2.0.1.5",
+    "ripplegw": "0.3.1.dev3",
     "scipy": "1.18.0"
   },
   "fingerprint": {
@@ -19,33 +23,33 @@
   "outputs": {
     "output/signal/E-ET1_SARD_STRAIN_BBH-1577491296-16.gwf": {
       "argmax": 4076,
-      "content_hash": "sha256:26feca19ccdc28f3d75b7cf1fad760a4b984400611cffd609a1cd4a46e6345b8",
-      "mean": 6.162626140627517e-29,
+      "content_hash": "sha256:26ef46ad0b8d099fd8d84ff7e052b1bd017352d70de85999d614f86ceb815906",
+      "mean": 6.162627147715549e-29,
       "n": 16384,
       "nonzero": 4557,
-      "peak": 8.37155992267342e-22,
-      "rms": 5.450588182388899e-23,
-      "signed_peak": -8.37155992267342e-22
+      "peak": 8.371565670421422e-22,
+      "rms": 5.450588945669413e-23,
+      "signed_peak": -8.371565670421422e-22
     },
     "output/signal/E-ET2_SARD_STRAIN_BBH-1577491296-16.gwf": {
       "argmax": 4077,
-      "content_hash": "sha256:5bf0af886545494e1b3f55d0c78d2da61cc0a20c08ef499afa9f1936625b820b",
-      "mean": 3.899884972437172e-29,
+      "content_hash": "sha256:d7b060c69e624b9bce556a6132227f7dbd27f445b22bd43da95fe01b41eea44a",
+      "mean": 3.899885264320979e-29,
       "n": 16384,
       "nonzero": 4557,
-      "peak": 8.88996420670017e-22,
-      "rms": 5.515358197316947e-23,
-      "signed_peak": 8.88996420670017e-22
+      "peak": 8.889966192414945e-22,
+      "rms": 5.515358700573951e-23,
+      "signed_peak": 8.889966192414945e-22
     },
     "output/signal/E-ET3_SARD_STRAIN_BBH-1577491296-16.gwf": {
       "argmax": 4078,
-      "content_hash": "sha256:22193c03be81b01630841b95cbd0676282eb018e2e14b3f6e818f50f7deb9a7f",
-      "mean": -1.008862385299467e-28,
+      "content_hash": "sha256:fc5e58f2f237dc845db59d33f19a4ba550a57575a2a92eca3a369c82f9bd3e1e",
+      "mean": -1.0088625145610389e-28,
       "n": 16384,
       "nonzero": 4557,
-      "peak": 8.291569211105587e-22,
-      "rms": 5.23765677059786e-23,
-      "signed_peak": -8.291569211105587e-22
+      "peak": 8.291564320518887e-22,
+      "rms": 5.2376575527026696e-23,
+      "signed_peak": -8.291564320518887e-22
     }
   }
 }

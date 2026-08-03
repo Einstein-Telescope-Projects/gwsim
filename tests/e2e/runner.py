@@ -7,9 +7,12 @@ run-once-per-entry fixture without importing a test module.
 
 from __future__ import annotations
 
+import functools
 import json
+import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +59,48 @@ def write_config(entry: MatrixEntry, working_directory: Path) -> tuple[Path, dic
     return config_path, config
 
 
+@functools.lru_cache(maxsize=1)
+def _deterministic_iers_environment() -> dict[str, str]:
+    """Return an environment that pins the Earth-orientation table the run will use.
+
+    A package version does not identify which IERS table Astropy loaded. `auto_download` defaults
+    to ``True`` with an `auto_max_age` of 30 days, so once the installed `astropy-iers-data` is
+    older than that, Astropy fetches the current table from the IERS server instead of using the
+    one the package ships. Two runs with byte-identical dependency sets can then produce different
+    strain, because sidereal time reaches the projection through that table.
+
+    That matters here more than anywhere else: a reference is only meaningful if the inputs are
+    determined by things the reference records, and the fetched table is recorded nowhere. Left
+    alone, this suite would eventually compare against references generated from a table it can no
+    longer obtain, and report a regression.
+
+    Disabled through a `sitecustomize` shim on `PYTHONPATH` rather than an Astropy config file,
+    because the run is a subprocess and the config-file route did not take effect (the env var is
+    honoured, the section is not). The cache is redirected too, so a `finals2000A` downloaded by
+    something else cannot be picked up.
+    """
+    directory = Path(tempfile.mkdtemp(prefix="gwmock-e2e-iers-"))
+    (directory / "sitecustomize.py").write_text(
+        "\n".join(
+            (
+                "# Written by tests/e2e/runner.py; see _deterministic_iers_environment.",
+                "from astropy.utils import iers",
+                "",
+                "iers.conf.auto_download = False",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+    cache = directory / "astropy-cache"
+    cache.mkdir()
+    environment = dict(os.environ)
+    existing = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = f"{directory}{os.pathsep}{existing}" if existing else str(directory)
+    environment["ASTROPY_CACHE_DIR"] = str(cache)
+    return environment
+
+
 def run_entry(entry: MatrixEntry, working_directory: Path) -> dict[str, Any]:
     """Run one matrix entry through the real CLI and return the configuration used."""
     config_path, config = write_config(entry, working_directory)
@@ -65,6 +110,7 @@ def run_entry(entry: MatrixEntry, working_directory: Path) -> dict[str, Any]:
         capture_output=True,
         text=True,
         check=False,
+        env=_deterministic_iers_environment(),
     )
     assert completed.returncode == 0, (
         f"'{entry.label}' failed via the CLI (exit {completed.returncode}):\n{completed.stderr[-2000:]}"

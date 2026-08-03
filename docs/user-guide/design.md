@@ -78,7 +78,8 @@ the SHA-256 hash of every output file. This single file supports three
 workflows:
 
 - **Reproduce** — `gwmock simulate run.metadata.json` regenerates the dataset
-  bit-for-bit ([Reproducibility](reproducibility.md)).
+  bit-for-bit, with one documented exception for Earth-orientation data
+  ([Reproducibility](reproducibility.md)).
 - **Verify** — `gwmock validate` re-hashes outputs and compares against the
   recorded values ([Validating Output Files](validate.md)).
 - **Publish** — `gwmock repository` uploads datasets with their provenance to

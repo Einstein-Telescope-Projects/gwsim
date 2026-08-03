@@ -1,13 +1,17 @@
 {
   "environment": {
-    "gwmock": "0.12.0.post9+a8e8004",
+    "astropy": "8.0.1",
+    "astropy-iers-data": "0.2026.8.3.0.53.6",
+    "gwmock": "0.12.0.post25+b328dab",
     "gwmock-noise": "0.10.0",
     "gwmock-pop": "0.11.4",
-    "gwmock-signal": "0.12.0",
+    "gwmock-signal": "0.13.0",
     "jax": "0.11.0",
+    "jaxlib": "0.11.0",
     "lalsuite": "7.26.15",
     "numpy": "2.5.1",
-    "ripplegw": "0.3.0",
+    "pyerfa": "2.0.1.5",
+    "ripplegw": "0.3.1.dev3",
     "scipy": "1.18.0"
   },
   "fingerprint": {

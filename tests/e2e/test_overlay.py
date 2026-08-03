@@ -8,6 +8,8 @@ alone, makes the end-to-end suite report on something other than what its matrix
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -178,3 +180,32 @@ def test_contains_signal_only_names_matrix_entries():
     labels = {entry.label for entry in E2E_MATRIX}
     unknown = sorted(CONTAINS_SIGNAL - labels)
     assert not unknown, f"CONTAINS_SIGNAL names entries that are not in the matrix: {unknown}"
+
+
+def test_the_runner_pins_the_earth_orientation_table():
+    """The child process must not be free to fetch a different IERS table.
+
+    A reference is only meaningful if its inputs are determined by things the reference records,
+    and which IERS table Astropy loaded is recorded nowhere. `auto_download` defaults to ``True``
+    with a 30-day `auto_max_age`, so an installation whose `astropy-iers-data` has aged out
+    silently fetches the current table from the IERS server -- two runs with byte-identical
+    dependency sets then produce different strain.
+
+    Asserted by launching a child with the runner's environment rather than by reading the shim,
+    because what matters is the value Astropy ends up with in the process that generates data.
+    """
+    pytest.importorskip("astropy")
+    from .runner import _deterministic_iers_environment
+
+    completed = subprocess.run(
+        [sys.executable, "-c", "from astropy.utils import iers; print(iers.conf.auto_download)"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=_deterministic_iers_environment(),
+    )
+
+    assert completed.returncode == 0, completed.stderr[-2000:]
+    assert completed.stdout.strip() == "False", (
+        f"the runner's environment left IERS auto-download enabled: {completed.stdout.strip()!r}"
+    )
