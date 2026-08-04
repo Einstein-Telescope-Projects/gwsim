@@ -92,10 +92,10 @@ _RECORDED_PACKAGES = (
     # package version changed, so a dependency bump does not explain this" -- pointing the next
     # reader at a code regression that did not exist.
     #
-    # What actually moves, stated precisely because the obvious reading is wrong. The examples run
-    # at GPS 1577491296, which is 2030-01-01 -- about 885 days *beyond* the end of the packaged
-    # IERS table. Astropy clamps UT1-UTC to the table's final value there, so what changes each
-    # week is not a revised measurement for 2030 but the clamped edge following the table's new
+    # What used to move, and why it no longer does. The shipped examples run at GPS 1577491296 --
+    # 2030-01-01, about 885 days *beyond* the end of the packaged IERS table, where Astropy clamps
+    # UT1-UTC to the final tabulated value. What changed each week was not a revised measurement
+    # for 2030 but the clamped edge following the table's new
     # end date: -0.044955 s to -0.047695 s, a step of 2.740 ms. That rotates GMST by 1.9976e-07
     # rad, matching 2.740e-3 s x 7.2921e-5 rad/s to 0.02%.
     #
@@ -132,16 +132,21 @@ _RECORDED_PACKAGES_ARE_CURATED = True
 #: Nobody has measured how far apart two platforms actually land, so treat it as a bound on what
 #: this check can detect rather than as a statement about numerical agreement.
 #:
-#: **One legitimate drift now exceeds it**, which the paragraph above no longer describes
-#: correctly. A weekly `astropy-iers-data` release moves the clamped Earth-orientation value at
-#: these examples' 2030 epoch, and that reached 1.569e-06 on one detector -- above this bound. So
-#: the comparison fails roughly weekly on a change that is not a defect.
+#: A weekly `astropy-iers-data` release used to exceed this bound, reaching 1.569e-06 on one
+#: detector, because the examples ran at a 2030 epoch beyond the end of the Earth-orientation
+#: table where Astropy clamps UT1-UTC to the final tabulated value -- so every release moved that
+#: clamp and the generated strain with it. That is fixed at the cause: the suite now runs inside
+#: the finalised part of the table (see ``_ALIGNED_START`` in ``overlay.py``), where the value is
+#: bit-identical across releases.
 #:
-#: Left at 1e-06 deliberately. Raising it to sit above routine Earth-orientation movement would
-#: also stop it detecting a projection regression of the same size, and projection errors are
-#: exactly what it exists to catch. The alternative -- running the examples at an epoch inside the
-#: IERS table, where only a revised finalised value moves anything -- fixes the cause instead of
-#: hiding it, and is the open question rather than this number.
+#: Left at 1e-06 rather than widened, and the distinction matters. Raising it to sit above routine
+#: Earth-orientation movement would also have stopped it detecting a projection regression of the
+#: same size, which is what it exists to catch.
+#:
+#: What can still move output through this route is a *revised finalised* value, which IERS does
+#: occasionally publish. That is rare and small rather than weekly, and it is why
+#: `astropy-iers-data` stays in :data:`_RECORDED_PACKAGES`: the churn is gone, the dependency is
+#: not.
 STATISTIC_TOLERANCE = 1e-6
 
 

@@ -2,7 +2,7 @@
   "environment": {
     "astropy": "8.0.1",
     "astropy-iers-data": "0.2026.8.3.0.53.6",
-    "gwmock": "0.12.0.post25+b328dab",
+    "gwmock": "0.12.0.post28+148c143",
     "gwmock-noise": "0.10.0",
     "gwmock-pop": "0.11.4",
     "gwmock-signal": "0.13.0",
