@@ -449,13 +449,20 @@ class TestNothingIsDiscarded:
         injection would crop those 2.6 s -- 65% of its samples -- because the first segment is
         already written by then.
 
-        This offset is deliberately the *mild* case. Measured for this binary at 1024 Hz, the
-        unweighted strain-squared energy lost runs 0.34% at 1 s past the boundary, 11% at 0.25 s,
-        50% at 0.1 s and 99.8% at 1 ms, because a compact binary's energy is concentrated in the
-        last fraction of a second before merger. Testing the mild case makes the assertion depend on
-        placement rather than on that concentration: 0.34% is a loss no energy-fraction tolerance
-        would forgive, and a test pinned at the catastrophic end would still pass if placement were
-        only approximately right.
+        This offset is deliberately the *mild* case. **At this module's 30 Hz cutoff, on the
+        ET-Triangle-Sardinia network it configures**, the unweighted strain-squared energy lost runs
+        0.34% at 1 s past the boundary, 11% at 0.25 s, 50% at 0.1 s and 99.8% at 1 ms, because a
+        compact binary's energy is concentrated in the last fraction of a second before merger. Testing the mild case makes the assertion depend on placement rather
+        than on that concentration: 0.34% is a loss no energy-fraction tolerance would forgive, and a
+        test pinned at the catastrophic end would still pass if placement were only approximately
+        right.
+
+        The cutoff has to be stated, because it moves these numbers by more than an order of
+        magnitude while leaving the dropped *span* untouched. The same binary at a 20 Hz cutoff -- the
+        one a real ET configuration uses -- loses 32.3% at 0.5 s past the boundary against 0.91% here
+        at 30 Hz, since the conditioning rounds both to the same 4.000 s buffer but only the lower
+        cutoff puts real signal in the early samples. See
+        ``WaveformBackend.pre_coalescence_duration`` in gwmock-signal for both curves.
 
         Summed squares across the two assembled segments are compared against the same waveform
         generated on its own, which is the quantity that must survive placement.
