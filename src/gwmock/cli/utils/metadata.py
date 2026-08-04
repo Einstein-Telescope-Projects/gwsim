@@ -11,7 +11,12 @@ import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-SCHEMA_VERSION = "1.3.0"
+#: 1.4.0 because ``signal.injections`` changed meaning: an event is now attributed to the frame its
+#: waveform *starts* in rather than the frame holding its coalescence. No field was added or removed,
+#: so a consumer reading the old version parses the new one without noticing -- which is exactly why
+#: the version has to move. A reader comparing records across a run boundary needs to be able to tell
+#: which convention produced each one.
+SCHEMA_VERSION = "1.4.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 

@@ -10,11 +10,17 @@ The rule these tests pin is that a segment claims the events whose *waveform* st
 taken from :meth:`SignalAdapter.pre_coalescence_duration`. Two loops apply it -- per-event and
 batched -- and both are checked, because ``population_index`` is checkpointed state and a run
 switched between modes must not skip or repeat an event because the two disagreed.
+
+The rule alone is not enough, which is what ``TestConsumptionOrderDoesNotStrandEvents`` covers: both
+loops stop at the first event that does not belong, so the catalogue has to be consumed in
+waveform-start order rather than in ``coa_time`` order, or a long-lead event sitting behind a
+short-lead one is never reached and is cropped exactly as before.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -103,14 +109,30 @@ class _StubAdapter:
     from the bundled backends with complete parameters.
     """
 
-    def __init__(self, lead: float | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        lead: float | None = None,
+        error: Exception | None = None,
+        leads_by_coa_time: Mapping[float, float] | None = None,
+        errors_by_coa_time: Mapping[float, Exception] | None = None,
+    ) -> None:
         self._lead = lead
         self._error = error
+        # Per-event answers, so a catalogue can be given leads that vary the way real ones do -- a
+        # heavy binary black hole against a binary neutron star differ by an order of magnitude.
+        self._leads_by_coa_time = dict(leads_by_coa_time or {})
+        self._errors_by_coa_time = dict(errors_by_coa_time or {})
         self.detector_names = ("E1",)
 
-    def pre_coalescence_duration(self, _parameters: Any, **_: Any) -> float | None:
-        if self._error is not None:
+    def pre_coalescence_duration(self, parameters: Mapping[str, Any], **_: Any) -> float | None:
+        coa_time = parameters.get("coa_time")
+        per_event_error = self._errors_by_coa_time.get(coa_time)
+        if per_event_error is not None:
+            raise per_event_error
+        if self._error is not None and not self._errors_by_coa_time:
             raise self._error
+        if coa_time in self._leads_by_coa_time:
+            return self._leads_by_coa_time[coa_time]
         return self._lead
 
 
@@ -157,6 +179,19 @@ class TestTheBoundaryRule:
         assert orchestrator._event_starts_before_segment_end({**_COMPLETE_EVENT, "coa_time": end_time + 4.0})
         assert not orchestrator._event_starts_before_segment_end({**_COMPLETE_EVENT, "coa_time": end_time + 6.0})
 
+    def test_a_waveform_starting_exactly_on_the_boundary_goes_to_the_next_segment(self, tmp_path):
+        """The comparison is strict, and which way it resolves matters rather than being arbitrary.
+
+        A waveform starting exactly where the next segment starts loses nothing by being claimed
+        there: that segment's start *is* the waveform's start, so injection crops zero samples.
+        Claiming it here would generate it a segment early for no gain.
+        """
+        orchestrator = _orchestrator(tmp_path)
+        orchestrator.signal_adapter = _StubAdapter(lead=4.0)
+        end_time = _end_time(orchestrator)
+
+        assert not orchestrator._event_starts_before_segment_end({**_COMPLETE_EVENT, "coa_time": end_time + 4.0})
+
     def test_an_event_without_a_coalescence_time_always_belongs(self, tmp_path):
         """Non-coalescing sources reach the loop unchanged; there is nothing to place them by."""
         orchestrator = _orchestrator(tmp_path)
@@ -201,8 +236,8 @@ class TestWhenTheLeadIsNotAvailable:
             "the swallowed reason must appear, or a run silently reverts to the cropping behaviour"
         )
 
-    def test_the_fallback_warns_once_rather_than_once_per_event(self, tmp_path, caplog):
-        """A catalogue the query cannot answer for cannot answer for any of its events."""
+    def test_the_fallback_warns_once_for_a_repeated_reason(self, tmp_path, caplog):
+        """A catalogue the query cannot read fails identically for every row; say so once."""
         orchestrator = _orchestrator(tmp_path)
         orchestrator.signal_adapter = _StubAdapter(error=ValueError("nope"))
         end_time = _end_time(orchestrator)
@@ -213,6 +248,31 @@ class TestWhenTheLeadIsNotAvailable:
 
         assert caplog.text.count("Cannot establish how long before coalescence") == 1
 
+    def test_a_second_distinct_reason_is_also_reported(self, tmp_path, caplog):
+        """Deduplicating by a flag rather than by reason would name the wrong cause.
+
+        One malformed row fails only its own query. Under a single flag, every later event failing for
+        a *different* reason falls back silently beneath a warning describing the first one -- so the
+        operator reads one cause and has no way to see the others.
+        """
+        orchestrator = _orchestrator(tmp_path)
+        end_time = _end_time(orchestrator)
+        first, second = end_time - 1.0, end_time - 2.0
+        orchestrator.signal_adapter = _StubAdapter(
+            errors_by_coa_time={
+                first: ValueError("Missing required parameter: 'distance'"),
+                second: TypeError("unsupported operand type(s)"),
+            }
+        )
+
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            orchestrator._event_starts_before_segment_end({**_COMPLETE_EVENT, "coa_time": first})
+            orchestrator._event_starts_before_segment_end({**_COMPLETE_EVENT, "coa_time": second})
+
+        assert caplog.text.count("Cannot establish how long before coalescence") == 2
+        assert "Missing required parameter" in caplog.text
+        assert "unsupported operand" in caplog.text
+
     def test_a_run_without_a_signal_adapter_still_walks_the_catalogue(self, tmp_path):
         """Noise-only orchestration reaches this helper through shared code paths."""
         orchestrator = _orchestrator(tmp_path)
@@ -221,6 +281,108 @@ class TestWhenTheLeadIsNotAvailable:
 
         assert orchestrator._event_starts_before_segment_end({**_COMPLETE_EVENT, "coa_time": end_time - 0.5})
         assert not orchestrator._event_starts_before_segment_end({**_COMPLETE_EVENT, "coa_time": end_time + 0.5})
+
+
+class TestConsumptionOrderDoesNotStrandEvents:
+    """A long-lead event behind a short-lead one must still be claimed by the segment it starts in.
+
+    Both loops walk the catalogue and stop at the first event that does not belong, which is sound
+    only if "belongs" is a prefix property. It was, under the ``coa_time`` rule. Under the
+    waveform-start rule it is not for a ``coa_time``-sorted catalogue, because the lead varies with
+    the source -- roughly 3 s for a heavy binary black hole against ~100 s for a binary neutron star.
+    Consumption is therefore ordered by the placement key instead.
+
+    Without that ordering the third event below is never reached, is generated a segment late, and is
+    cropped -- the exact loss this rule exists to prevent, reintroduced by catalogue order alone.
+    """
+
+    def _catalogue(self, end_time: float):
+        """Return a catalogue whose waveform-start order differs from its coa_time order."""
+        return (
+            {**_COMPLETE_EVENT, "coa_time": end_time + 1.0},  # start end-9   belongs
+            {**_COMPLETE_EVENT, "coa_time": end_time + 2.0},  # start end+1   does not
+            {**_COMPLETE_EVENT, "coa_time": end_time + 3.0},  # start end-17  belongs, sorts last
+        )
+
+    def _leads(self, end_time: float) -> dict[float, float]:
+        return {end_time + 1.0: 10.0, end_time + 2.0: 1.0, end_time + 3.0: 20.0}
+
+    def test_the_batched_walk_reaches_the_long_lead_event_behind_a_short_lead_one(self, tmp_path):
+        orchestrator = _orchestrator(tmp_path, "batched")
+        end_time = _end_time(orchestrator)
+        orchestrator.signal_adapter = _StubAdapter(leads_by_coa_time=self._leads(end_time))
+        orchestrator._population_events = self._catalogue(end_time)
+
+        event_ids, events = orchestrator._events_for_this_segment()
+
+        assert sorted(event_ids) == [0, 2], (
+            "event 2 starts 17 s before the boundary; stopping at event 1 would strand it and crop it"
+        )
+        assert len(events) == 2
+        assert 1 not in event_ids, "event 1's waveform starts after this segment ends"
+
+    def test_the_per_event_loop_reaches_it_too(self, tmp_path):
+        """The two loops must agree, or a mode switch mid-run changes which events exist where."""
+        orchestrator = _orchestrator(tmp_path, "per-event")
+        end_time = _end_time(orchestrator)
+        orchestrator.signal_adapter = _StubAdapter(leads_by_coa_time=self._leads(end_time))
+        orchestrator._population_events = self._catalogue(end_time)
+
+        order = orchestrator._placement_order()
+        claimed = []
+        for position in order:
+            if not orchestrator._event_starts_before_segment_end(orchestrator._population_events[position]):
+                break
+            claimed.append(position)
+
+        assert sorted(claimed) == [0, 2]
+
+    def test_the_deferred_event_is_picked_up_by_the_next_segment(self, tmp_path):
+        """Consuming out of catalogue order must not skip or repeat the event left behind.
+
+        ``population_index`` counts events consumed rather than naming a catalogue position, so this
+        is the assertion that the count and the order stay consistent with each other.
+        """
+        orchestrator = _orchestrator(tmp_path, "batched")
+        end_time = _end_time(orchestrator)
+        orchestrator.signal_adapter = _StubAdapter(leads_by_coa_time=self._leads(end_time))
+        orchestrator._population_events = self._catalogue(end_time)
+
+        first_ids, _ = orchestrator._events_for_this_segment()
+        orchestrator._commit_consumed_events(first_ids)
+
+        assert int(orchestrator.population_index) == 2, "two events consumed, whatever their positions"
+
+        orchestrator.update_state()
+        second_ids, _ = orchestrator._events_for_this_segment()
+
+        assert second_ids == [1], "the deferred event, exactly once"
+        orchestrator._commit_consumed_events(second_ids)
+        assert int(orchestrator.population_index) == 3
+        assert sorted(first_ids + second_ids) == [0, 1, 2], "every event claimed exactly once"
+
+    def test_events_without_a_coalescence_time_are_never_left_behind(self, tmp_path):
+        """They belong to every segment, so they must not sit behind an event that ends the walk."""
+        orchestrator = _orchestrator(tmp_path, "batched")
+        end_time = _end_time(orchestrator)
+        orchestrator.signal_adapter = _StubAdapter(lead=1.0)
+        orchestrator._population_events = (
+            {**_COMPLETE_EVENT, "coa_time": end_time + 100.0},
+            {"frequency": 100.0},
+        )
+
+        event_ids, _ = orchestrator._events_for_this_segment()
+
+        assert event_ids == [1]
+
+    def test_the_order_is_stable_for_events_sharing_a_start(self, tmp_path):
+        """Equal keys keep catalogue order, so provenance and injection order stay reproducible."""
+        orchestrator = _orchestrator(tmp_path, "batched")
+        end_time = _end_time(orchestrator)
+        orchestrator.signal_adapter = _StubAdapter(lead=2.0)
+        orchestrator._population_events = tuple({**_COMPLETE_EVENT, "coa_time": end_time - 5.0} for _ in range(4))
+
+        assert orchestrator._placement_order() == (0, 1, 2, 3)
 
 
 class TestBothLoopsAgree:
@@ -344,6 +506,74 @@ class TestNothingIsDiscarded:
             "the event belongs to the first segment, where its waveform starts"
         )
         assert second_segment_injections == [], "and it is not cross-listed against the frame its coalescence falls in"
+
+
+class TestWhatAConsumerSees:
+    """The attribution change reaches serialized metadata and the lookup, so it is checked there."""
+
+    def test_the_schema_version_records_that_the_attribution_changed(self):
+        """No field was added or removed, so nothing but the version tells the two conventions apart.
+
+        A consumer reading a 1.3.0 record and a new one sees the same shape while ``injections`` means
+        something different in each. The version is the only signal available, so it has to move.
+        """
+        from gwmock.cli.utils.metadata import SCHEMA_VERSION
+
+        assert SCHEMA_VERSION == "1.4.0"
+
+    def test_an_older_record_still_loads(self):
+        """Bumping the minor must not orphan archived runs: the major is what gates parsing."""
+        from gwmock.cli.utils.metadata import MetadataRecord
+
+        record = MetadataRecord.model_validate(
+            {
+                "schema_version": "1.3.0",
+                "subpackage_versions": {},
+                "config": {},
+                "config_sha256": "0" * 64,
+                "host": {"platform": "linux", "python": "3.12", "cpu": "x86_64"},
+            }
+        )
+
+        assert record.schema_version == "1.3.0"
+
+    def test_the_lookup_reports_the_frame_the_injection_was_recorded_against(self, tmp_path):
+        """``find_signal`` reads ``signal.injections`` generically, so it follows placement.
+
+        Pinned because it is the user-visible consequence: an event is reported against the frame its
+        waveform starts in, which for a large lead can be a frame holding mostly quiet lead-in rather
+        than the merger. The lookup itself needs no change; this is here so that stays true.
+        """
+        import json
+
+        from gwmock.cli.utils.signal_lookup import find_signals
+
+        metadata_directory = tmp_path / "metadata"
+        metadata_directory.mkdir()
+        (metadata_directory / "orchestration-0.metadata.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.4.0",
+                    "subpackage_versions": {},
+                    "config": {},
+                    "config_sha256": "0" * 64,
+                    "host": {"platform": "linux", "python": "3.12", "cpu": "x86_64"},
+                    "signal": {
+                        "backend": "stub",
+                        "injections": [{"event_id": 7, "parameters": {"coa_time": 1000.0}}],
+                    },
+                    "outputs": [{"kind": "signal", "path": "signal/sig-0.gwf"}],
+                }
+            )
+        )
+
+        results = find_signals(metadata_directory, param_filters=[("coa_time", "==", 1000.0)])
+
+        assert [entry["event_id"] for entry in results] == [7]
+        assert results[0]["frames"] == ["signal/sig-0.gwf"], (
+            "the frame listed is the one the injection was recorded against, which is now the frame "
+            "the waveform starts in"
+        )
 
 
 class TestAgainstRealGeneration:
