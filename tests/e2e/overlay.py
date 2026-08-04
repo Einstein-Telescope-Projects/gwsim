@@ -51,14 +51,29 @@ POPULATION_FIXTURE = _THIS_DIRECTORY / "data" / "bbh_population.csv"
 #: other entry's population is: the overlay owns where inputs come from.
 CW_POPULATION_FIXTURE = EXAMPLES_DIR / "signal" / "cw_population.csv"
 
-#: The single event in :data:`POPULATION_FIXTURE`.
-_FIXTURE_EVENT_GPS = 1419724820.0
+
+def _fixture_event_gps() -> float:
+    """Return the single event's coalescence time, read from the fixture rather than restated.
+
+    Duplicating it let the CSV and this constant drift: the bracket check below would keep passing
+    while the event sat outside every segment, and only the slower end-to-end nonzero assertion
+    would have caught it.
+    """
+    rows = POPULATION_FIXTURE.read_text(encoding="utf-8").strip().splitlines()
+    columns = rows[0].split(",")
+    return float(rows[1].split(",")[columns.index("coa_time")])
+
+
+#: The single event in :data:`POPULATION_FIXTURE`, read from the file itself.
+_FIXTURE_EVENT_GPS = _fixture_event_gps()
 
 #: Start time placing that event inside a short segment. A run whose span misses the population
 #: still succeeds and writes only zeros, so this is not a cosmetic choice -- see the
 #: ``contains_signal`` assertions in the end-to-end tests.
 #:
-#: 2025-01-01, and the choice of *year* is load-bearing. The shipped examples run in 2030 to match
+#: GPS 1419724816, which is 2024-12-31 23:59:58 UTC -- chosen for 16-second alignment, so the
+#: fixture event four seconds later falls at 2025-01-01 00:00:02. The choice of *year* is
+#: load-bearing; the seconds are only alignment. The shipped examples run in 2030 to match
 #: the Einstein Telescope era, which is roughly 885 days beyond the end of the IERS Earth-orientation
 #: table Astropy ships. Astropy clamps UT1-UTC to the table's final value there, so every weekly
 #: `astropy-iers-data` release moved that clamped value and with it the generated strain -- measured
@@ -68,11 +83,22 @@ _FIXTURE_EVENT_GPS = 1419724820.0
 #: Inside the *finalised* part of the table, nothing moves. Measured across the 0.2026.7.27 and
 #: 0.2026.8.3 releases: UT1-UTC at 2024-01-01, 2025-01-01 and 2026-01-01 is bit-identical, while
 #: 2030-01-01 stepped by 2.740 ms. Finalised data ended 2026-07-23 when this was chosen, so this
-#: epoch keeps about eighteen months of margin before the prediction boundary.
+#: epoch keeps about eighteen months of margin before the prediction boundary, and the margin only
+#: grows as the table extends.
 #:
-#: The cost, stated because it is a real one: the suite no longer exercises the epoch the examples
-#: document. What that could hide is an error that depends on being far outside the IERS table --
-#: which is the situation this deliberately stops testing.
+#: Not an indefinite bit-stability guarantee, though. IERS does occasionally reprocess historical
+#: spans when the C04 solution's reference frame changes -- 2021-2024 data has been revised that
+#: way -- so a future release could still move this epoch. What the move buys is removing a
+#: *weekly* certainty, not every possibility; a rare reprocessing is what
+#: `astropy-iers-data` staying in the recorded package list is for.
+#:
+#: The cost, stated because it is a real one, and narrower than it first looks: the *reference
+#: comparison* no longer runs at the epoch the examples document, so an error that depends on being
+#: far outside the IERS table would not show up in a reference diff. The far-future regime is still
+#: exercised by unit tests that stay at 2030 -- the continuous-wave orchestration, device-chunk and
+#: content-before-segment modules among them -- and those do not churn, because they assert
+#: properties rather than compare against stored numbers. So what is lost is reference-level
+#: coverage of the clamped regime, not all coverage of it.
 _ALIGNED_START = 1419724816.0
 
 #: Entries that cannot be run without fetching from the network, with the reason. These are
@@ -175,8 +201,17 @@ _OVERLAYS: dict[str, dict[str, Any]] = {
         # spin parameters refer to -- but then the phase would be accumulated across five years for
         # no reason, and the run would be describing a catalogue referenced to a time it never
         # covers.
-        "signal": {"arguments": {"reference_time_ssb": _ALIGNED_START}},
-        "orchestration": {"population": {"arguments": {"path": str(CW_POPULATION_FIXTURE)}}},
+        #
+        # Nested under `orchestration`, which is where the configuration reads it. The first
+        # version of this put `signal` at the root: the deep merge accepted the stray key without
+        # complaint, the effective value stayed at the example's 2030 epoch, and both the override
+        # and this comment were false while every test passed.
+        # One `orchestration` key, not two. Written as two at first, and Python keeps only the
+        # last -- so the reference-epoch override vanished silently and nothing failed.
+        "orchestration": {
+            "population": {"arguments": {"path": str(CW_POPULATION_FIXTURE)}},
+            "signal": {"arguments": {"reference_time_ssb": _ALIGNED_START}},
+        },
     },
     # Deliberately the same overlay as the ripple entry above: the two configs differ only by
     # `execution`, and holding the span, rate and population identical is what makes their stored

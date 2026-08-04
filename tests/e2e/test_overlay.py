@@ -209,3 +209,94 @@ def test_the_runner_pins_the_earth_orientation_table():
     assert completed.stdout.strip() == "False", (
         f"the runner's environment left IERS auto-download enabled: {completed.stdout.strip()!r}"
     )
+
+
+def test_the_population_fixture_matches_the_example_it_copies():
+    """The test-owned catalogue must differ from the example's only in ``coa_time``.
+
+    It exists because the e2e epoch has to sit inside the IERS table while the examples stay in
+    2030, so the coalescence time cannot be shared. Everything else -- masses, distance, sky
+    position, inclination -- must track the example, or the suite quietly stops testing the
+    configuration it claims to and the stored references stop describing the documented example.
+
+    Nothing else enforces that: the neighbouring guard checks the event falls inside the span, not
+    that the two files agree. Duplication without a guard is how the copy goes stale.
+    """
+    example = EXAMPLES_DIR / "signal" / "bbh_population.csv"
+    fixture = POPULATION_FIXTURE
+
+    example_rows = example.read_text(encoding="utf-8").strip().splitlines()
+    fixture_rows = fixture.read_text(encoding="utf-8").strip().splitlines()
+
+    assert fixture_rows[0] == example_rows[0], (
+        f"{fixture.name} and {example.name} disagree on their columns; the fixture is a copy of "
+        f"the example and must follow it"
+    )
+    assert len(fixture_rows) == len(example_rows), (
+        f"{example.name} has {len(example_rows) - 1} event(s) and {fixture.name} has "
+        f"{len(fixture_rows) - 1}; the e2e suite would test a different population than the example"
+    )
+
+    columns = example_rows[0].split(",")
+    time_column = columns.index("coa_time")
+    paired = zip(fixture_rows[1:], example_rows[1:], strict=True)
+    for line_number, (mine, theirs) in enumerate(paired, start=2):
+        mine_fields, theirs_fields = mine.split(","), theirs.split(",")
+        fields = zip(mine_fields, theirs_fields, strict=True)
+        differing = [columns[i] for i, (a, b) in enumerate(fields) if a != b]
+        assert differing == ["coa_time"], (
+            f"line {line_number} differs in {differing} as well as coa_time; only the coalescence "
+            f"time may differ between the fixture and the example"
+        )
+    # And the coalescence time must actually differ, or the fixture has no reason to exist.
+    assert fixture_rows[1].split(",")[time_column] != example_rows[1].split(",")[time_column]
+
+
+def test_every_overlay_override_survives_the_merge(tmp_path: Path):
+    """An override that lands nowhere is worse than no override: it reads as done and is not.
+
+    This catches one of the two ways that happened while writing this module: a `signal` key at the
+        overlay's root, which the deep merge accepted while the configuration read
+        `orchestration.signal`. Silent -- the config parsed, the run succeeded, the value stayed the
+        example's.
+
+        The other way, two `orchestration` keys in one dict literal where Python keeps only the last,
+        is *not* covered here and cannot be: the duplicate is discarded at parse time, so the overlay
+        this test inspects never contains the lost override. Ruff's `F601` catches that one, and the
+        pre-commit hook enforces it -- worth knowing so nobody adds a test here expecting to.
+    """
+
+    def leaves(mapping, prefix=()):
+        for key, value in mapping.items():
+            if isinstance(value, dict):
+                yield from leaves(value, (*prefix, key))
+            else:
+                yield (*prefix, key), value
+
+    for label, overlay in _OVERLAYS.items():
+        if label in NOT_HERMETIC:
+            continue
+        example = _example(label)
+        merged = apply_overlay(example, label, tmp_path / label.replace("/", "_"))
+        for path, expected in leaves(overlay):
+            # The override must attach to a branch the configuration already has. This is the check
+            # that catches the real bug: a `signal` key at the overlay root produced
+            # `signal.arguments.reference_time_ssb` in the merged mapping -- present, equal to what
+            # the overlay asked for, and read by nobody, because the configuration reads
+            # `orchestration.signal`. Comparing the overlay against the merged result cannot see
+            # that; comparing against the *example* can.
+            assert path[0] in example, (
+                f"'{label}' overlay sets {'.'.join(path)}, but the example has no {path[0]!r} "
+                f"section -- the override creates a branch nothing reads"
+            )
+            node = merged
+            for step in path:
+                assert isinstance(node, dict), f"'{label}' overlay sets {'.'.join(path)}, but {step!r} is not a section"
+                assert step in node, (
+                    f"'{label}' overlay sets {'.'.join(path)}, which does not exist in the merged "
+                    f"configuration -- the key is at the wrong level and the override does nothing"
+                )
+                node = node[step]
+            assert node == expected, (
+                f"'{label}' overlay sets {'.'.join(path)} to {expected!r} but the merged configuration has {node!r}"
+            )
