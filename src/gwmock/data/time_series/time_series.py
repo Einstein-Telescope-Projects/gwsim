@@ -353,9 +353,19 @@ class TimeSeries(JSONSerializable):
     def _report_content_before_segment(self, chunk: TimeSeries) -> None:
         """Warn that content starting before this segment is about to be dropped.
 
-        Reported rather than fixed. Placing it would mean writing into segments already on disk, so
-        the loss is real either way -- but it was silent, and a truncated inspiral looks like a
-        perfectly ordinary signal. Saying how much went, per signal, is what lets a run be judged.
+        Reaching this is now the exception rather than the rule. Segments claim an event by where its
+        waveform *starts*, so an ordinary compact binary is generated early enough for the whole
+        buffer to be placed. What still arrives here is the cases that rule cannot cover:
+
+        - a waveform beginning before the run's own start, which has no segment to go in;
+        - a backend that cannot say how long before coalescence its buffer starts, or an odd
+          catalogue the query cannot be answered for -- both fall back to claiming by ``coa_time``,
+          which is the behaviour that crops.
+
+        Still reported rather than fixed, for the same reason as before: placing it would mean
+        writing into segments already on disk. The loss is real either way, and a truncated inspiral
+        looks like a perfectly ordinary signal, so saying how much went -- per signal -- is what lets
+        a run be judged.
         """
         samples, seconds, energy_fraction = measure_content_before(
             float(self.start_time.to(chunk.start_time.unit).value),
@@ -370,9 +380,10 @@ class TimeSeries(JSONSerializable):
             "Discarding %.3f s (%d samples, %.2f%% of its unweighted strain-squared energy) of the "
             "signal with coa_time %s: it "
             "starts at %s, before this segment begins at %s. The earlier segments it belongs to are "
-            "already written, so this content cannot be placed. A compact-binary waveform starts "
-            "before its coa_time, so this happens whenever coa_time falls within one waveform buffer "
-            "of a segment boundary; a longer segment duration makes it rarer but not impossible.",
+            "already written, so this content cannot be placed. Segments normally claim an event by "
+            "where its waveform starts, which avoids this; reaching it means either the waveform "
+            "begins before the run itself, or the pre-coalescence duration could not be established "
+            "and placement fell back to coa_time -- look for a warning saying so.",
             seconds,
             samples,
             100.0 * energy_fraction,

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+import logging
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -31,6 +32,8 @@ from gwmock.simulator.state import StateAttribute
 #: backend. It must stay the same library ``WaveformFactory`` defaults to internally, or
 #: supplying arguments would quietly change which library generates the waveforms.
 _DEFAULT_WAVEFORM_BACKEND = "lal"
+
+logger = logging.getLogger("gwmock")
 
 
 @dataclass(slots=True)
@@ -139,12 +142,23 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         self._active_overwrite = False
         self._noise_stream: Iterator[dict[str, Any]] | None = None
         self._noise_stream_position = 0
-        # Source parameters of the signals that merge in the current batch, in
+        # Source parameters of the signals injected into the current batch, in
         # injection order: [{"event_id": <population index>, "parameters": {...}}].
-        # An event is attributed to the batch whose segment contains its coa_time.
+        # An event is attributed to the batch whose segment its *waveform starts* in,
+        # which for a compact binary is at or before the segment its coa_time falls in.
         # Recorded into per-batch metadata so a frame's sources are self-describing.
         self._batch_injections: list[dict[str, Any]] = []
         self._pending_noise_chunk: dict[str, Any] | None = None
+        # Warned at most once per distinct reason, not once per event: a catalogue whose parameters
+        # the query cannot read fails for every row alike, and the message would otherwise arrive
+        # thousands of times. Keyed by the failure text rather than a flag, because a single
+        # malformed row fails only its own query and its cause differs from a whole-catalogue one --
+        # collapsing both into one warning would name the wrong cause for everything after it.
+        self._pre_coalescence_query_failures: set[str] = set()
+        # Consumption order, as positions into `_population_events`. Established lazily by
+        # `_placement_order`, because it costs one query per event and the continuous-wave and
+        # stochastic paths never consume the catalogue this way.
+        self._placement_order_cache: tuple[int, ...] | None = None
 
         super().__init__(
             max_samples=max_samples,
@@ -528,12 +542,14 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
 
         chunks = TimeSeriesList()
         self._batch_injections = []
-        while self.population_index < len(self._population_events):
-            event_id = int(self.population_index)
+        order = self._placement_order()
+        while self.population_index < len(order):
+            # `population_index` counts events consumed, and `order` turns that into the catalogue
+            # position -- which is also the event id, so provenance keeps naming events by their
+            # place in the loaded catalogue rather than by the order generation happened to take.
+            event_id = int(order[int(self.population_index)])
             parameters = dict(self._population_events[event_id])
-            coa_time = parameters.get("coa_time")
-            end_time_value = float(getattr(self.end_time, "value", self.end_time))
-            if coa_time is not None and float(coa_time) >= end_time_value:
+            if not self._event_starts_before_segment_end(parameters):
                 break
             strain = self.signal_adapter.simulate(
                 parameters,
@@ -577,47 +593,191 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         # retry sail past a configuration the first attempt refused.
         self._configuration_checked = True
 
+    def _placement_order(self) -> tuple[int, ...]:
+        """Return catalogue positions ordered by when each event's waveform starts.
+
+        The loops consume the catalogue in order and stop at the first event that does not belong to
+        the current segment. That is only sound if "belongs" is a prefix property, and under the
+        waveform-start rule it is not for a ``coa_time``-sorted catalogue: the lead varies with the
+        source, roughly 3 s for a heavy binary black hole against ~100 s for a binary neutron star at
+        a low cutoff. So a long-lead event can sit *after* a short-lead one whose waveform start has
+        already crossed the boundary::
+
+            segment [100, 116):
+              coa=117 lead=10 -> start 107   belongs
+              coa=118 lead= 1 -> start 117   stops the walk
+              coa=119 lead=20 -> start  99   belongs, but is never reached
+
+        The third event would then be generated a segment late and cropped -- the very loss this rule
+        exists to prevent, reintroduced by catalogue ordering alone. Sorting by the placement key
+        makes the prefix property hold again, which keeps ``population_index`` meaning "every event
+        before this one is consumed" -- the invariant resume depends on.
+
+        Stable, so events sharing a start keep their catalogue order, and events with no ``coa_time``
+        sort first because they belong to every segment. The key is ``coa_time - lead``, with the lead
+        taken as zero when unknown, matching the fallback in
+        :meth:`_event_starts_before_segment_end`.
+
+        Computed once. It costs one query per event, which is arithmetic over the conditioning
+        settings rather than a generation -- orders of magnitude below the cost of generating the same
+        event, which the run is about to pay anyway.
+
+        Returns:
+            Catalogue positions in consumption order.
+        """
+        if self._placement_order_cache is None:
+            self._placement_order_cache = tuple(sorted(range(len(self._population_events)), key=self._placement_key))
+        return self._placement_order_cache
+
+    def _placement_key(self, position: int) -> float:
+        """Return the time the event at *position* starts, for ordering consumption.
+
+        Args:
+            position: Index into the catalogue as loaded.
+
+        Returns:
+            The waveform's start time, or ``-inf`` for an event with no coalescence time, which
+            belongs to every segment and so must never delay one.
+        """
+        parameters = self._population_events[position]
+        coa_time = parameters.get("coa_time")
+        if coa_time is None:
+            return float("-inf")
+        lead = self._pre_coalescence_duration(parameters)
+        return float(coa_time) if lead is None else float(coa_time) - float(lead)
+
+    def _event_starts_before_segment_end(self, parameters: Mapping[str, Any]) -> bool:
+        """Return whether this event's *waveform* begins before the current segment ends.
+
+        The segment boundary rule, in one place because two loops apply it -- the per-event loop and
+        :meth:`_events_for_this_segment` -- and a run that switches between execution modes mid-way
+        must not skip or repeat an event because the two disagreed.
+
+        The rule is the waveform's start, not ``coa_time``. A compact binary's buffer begins seconds
+        before coalescence, so an event whose ``coa_time`` lands just past a boundary has content
+        belonging to the segment before it. Claiming that event by ``coa_time`` puts its buffer start
+        outside the claiming segment, where injection crops it and it is gone: the earlier segments
+        are already written. Claiming it by its start instead places the whole waveform, and the
+        forward overflow already carried between segments delivers the rest.
+
+        ``None`` from the query means *unknown*, and unknown falls back to the ``coa_time`` rule --
+        the previous behaviour, whose loss is reported by
+        :meth:`~gwmock.data.time_series.time_series.TimeSeries._report_content_before_segment`.
+        Treating unknown as zero would be the same fallback while looking like an answer.
+
+        The query is arithmetic over the conditioning settings rather than a generation, so it is
+        cheap enough to ask per candidate event; it is not cached, and the cost is one query per
+        event plus one per segment for the event that ends it.
+
+        Args:
+            parameters: The candidate event's source parameters.
+
+        Returns:
+            Whether the event belongs to this segment. Events without a ``coa_time`` always do,
+            which is how non-coalescing sources reach the loop unchanged.
+        """
+        coa_time = parameters.get("coa_time")
+        if coa_time is None:
+            return True
+        end_time_value = float(getattr(self.end_time, "value", self.end_time))
+        lead = self._pre_coalescence_duration(parameters)
+        start_time_value = float(coa_time) if lead is None else float(coa_time) - float(lead)
+        return start_time_value < end_time_value
+
+    def _pre_coalescence_duration(self, parameters: Mapping[str, Any]) -> float | None:
+        """Return the event's waveform lead in seconds, or ``None`` when it cannot be established.
+
+        Args:
+            parameters: The candidate event's source parameters.
+
+        Returns:
+            Seconds before ``coa_time`` at which the waveform starts, or ``None`` for unknown.
+        """
+        if self.signal_adapter is None:
+            return None
+        try:
+            return self.signal_adapter.pre_coalescence_duration(
+                parameters,
+                sampling_frequency=float(self.sampling_frequency.value),
+                minimum_frequency=self.minimum_frequency,
+                waveform_arguments=self.waveform_arguments,
+                waveform_options=self.waveform_options,
+            )
+        except Exception as exc:
+            # Deliberately broad, and it does not hide the failure it swallows. This query decides
+            # *placement*; the same parameters are handed to generation immediately afterwards, which
+            # raises whatever this raised -- with the context of the event it was generating rather
+            # than of a boundary test. Letting placement be the thing that fails a run would turn an
+            # incomplete catalogue column into a crash in an unrelated part of the loop.
+            #
+            # The fallback is the previous behaviour, and its cost is reported rather than silent:
+            # any inspiral cropped by it is named by `_report_content_before_segment`.
+            #
+            # Deduplicated by reason rather than by a single flag. A whole catalogue the query cannot
+            # read fails identically for every row, and one message is right for it; but a single
+            # malformed row fails only its own query, and a flag would let every later row with a
+            # *different* problem fall back silently under a warning naming the first one.
+            reason = f"{type(exc).__name__}: {exc}"
+            if reason not in self._pre_coalescence_query_failures:
+                self._pre_coalescence_query_failures.add(reason)
+                logger.warning(
+                    "Cannot establish how long before coalescence a waveform starts (%s). Affected "
+                    "events are claimed by coa_time alone, which crops the start of any waveform "
+                    "beginning before its segment; the amount lost is reported per signal.",
+                    reason,
+                )
+            return None
+
     def _events_for_this_segment(self) -> tuple[list[int], list[dict[str, Any]]]:
         """Return the population events belonging to the current segment, without consuming them.
 
-        Stops on ``coa_time >= end_time``, which is the per-event loop's boundary. That matters for
-        resume: ``population_index`` is checkpointed state, so a run switched between modes must not
-        skip or repeat events. The index advances only in :meth:`_commit_consumed_events`, once
-        generation has succeeded.
+        Stops on :meth:`_event_starts_before_segment_end`, the same boundary the per-event loop
+        applies. That matters for resume: ``population_index`` is checkpointed state, so a run
+        switched between modes must not skip or repeat events. The index advances only in
+        :meth:`_commit_consumed_events`, once generation has succeeded.
 
         One difference, stated rather than glossed: the per-event loop also breaks when a *generated*
         strain starts at or after ``end_time``, a condition that cannot be evaluated before
-        generating. Reaching it requires a waveform whose buffer begins beyond the segment despite a
-        ``coa_time`` inside it, which the bundled waveforms do not produce. So the two agree on every
-        case exercised here, and this helper is the weaker of the two rules where they could differ.
+        generating. With the boundary now taken from the waveform's predicted start, reaching it
+        requires the prediction to disagree with the buffer generation actually produces -- the two
+        come from the same backend helpers, so the bundled waveforms do not reach it. This helper
+        remains the weaker of the two rules where they could differ.
 
         Returns:
-            The population indices and their parameter mappings, in catalogue order.
+            The population indices and their parameter mappings, in consumption order -- which is
+            :meth:`_placement_order`, so the indices need not be ascending.
         """
         event_ids: list[int] = []
         events: list[dict[str, Any]] = []
-        end_time_value = float(getattr(self.end_time, "value", self.end_time))
 
         # Read without advancing. `population_index` is checkpointed, and everything after this --
         # transposing to a struct-of-arrays, canonicalising, generating -- can still fail. Advancing
         # here would let a caller observe a consumed index after an exception, so the commit happens
         # in `_commit_consumed_events` once generation has succeeded. The CLI's retry wrapper
         # restores pre-batch state, so this is about direct library callers rather than the runner.
+        order = self._placement_order()
         position = int(self.population_index)
-        while position < len(self._population_events):
-            parameters = dict(self._population_events[position])
-            coa_time = parameters.get("coa_time")
-            if coa_time is not None and float(coa_time) >= end_time_value:
+        while position < len(order):
+            event_id = int(order[position])
+            parameters = dict(self._population_events[event_id])
+            if not self._event_starts_before_segment_end(parameters):
                 break
-            event_ids.append(position)
+            event_ids.append(event_id)
             events.append(parameters)
             position += 1
         return event_ids, events
 
     def _commit_consumed_events(self, event_ids: list[int]) -> None:
-        """Advance the checkpointed index past events whose generation succeeded."""
+        """Advance the checkpointed index past events whose generation succeeded.
+
+        Advances by *count*, not to ``max(event_ids) + 1``: the ids are catalogue positions and
+        consumption follows :meth:`_placement_order`, so they need not be contiguous or ascending.
+
+        Args:
+            event_ids: Catalogue positions of the events this batch generated.
+        """
         if event_ids:
-            self.population_index = event_ids[-1] + 1
+            self.population_index = cast(int, self.population_index) + len(event_ids)
 
     def _batched_waveform_backend(self) -> Any:
         """Return the ripple backend the batched path should generate with.

@@ -11,7 +11,12 @@ import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-SCHEMA_VERSION = "1.3.0"
+#: 1.4.0 because ``signal.injections`` changed meaning: an event is now attributed to the frame its
+#: waveform *starts* in rather than the frame holding its coalescence. No field was added or removed,
+#: so a consumer reading the old version parses the new one without noticing -- which is exactly why
+#: the version has to move. A reader comparing records across a run boundary needs to be able to tell
+#: which convention produced each one.
+SCHEMA_VERSION = "1.4.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 
@@ -41,10 +46,12 @@ class SignalSection(BaseModel):
     backend: str
     waveform_model: str | None = None
     detector_network: list[str] = Field(default_factory=list)
-    # Source parameters of the signals that merge in this batch's frame(s), in
+    # Source parameters of the signals injected into this batch's frame(s), in
     # injection order: [{"event_id": int, "parameters": {...}}]. An event is
-    # attributed to the frame its coa_time falls in; content extending into
-    # adjacent frames is not cross-listed. Empty for stationary/SGWB segments.
+    # attributed to the frame its waveform *starts* in -- for a compact binary that
+    # is at or before the frame containing its coalescence, because the buffer begins
+    # seconds earlier. Content extending forward into later frames is not
+    # cross-listed. Empty for stationary/SGWB segments.
     injections: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 

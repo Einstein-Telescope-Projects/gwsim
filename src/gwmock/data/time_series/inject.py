@@ -113,9 +113,10 @@ def measure_content_before(
     overflow is different: it is returned as a tail and carried into the next segment. Backward
     overflow has nowhere to go, because the segments it belongs to have already been written.
 
-    That matters for compact-binary sources, whose inspiral *precedes* ``coa_time`` while the
-    segment claiming an event is the one ``coa_time`` falls in. A waveform buffer therefore starts
-    before its own segment whenever ``coa_time`` lands within one buffer length of the boundary.
+    That mattered for every compact binary landing near a boundary while segments claimed an event by
+    ``coa_time``, whose inspiral *precedes* it. Segments now claim by where the waveform starts, so
+    what this measures is the residue: a waveform beginning before the run itself, or a placement
+    that fell back to ``coa_time`` because the pre-coalescence duration could not be established.
 
     Args:
         segment_start_time: Start of the segment being injected into, in the chunk's time unit.

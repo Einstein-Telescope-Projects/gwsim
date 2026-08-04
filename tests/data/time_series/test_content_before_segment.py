@@ -184,12 +184,19 @@ class TestTheWarning:
         assert "Discarding" in caplog.text
         assert "unknown" in caplog.text
 
-    def test_a_real_run_warns_when_coa_time_lands_near_a_boundary(self, tmp_path, caplog):
-        """Synthetic arrays cannot show that ordinary configurations reach this.
+    def test_a_real_run_warns_when_the_pre_coalescence_duration_is_unavailable(self, tmp_path, caplog):
+        """Synthetic arrays cannot show that a real configuration reaches this.
 
         A 30+25 Msun binary at 20 Hz is conditioned into a 4 s buffer with the merger 0.4 s from its
-        end, so a ``coa_time`` 0.5 s past a segment boundary puts 3.1 s of inspiral in the previous
+        end, so a ``coa_time`` 0.5 s past a segment boundary has 3.1 s of inspiral in the previous
         segment -- which is already written.
+
+        Segments now claim an event by where its waveform starts, so this configuration keeps that
+        inspiral -- ``tests/cli/test_inspiral_segment_placement.py`` measures that it survives, by
+        energy rather than by the absence of this warning. What is exercised here is the fallback:
+        with the pre-coalescence duration unavailable -- an older gwmock-signal, a backend that
+        cannot say -- placement reverts to ``coa_time`` and the loss returns. That is the path this
+        reporting exists for, and the one that must keep saying how much went.
         """
         from gwmock.cli.adapter_orchestration import AdapterOrchestrator
         from gwmock.cli.utils.config import Config
@@ -240,12 +247,16 @@ class TestTheWarning:
             config.orchestration, global_simulator_arguments=dict(config.globals.simulator_arguments)
         )
 
+        # Force the fallback rather than simulate an old install: the query is made through the
+        # adapter, so replacing its answer with "unknown" is the whole difference.
+        orchestrator.signal_adapter.pre_coalescence_duration = lambda *_args, **_kwargs: None
+
         with caplog.at_level(logging.WARNING, logger="gwmock"):
             orchestrator.simulate()  # first segment: nothing to claim yet
             orchestrator.update_state()
             orchestrator.simulate()  # the segment holding coa_time
 
-        assert "Discarding" in caplog.text, "an ordinary BBH config lost part of its inspiral without saying so"
+        assert "Discarding" in caplog.text, "the fallback lost part of an inspiral without saying so"
         # A bounded range, not the exact 3.100 s this currently prints. The value comes from LAL's
         # conditioning, so pinning it would turn a waveform-library bump into a failure here while
         # saying nothing about whether the reporting works. Still tight enough to fail if the
