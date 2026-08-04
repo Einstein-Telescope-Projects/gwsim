@@ -451,7 +451,7 @@ class TestNothingIsDiscarded:
 
         This offset is deliberately the *mild* case. **At this module's 30 Hz cutoff, on the
         ET-Triangle-Sardinia network it configures**, the unweighted strain-squared energy lost runs
-        0.34% at 1 s past the boundary, 11% at 0.25 s, 50% at 0.1 s and 99.8% at 1 ms, because a
+        0.34% at 1 s past the boundary, 11.5% at 0.25 s, 50.3% at 0.1 s and 99.8% at 1 ms, because a
         compact binary's energy is concentrated in the last fraction of a second before merger. Testing the mild case makes the assertion depend on placement rather
         than on that concentration: 0.34% is a loss no energy-fraction tolerance would forgive, and a
         test pinned at the catastrophic end would still pass if placement were only approximately
@@ -461,8 +461,9 @@ class TestNothingIsDiscarded:
         magnitude while leaving the dropped *span* untouched. The same binary and network at a 20 Hz
         cutoff -- the one a real ET configuration uses -- loses 32.9% at 0.5 s past the boundary
         against 0.92% here at 30 Hz, since LAL's conditioning rounds both to the same 4.000 s buffer
-        but only the lower cutoff puts real signal in the early samples. That rounding coincidence is
-        specific to these masses on this backend, so it is not a rule to carry elsewhere. See
+        but only the lower cutoff puts real signal in the early samples. That rounding coincidence
+        holds for this chirp-time bin on this backend and not generally -- a 10+10 binary gets 16 s at
+        20 Hz against 8 s at 30 Hz -- so it is not a rule to carry elsewhere. See
         ``WaveformBackend.pre_coalescence_duration`` in gwmock-signal for the figures across cutoffs,
         offsets, masses and backends.
 
