@@ -667,11 +667,9 @@ dependencies = [
 cuda = [
     { name = "gwmock-signal", extra = ["jax"] },
     { name = "jax", extra = ["cuda12"] },
-    { name = "ripplegw" },
 ]
 jax = [
     { name = "gwmock-signal", extra = ["jax"] },
-    { name = "ripplegw" },
 ]
 sgwb = [
     { name = "gwmock-signal", extra = ["sgwb"] },
@@ -703,16 +701,14 @@ requires-dist = [
     { name = "gwmock-noise", specifier = ">=0.10.0" },
     { name = "gwmock-pop", specifier = ">=0.11.4" },
     { name = "gwmock-signal", specifier = ">=0.13.0" },
-    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'cuda'", specifier = ">=0.13.0" },
-    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'jax'", specifier = ">=0.13.0" },
+    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'cuda'", specifier = ">=0.15.0" },
+    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'jax'", specifier = ">=0.15.0" },
     { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.13.0" },
     { name = "h5py", specifier = ">=3.12.1" },
     { name = "jax", extras = ["cuda12"], marker = "extra == 'cuda'", specifier = ">=0.11.0" },
     { name = "psutil", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.9.0" },
     { name = "pymap3d", specifier = ">=3.2.0" },
-    { name = "ripplegw", marker = "extra == 'cuda'", git = "https://github.com/GW-JAX-Team/ripple.git?rev=400afb4" },
-    { name = "ripplegw", marker = "extra == 'jax'", git = "https://github.com/GW-JAX-Team/ripple.git?rev=400afb4" },
     { name = "textual", specifier = ">=2.0.0" },
     { name = "tqdm", specifier = ">=4.67.0" },
     { name = "typer", specifier = ">=0.19.0" },
@@ -772,7 +768,7 @@ wheels = [
 
 [[package]]
 name = "gwmock-signal"
-version = "0.13.0"
+version = "0.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "gwpy" },
@@ -780,9 +776,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c1/ac/ef9fd787daae0b03c5d6b0ed5d09c973484e6cba6f57cddddac1fe50e8c0/gwmock_signal-0.13.0.tar.gz", hash = "sha256:72838b14ca0545ff25dcf36c61e42a6e1e46319677eecacfc0a756ec9fc40513", size = 437126, upload-time = "2026-08-03T11:39:51.144Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/8e/4d8161a3d06de6a972f3507be3ae35a25aa1335d517df363f49498c013a0/gwmock_signal-0.15.0.tar.gz", hash = "sha256:9e90af755e80f1555a6bb8e6a66602cff34c77f9dfbdf5894b58a053c3d5c8f1", size = 445527, upload-time = "2026-08-04T09:40:44.488Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/06/6e/2eaa611c36e9c695678cf373f4e1d77d897b9bf2c55b82ed4940565aff99/gwmock_signal-0.13.0-py3-none-any.whl", hash = "sha256:31feb76bd44a1835a8dbe1f218a7e3ada81d9541b183fc813c0d6afdc5ab6f0c", size = 162065, upload-time = "2026-08-03T11:39:49.839Z" },
+    { url = "https://files.pythonhosted.org/packages/50/2b/1a42e19fc7f8c458e2c5a8e889559499111d0dfd5d963c34f816cc2828da/gwmock_signal-0.15.0-py3-none-any.whl", hash = "sha256:7d39b5c576c1d5ae2b63cb631f97cb209f024edde71fa45fcd1fa46e2c91be73", size = 165891, upload-time = "2026-08-04T09:40:43.308Z" },
 ]
 
 [package.optional-dependencies]
@@ -2534,11 +2530,15 @@ wheels = [
 
 [[package]]
 name = "ripplegw"
-version = "0.3.1.dev3"
-source = { git = "https://github.com/GW-JAX-Team/ripple.git?rev=400afb4#400afb4d41d2fbc6a85f3aac7ad8c07eb64fa641" }
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
     { name = "jaxtyping" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e0/b7/d6da3e3adcd03d5490638a1f73c743e22b9d002ea06c8ebf8c2725905727/ripplegw-0.3.1.tar.gz", hash = "sha256:c9435c9266125b645d38636a42947acad93cf841ce635e55a1a3a5d765990f2e", size = 481899, upload-time = "2026-08-03T20:28:19.215Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/33/fc079529e3a796da9f4bb1b2cd17a77ba70ff3ae9e821380bdcf46714134/ripplegw-0.3.1-py3-none-any.whl", hash = "sha256:0bd8f1bb8235ae59d9bfa3938ca1ee49bf91f4b38bd313a25620f087539cfeaf", size = 225512, upload-time = "2026-08-03T20:28:17.909Z" },
 ]
 
 [[package]]
