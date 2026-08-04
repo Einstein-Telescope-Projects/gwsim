@@ -70,7 +70,11 @@ def _population_file(directory: Path, events: list[dict[str, Any]]) -> Path:
     return path
 
 
-def _orchestrator(directory: Path, events: list[dict[str, Any]] | None = None):
+def _orchestrator(
+    directory: Path,
+    events: list[dict[str, Any]] | None = None,
+    duration: float = _SEGMENT,
+):
     """Return an orchestrator on the batched path, which is the one that shares generation."""
     events = _EVENTS if events is None else events
     from gwmock.cli.adapter_orchestration import AdapterOrchestrator
@@ -79,8 +83,8 @@ def _orchestrator(directory: Path, events: list[dict[str, Any]] | None = None):
         "globals": {
             "simulator-arguments": {
                 "sampling-frequency": _FS,
-                "duration": _SEGMENT,
-                "total-duration": _SEGMENT * _SEGMENTS,
+                "duration": duration,
+                "total-duration": duration * _SEGMENTS,
                 "start-time": _START,
                 "seed": 20260804,
             },
@@ -217,9 +221,16 @@ def assembled(tmp_path_factory) -> tuple[list[np.ndarray], list[np.ndarray], flo
 def test_both_assemblers_produce_the_same_strain(assembled):
     """The whole point: same events in, same samples out, whichever assembler ran.
 
-    Compared relative to the segment's own peak. ``atol=0.0`` because strain here is ~1e-21 and its
-    square ~1e-42, so the default absolute tolerance would make any two such arrays compare equal and
-    the assertion could not fail.
+    **What the comparison actually is**, stated precisely because a looser description invites the
+    wrong assumption. It is the largest absolute sample difference in a segment, normalised by that
+    segment's peak. It is deliberately *not* element-wise exact equality -- the two paths generate
+    separately and the difference is genuinely nonzero -- and it is not element-wise relative either:
+    a spurious value at a sample where the reference is zero passes, provided it stays under
+    ``peak * 1e-9``. That is the intended contract, since the noise being admitted scales with the
+    signal in the segment rather than with each sample.
+
+    An absolute tolerance would not work here at all: strain is ~1e-21, so any fixed threshold is
+    either meaningless or unfailable depending on which side of 1e-21 it falls.
 
     The tolerance admits generation-side noise and nothing more, and what produces that noise is
     worth stating because the obvious explanation is wrong. It is **not** the grid anchor: generating
@@ -357,8 +368,18 @@ def test_a_segment_duration_off_the_sample_grid_is_a_known_boundary(assembled, t
     with pytest.raises(ValueError, match="whole number of samples"):
         assemble_segments(batch, segment_duration=off_grid, segment_start_times=[_START])
 
-    # gwmock's own sizing truncates rather than refusing, which is the asymmetry being recorded.
-    assert int(off_grid * _FS) == 16384, "gwmock would size this segment as exactly 16.0 s of data"
+    # gwmock's own sizing truncates rather than refusing. Run it at that duration instead of
+    # restating the arithmetic: if gwmock starts rejecting or rounding, the asymmetry recorded here
+    # has changed and this must fail rather than keep passing on a formula.
+    truncated = _streamed_segments(_orchestrator(tmp_path / "offgrid", _EVENTS[:1], duration=off_grid))
+    assert truncated[0].shape[1] == int(off_grid * _FS), (
+        f"gwmock sized the segment as {truncated[0].shape[1]} samples; the recorded asymmetry is that "
+        f"it truncates {off_grid * _FS} to {int(off_grid * _FS)}"
+    )
+    assert truncated[0].shape[1] == round(_SEGMENT * _FS), (
+        "the truncation lands on exactly the on-grid sample count, which is what makes the scatter's "
+        "refusal and gwmock's silence differ in kind rather than in degree"
+    )
     assert scattered[0].shape[1] == int(_SEGMENT * _FS), "the on-grid case is unaffected"
 
 
