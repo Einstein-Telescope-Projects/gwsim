@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+import logging
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -31,6 +32,8 @@ from gwmock.simulator.state import StateAttribute
 #: backend. It must stay the same library ``WaveformFactory`` defaults to internally, or
 #: supplying arguments would quietly change which library generates the waveforms.
 _DEFAULT_WAVEFORM_BACKEND = "lal"
+
+logger = logging.getLogger("gwmock")
 
 
 @dataclass(slots=True)
@@ -139,12 +142,16 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         self._active_overwrite = False
         self._noise_stream: Iterator[dict[str, Any]] | None = None
         self._noise_stream_position = 0
-        # Source parameters of the signals that merge in the current batch, in
+        # Source parameters of the signals injected into the current batch, in
         # injection order: [{"event_id": <population index>, "parameters": {...}}].
-        # An event is attributed to the batch whose segment contains its coa_time.
+        # An event is attributed to the batch whose segment its *waveform starts* in,
+        # which for a compact binary is at or before the segment its coa_time falls in.
         # Recorded into per-batch metadata so a frame's sources are self-describing.
         self._batch_injections: list[dict[str, Any]] = []
         self._pending_noise_chunk: dict[str, Any] | None = None
+        # Warn once per run, not once per event: a catalogue the query cannot answer for cannot
+        # answer for any of its events, and the message would otherwise arrive thousands of times.
+        self._pre_coalescence_query_failed = False
 
         super().__init__(
             max_samples=max_samples,
@@ -531,9 +538,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         while self.population_index < len(self._population_events):
             event_id = int(self.population_index)
             parameters = dict(self._population_events[event_id])
-            coa_time = parameters.get("coa_time")
-            end_time_value = float(getattr(self.end_time, "value", self.end_time))
-            if coa_time is not None and float(coa_time) >= end_time_value:
+            if not self._event_starts_before_segment_end(parameters):
                 break
             strain = self.signal_adapter.simulate(
                 parameters,
@@ -577,26 +582,102 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         # retry sail past a configuration the first attempt refused.
         self._configuration_checked = True
 
+    def _event_starts_before_segment_end(self, parameters: Mapping[str, Any]) -> bool:
+        """Return whether this event's *waveform* begins before the current segment ends.
+
+        The segment boundary rule, in one place because two loops apply it -- the per-event loop and
+        :meth:`_events_for_this_segment` -- and a run that switches between execution modes mid-way
+        must not skip or repeat an event because the two disagreed.
+
+        The rule is the waveform's start, not ``coa_time``. A compact binary's buffer begins seconds
+        before coalescence, so an event whose ``coa_time`` lands just past a boundary has content
+        belonging to the segment before it. Claiming that event by ``coa_time`` puts its buffer start
+        outside the claiming segment, where injection crops it and it is gone: the earlier segments
+        are already written. Claiming it by its start instead places the whole waveform, and the
+        forward overflow already carried between segments delivers the rest.
+
+        ``None`` from the query means *unknown*, and unknown falls back to the ``coa_time`` rule --
+        the previous behaviour, whose loss is reported by
+        :meth:`~gwmock.data.time_series.time_series.TimeSeries._report_content_before_segment`.
+        Treating unknown as zero would be the same fallback while looking like an answer.
+
+        The query is arithmetic over the conditioning settings rather than a generation, so it is
+        cheap enough to ask per candidate event; it is not cached, and the cost is one query per
+        event plus one per segment for the event that ends it.
+
+        Args:
+            parameters: The candidate event's source parameters.
+
+        Returns:
+            Whether the event belongs to this segment. Events without a ``coa_time`` always do,
+            which is how non-coalescing sources reach the loop unchanged.
+        """
+        coa_time = parameters.get("coa_time")
+        if coa_time is None:
+            return True
+        end_time_value = float(getattr(self.end_time, "value", self.end_time))
+        lead = self._pre_coalescence_duration(parameters)
+        start_time_value = float(coa_time) if lead is None else float(coa_time) - float(lead)
+        return start_time_value < end_time_value
+
+    def _pre_coalescence_duration(self, parameters: Mapping[str, Any]) -> float | None:
+        """Return the event's waveform lead in seconds, or ``None`` when it cannot be established.
+
+        Args:
+            parameters: The candidate event's source parameters.
+
+        Returns:
+            Seconds before ``coa_time`` at which the waveform starts, or ``None`` for unknown.
+        """
+        if self.signal_adapter is None:
+            return None
+        try:
+            return self.signal_adapter.pre_coalescence_duration(
+                parameters,
+                sampling_frequency=float(self.sampling_frequency.value),
+                minimum_frequency=self.minimum_frequency,
+                waveform_arguments=self.waveform_arguments,
+                waveform_options=self.waveform_options,
+            )
+        except Exception as exc:
+            # Deliberately broad, and it does not hide the failure it swallows. This query decides
+            # *placement*; the same parameters are handed to generation immediately afterwards, which
+            # raises whatever this raised -- with the context of the event it was generating rather
+            # than of a boundary test. Letting placement be the thing that fails a run would turn an
+            # incomplete catalogue column into a crash in an unrelated part of the loop.
+            #
+            # The fallback is the previous behaviour, and its cost is reported rather than silent:
+            # any inspiral cropped by it is named by `_report_content_before_segment`.
+            if not self._pre_coalescence_query_failed:
+                self._pre_coalescence_query_failed = True
+                logger.warning(
+                    "Cannot establish how long before coalescence a waveform starts (%s). Segments "
+                    "will claim events by coa_time alone, which crops the start of any waveform "
+                    "beginning before its segment; the amount lost is reported per signal.",
+                    exc,
+                )
+            return None
+
     def _events_for_this_segment(self) -> tuple[list[int], list[dict[str, Any]]]:
         """Return the population events belonging to the current segment, without consuming them.
 
-        Stops on ``coa_time >= end_time``, which is the per-event loop's boundary. That matters for
-        resume: ``population_index`` is checkpointed state, so a run switched between modes must not
-        skip or repeat events. The index advances only in :meth:`_commit_consumed_events`, once
-        generation has succeeded.
+        Stops on :meth:`_event_starts_before_segment_end`, the same boundary the per-event loop
+        applies. That matters for resume: ``population_index`` is checkpointed state, so a run
+        switched between modes must not skip or repeat events. The index advances only in
+        :meth:`_commit_consumed_events`, once generation has succeeded.
 
         One difference, stated rather than glossed: the per-event loop also breaks when a *generated*
         strain starts at or after ``end_time``, a condition that cannot be evaluated before
-        generating. Reaching it requires a waveform whose buffer begins beyond the segment despite a
-        ``coa_time`` inside it, which the bundled waveforms do not produce. So the two agree on every
-        case exercised here, and this helper is the weaker of the two rules where they could differ.
+        generating. With the boundary now taken from the waveform's predicted start, reaching it
+        requires the prediction to disagree with the buffer generation actually produces -- the two
+        come from the same backend helpers, so the bundled waveforms do not reach it. This helper
+        remains the weaker of the two rules where they could differ.
 
         Returns:
             The population indices and their parameter mappings, in catalogue order.
         """
         event_ids: list[int] = []
         events: list[dict[str, Any]] = []
-        end_time_value = float(getattr(self.end_time, "value", self.end_time))
 
         # Read without advancing. `population_index` is checkpointed, and everything after this --
         # transposing to a struct-of-arrays, canonicalising, generating -- can still fail. Advancing
@@ -606,8 +687,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         position = int(self.population_index)
         while position < len(self._population_events):
             parameters = dict(self._population_events[position])
-            coa_time = parameters.get("coa_time")
-            if coa_time is not None and float(coa_time) >= end_time_value:
+            if not self._event_starts_before_segment_end(parameters):
                 break
             event_ids.append(position)
             events.append(parameters)

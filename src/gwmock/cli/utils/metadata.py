@@ -41,10 +41,12 @@ class SignalSection(BaseModel):
     backend: str
     waveform_model: str | None = None
     detector_network: list[str] = Field(default_factory=list)
-    # Source parameters of the signals that merge in this batch's frame(s), in
+    # Source parameters of the signals injected into this batch's frame(s), in
     # injection order: [{"event_id": int, "parameters": {...}}]. An event is
-    # attributed to the frame its coa_time falls in; content extending into
-    # adjacent frames is not cross-listed. Empty for stationary/SGWB segments.
+    # attributed to the frame its waveform *starts* in -- for a compact binary that
+    # is at or before the frame containing its coalescence, because the buffer begins
+    # seconds earlier. Content extending forward into later frames is not
+    # cross-listed. Empty for stationary/SGWB segments.
     injections: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 

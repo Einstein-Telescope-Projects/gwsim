@@ -22,7 +22,12 @@ classifiers = [
 requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
-  "gwmock-signal>=0.13.0", # 0.13.0 is the first release carrying the continuous-wave simulator
+  # 0.15.0 is the first release exposing `CBCSimulator.pre_coalescence_duration`, which segment
+  # placement asks before generating so an event is claimed by the segment its *waveform* starts in
+  # rather than the one holding its coalescence. Below this the query is absent, placement falls back
+  # to `coa_time`, and the start of any waveform landing near a boundary is cropped -- so this is a
+  # floor the behaviour depends on, not a convenience.
+  "gwmock-signal>=0.15.0",
   "gwmock-noise>=0.10.0",
   "gwmock-pop>=0.11.4",
   "typer>=0.19.0",         # Literal-type CLI options; the SPEC 0 floor (0.13) predates them

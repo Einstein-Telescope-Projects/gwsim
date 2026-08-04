@@ -572,6 +572,134 @@ class SignalAdapter:
             )
         return name
 
+    def _backend_parameters(
+        self,
+        parameters: Mapping[str, Any],
+        waveform_arguments: Mapping[str, Any] | None,
+        waveform_options: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Build the mapping a backend call takes, from per-event and fixed settings.
+
+        Shared by generation and by :meth:`pre_coalescence_duration`, because the buffer length the
+        query reports depends on settings that arrive this way -- ripple's ``ringdown_fraction`` and
+        ``segment_duration`` among them. Preparing the two mappings separately would let the query
+        describe a buffer other than the one generation goes on to produce, and the discrepancy
+        would appear as dropped signal rather than as an error.
+
+        Args:
+            parameters: Per-event source parameters.
+            waveform_arguments: Fixed waveform parameters merged flat; per-event values win.
+            waveform_options: Extra options passed through as the backend's ``waveform_arguments``.
+
+        Returns:
+            The merged mapping, less any parameters this backend has already rejected.
+
+        Raises:
+            ValueError: If *waveform_options* and a ``waveform_arguments`` parameter are both given.
+        """
+        backend_parameters = {**(waveform_arguments or {}), **dict(parameters)}
+        if waveform_options:
+            if "waveform_arguments" in backend_parameters:
+                raise ValueError(
+                    "Specify extra waveform options either via waveform_options or as a "
+                    "waveform_arguments parameter, not both"
+                )
+            backend_parameters["waveform_arguments"] = dict(waveform_options)
+        if self._unsupported_params:
+            backend_parameters = {k: v for k, v in backend_parameters.items() if k not in self._unsupported_params}
+        return backend_parameters
+
+    def _without_unsupported(self, exc: ValueError, backend_parameters: Mapping[str, Any]) -> dict[str, Any] | None:
+        """Return *backend_parameters* less what *exc* says the backend rejects, or ``None``.
+
+        ``None`` means *exc* is not an unsupported-parameter complaint and the caller should
+        re-raise it. Records the rejected names on the adapter, so the next call drops them up front
+        rather than paying a failed backend call per event.
+
+        Args:
+            exc: The ``ValueError`` a backend call raised.
+            backend_parameters: The mapping that call was given.
+
+        Returns:
+            The filtered mapping, or ``None`` when *exc* is some other failure.
+
+        Raises:
+            ValueError: If the rejected parameter is ``waveform_arguments`` itself, which no amount
+                of filtering fixes -- the installed gwmock-signal cannot carry the requested
+                waveform options at all, and dropping them would run the wrong waveform silently.
+        """
+        match = _UNSUPPORTED_PARAMS_RE.match(str(exc))
+        if match is None:
+            return None
+        extras = {token.strip() for token in match.group(1).split(",") if token.strip()}
+        if "waveform_arguments" in extras:
+            raise ValueError(
+                "The installed gwmock-signal does not support the waveform_arguments "
+                "parameter required by waveform_options; upgrade gwmock-signal"
+            ) from exc
+        new = extras - self._unsupported_params
+        if new:
+            logger.warning(
+                "Waveform backend does not accept the following population parameters "
+                "and they will be ignored: %s. "
+                "They are still recorded in injection_parameters metadata.",
+                ", ".join(sorted(new)),
+            )
+            self._unsupported_params |= new
+        return {k: v for k, v in backend_parameters.items() if k not in self._unsupported_params}
+
+    def pre_coalescence_duration(
+        self,
+        parameters: Mapping[str, Any],
+        *,
+        sampling_frequency: float,
+        minimum_frequency: float,
+        waveform_arguments: Mapping[str, Any] | None = None,
+        waveform_options: Mapping[str, Any] | None = None,
+    ) -> float | None:
+        """Return how long before ``coa_time`` this event's waveform starts, in seconds.
+
+        Asked before generating, so a segment can claim the event whose waveform *begins* inside it
+        rather than the one its ``coa_time`` falls in. A compact binary's buffer starts well before
+        coalescence, and a segment chosen from ``coa_time`` alone crops that lead away with nowhere
+        to put it -- the earlier segments are already written.
+
+        Args:
+            parameters: Per-event source parameters, as :meth:`simulate` takes them.
+            sampling_frequency: Sample rate in Hz.
+            minimum_frequency: Low-frequency cutoff in Hz.
+            waveform_arguments: Fixed waveform parameters, as :meth:`simulate` takes them.
+            waveform_options: Extra waveform options, as :meth:`simulate` takes them.
+
+        Returns:
+            Seconds between the first sample and coalescence, positive; or ``None`` when the answer
+            is *unknown* -- a backend that cannot say (PyCBC), a source type with no coalescence, or
+            an installed gwmock-signal predating the query. Never read ``None`` as zero: zero is a
+            claim that the waveform starts at coalescence, and acting on it drops the whole inspiral.
+        """
+        query = getattr(self._backend, "pre_coalescence_duration", None)
+        if query is None:
+            return None
+        backend_parameters = self._backend_parameters(parameters, waveform_arguments, waveform_options)
+        try:
+            return query(
+                backend_parameters,
+                sampling_frequency=sampling_frequency,
+                minimum_frequency=minimum_frequency,
+            )
+        except ValueError as exc:
+            # The same unsupported-parameter dance generation does, for the same reason: a
+            # population column the backend does not know must not be the thing that decides
+            # whether an inspiral is placed. Anything else propagates.
+            filtered = self._without_unsupported(exc, backend_parameters)
+            if filtered is None:
+                raise
+            return query(
+                filtered,
+                sampling_frequency=sampling_frequency,
+                minimum_frequency=minimum_frequency,
+            )
+
     def simulate_stack(
         self,
         parameters: Mapping[str, Any],
@@ -600,16 +728,7 @@ class SignalAdapter:
         Returns:
             A DetectorStrainStack instance.
         """
-        backend_parameters = {**(waveform_arguments or {}), **dict(parameters)}
-        if waveform_options:
-            if "waveform_arguments" in backend_parameters:
-                raise ValueError(
-                    "Specify extra waveform options either via waveform_options or as a "
-                    "waveform_arguments parameter, not both"
-                )
-            backend_parameters["waveform_arguments"] = dict(waveform_options)
-        if self._unsupported_params:
-            backend_parameters = {k: v for k, v in backend_parameters.items() if k not in self._unsupported_params}
+        backend_parameters = self._backend_parameters(parameters, waveform_arguments, waveform_options)
         try:
             return self._backend.simulate(
                 backend_parameters,
@@ -620,25 +739,9 @@ class SignalAdapter:
                 earth_rotation=earth_rotation,
             )
         except ValueError as exc:
-            match = _UNSUPPORTED_PARAMS_RE.match(str(exc))
-            if match is None:
+            filtered = self._without_unsupported(exc, backend_parameters)
+            if filtered is None:
                 raise
-            extras = {token.strip() for token in match.group(1).split(",") if token.strip()}
-            if "waveform_arguments" in extras:
-                raise ValueError(
-                    "The installed gwmock-signal does not support the waveform_arguments "
-                    "parameter required by waveform_options; upgrade gwmock-signal"
-                ) from exc
-            new = extras - self._unsupported_params
-            if new:
-                logger.warning(
-                    "Waveform backend does not accept the following population parameters "
-                    "and they will be ignored: %s. "
-                    "They are still recorded in injection_parameters metadata.",
-                    ", ".join(sorted(new)),
-                )
-                self._unsupported_params |= new
-            filtered = {k: v for k, v in backend_parameters.items() if k not in self._unsupported_params}
             return self._backend.simulate(
                 filtered,
                 self._network.detector_names,
