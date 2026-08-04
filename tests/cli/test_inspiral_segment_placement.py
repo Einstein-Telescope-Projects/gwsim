@@ -458,11 +458,13 @@ class TestNothingIsDiscarded:
         right.
 
         The cutoff has to be stated, because it moves these numbers by more than an order of
-        magnitude while leaving the dropped *span* untouched. The same binary at a 20 Hz cutoff -- the
-        one a real ET configuration uses -- loses 32.3% at 0.5 s past the boundary against 0.91% here
-        at 30 Hz, since the conditioning rounds both to the same 4.000 s buffer but only the lower
-        cutoff puts real signal in the early samples. See
-        ``WaveformBackend.pre_coalescence_duration`` in gwmock-signal for both curves.
+        magnitude while leaving the dropped *span* untouched. The same binary and network at a 20 Hz
+        cutoff -- the one a real ET configuration uses -- loses 32.9% at 0.5 s past the boundary
+        against 0.92% here at 30 Hz, since LAL's conditioning rounds both to the same 4.000 s buffer
+        but only the lower cutoff puts real signal in the early samples. That rounding coincidence is
+        specific to these masses on this backend, so it is not a rule to carry elsewhere. See
+        ``WaveformBackend.pre_coalescence_duration`` in gwmock-signal for the figures across cutoffs,
+        offsets, masses and backends.
 
         Summed squares across the two assembled segments are compared against the same waveform
         generated on its own, which is the quantity that must survive placement.
