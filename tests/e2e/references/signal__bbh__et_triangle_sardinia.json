@@ -2,7 +2,7 @@
   "environment": {
     "astropy": "8.0.1",
     "astropy-iers-data": "0.2026.8.3.0.53.6",
-    "gwmock": "0.12.0.post25+b328dab",
+    "gwmock": "0.12.0.post28+148c143",
     "gwmock-noise": "0.10.0",
     "gwmock-pop": "0.11.4",
     "gwmock-signal": "0.13.0",
@@ -21,35 +21,35 @@
   },
   "label": "signal/bbh/et_triangle_sardinia",
   "outputs": {
-    "output/signal/E-ET1_SARD_STRAIN_BBH-1577491296-16.gwf": {
+    "output/signal/E-ET1_SARD_STRAIN_BBH-1419724816-16.gwf": {
       "argmax": 4080,
-      "content_hash": "sha256:f7d5453a2b42f954af4093a4734f7b41b2712ecdf95991d6feeed3505c5e0aa5",
-      "mean": 3.530805972389288e-26,
+      "content_hash": "sha256:d8eb57220b2e8a38097a78284dea7f18107e4187cea363037e9bf9f8a576bae5",
+      "mean": 3.536902191228812e-26,
       "n": 16384,
       "nonzero": 5734,
-      "peak": 8.97489943162297e-22,
-      "rms": 7.831724680915335e-23,
-      "signed_peak": 8.97489943162297e-22
+      "peak": 8.942912893531663e-22,
+      "rms": 7.843767013252251e-23,
+      "signed_peak": 8.942912893531663e-22
     },
-    "output/signal/E-ET2_SARD_STRAIN_BBH-1577491296-16.gwf": {
+    "output/signal/E-ET2_SARD_STRAIN_BBH-1419724816-16.gwf": {
       "argmax": 4083,
-      "content_hash": "sha256:808ee81f1b7e47fd2eb203b8cd6720c4c7b39bf5e3a71c5c498a288be2022d23",
-      "mean": -1.1654495466478243e-25,
+      "content_hash": "sha256:08d8186354490c41b62fca1cb3ca2f56e81e878ee0675691e69ddf5aea1b31f2",
+      "mean": -1.1667909992070215e-25,
       "n": 16384,
       "nonzero": 5734,
-      "peak": 8.697599348955181e-22,
-      "rms": 7.926107523860575e-23,
-      "signed_peak": 8.697599348955181e-22
+      "peak": 8.628683230152873e-22,
+      "rms": 7.934049945434054e-23,
+      "signed_peak": 8.628683230152873e-22
     },
-    "output/signal/E-ET3_SARD_STRAIN_BBH-1577491296-16.gwf": {
+    "output/signal/E-ET3_SARD_STRAIN_BBH-1419724816-16.gwf": {
       "argmax": 4079,
-      "content_hash": "sha256:041eb57dfbf5c733e74ea764c36f831feb18001f58abd40fe676d3505fd69706",
-      "mean": 8.12797392841756e-26,
+      "content_hash": "sha256:4ea263dd2c7daf369472d59c234a4e1567380a79b969a7f541d623989bbfcb47",
+      "mean": 8.135247733784193e-26,
       "n": 16384,
       "nonzero": 5734,
-      "peak": 8.368663761797118e-22,
-      "rms": 7.520224300863269e-23,
-      "signed_peak": -8.368663761797118e-22
+      "peak": 8.353640727666681e-22,
+      "rms": 7.532562266117961e-23,
+      "signed_peak": -8.353640727666681e-22
     }
   }
 }

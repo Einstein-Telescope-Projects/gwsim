@@ -2,7 +2,7 @@
   "environment": {
     "astropy": "8.0.1",
     "astropy-iers-data": "0.2026.8.3.0.53.6",
-    "gwmock": "0.12.0.post25+b328dab",
+    "gwmock": "0.12.0.post28+148c143",
     "gwmock-noise": "0.10.0",
     "gwmock-pop": "0.11.4",
     "gwmock-signal": "0.13.0",
@@ -21,9 +21,9 @@
   },
   "label": "noise/uncorrelated_gaussian/quick_start",
   "outputs": {
-    "output/noise/E-ET1_SARD_STRAIN_NOISE-1577491296-16.gwf": {
+    "output/noise/E-ET1_SARD_STRAIN_NOISE-1419724816-16.gwf": {
       "argmax": 16381,
-      "content_hash": "sha256:9720b5c8e102fd0a8e8f0d553662fa558fd960d19de4889b4f93c2792549a6b1",
+      "content_hash": "sha256:a49a4a3c03bc55292e6716cd84f0a04ab3124b5c1bd0393761ce52838a49f5bc",
       "mean": 4.9510246572524466e-26,
       "n": 16384,
       "nonzero": 16384,
@@ -31,9 +31,9 @@
       "rms": 4.237765002169535e-23,
       "signed_peak": -1.626182300858675e-22
     },
-    "output/noise/E-ET2_SARD_STRAIN_NOISE-1577491296-16.gwf": {
+    "output/noise/E-ET2_SARD_STRAIN_NOISE-1419724816-16.gwf": {
       "argmax": 1850,
-      "content_hash": "sha256:661268ba948d009057fb0c1ba88fb8c3c668e15a5fbc648a3313c87d95d7464f",
+      "content_hash": "sha256:c545f9aa7dad39d93729f8789d5138ccff4eeee83cc88570c21eb705032579b3",
       "mean": -8.353027018740866e-26,
       "n": 16384,
       "nonzero": 16384,
@@ -41,9 +41,9 @@
       "rms": 4.288438072677149e-23,
       "signed_peak": 1.7077067895293085e-22
     },
-    "output/noise/E-ET3_SARD_STRAIN_NOISE-1577491296-16.gwf": {
+    "output/noise/E-ET3_SARD_STRAIN_NOISE-1419724816-16.gwf": {
       "argmax": 8533,
-      "content_hash": "sha256:d87b5db9c91144fd90667436c60c757143a348e1488324e27b9fcfd4dd8bab09",
+      "content_hash": "sha256:fc0d8b5681218f036340f909df703350b8d8ca3170c76626bed3b01ff142012f",
       "mean": 5.120818541779048e-27,
       "n": 16384,
       "nonzero": 16384,
@@ -51,35 +51,35 @@
       "rms": 5.481805055732837e-23,
       "signed_peak": -1.9929523480377454e-22
     },
-    "output/signal/E-ET1_SARD_STRAIN_BBH-1577491296-16.gwf": {
+    "output/signal/E-ET1_SARD_STRAIN_BBH-1419724816-16.gwf": {
       "argmax": 4079,
-      "content_hash": "sha256:8b2fb296535f1a18505345eaf9a4a4c8daac457b312f2cde0dc5e5d908b58597",
-      "mean": -1.173071888195575e-27,
+      "content_hash": "sha256:b5e1c2a1a15c9f7f2e58ddac2c572dc34d5fc0039b0a6db8ba5e566a87a78960",
+      "mean": -1.1816462862718835e-27,
       "n": 16384,
       "nonzero": 4096,
-      "peak": 8.452943015158544e-22,
-      "rms": 5.446048949803173e-23,
-      "signed_peak": 8.452943015158544e-22
+      "peak": 8.396916948925513e-22,
+      "rms": 5.454434411024383e-23,
+      "signed_peak": 8.396916948925513e-22
     },
-    "output/signal/E-ET2_SARD_STRAIN_BBH-1577491296-16.gwf": {
+    "output/signal/E-ET2_SARD_STRAIN_BBH-1419724816-16.gwf": {
       "argmax": 4082,
-      "content_hash": "sha256:f705aa91865069b1d65b8ba081d0360a669dd5d71944a5a0b246151fc328c780",
-      "mean": 9.089474289874154e-27,
+      "content_hash": "sha256:9af739bddf96c75c60d61bb01062edf3d43ef947815c7c900bd37b9798412dfd",
+      "mean": 9.113982210136405e-27,
       "n": 16384,
       "nonzero": 4096,
-      "peak": 9.222137785018572e-22,
-      "rms": 5.512287322735116e-23,
-      "signed_peak": 9.222137785018572e-22
+      "peak": 9.267975864821214e-22,
+      "rms": 5.517820988449424e-23,
+      "signed_peak": 9.267975864821214e-22
     },
-    "output/signal/E-ET3_SARD_STRAIN_BBH-1577491296-16.gwf": {
+    "output/signal/E-ET3_SARD_STRAIN_BBH-1419724816-16.gwf": {
       "argmax": 4083,
-      "content_hash": "sha256:9735e8a2538627799441b4cb762d7fa2e493ef4488807f353292d55e1bc05694",
-      "mean": -7.936226852108053e-27,
+      "content_hash": "sha256:a475617de581cfa3076ebdd51719d149a7a3a388b35cd6c50499efa6af10eb52",
+      "mean": -7.952108992471122e-27,
       "n": 16384,
       "nonzero": 4096,
-      "peak": 7.612419388814761e-22,
-      "rms": 5.232304819245205e-23,
-      "signed_peak": -7.612419388814761e-22
+      "peak": 7.475129026517652e-22,
+      "rms": 5.2408965716174654e-23,
+      "signed_peak": -7.475129026517652e-22
     }
   }
 }

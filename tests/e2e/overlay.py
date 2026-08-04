@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_THIS_DIRECTORY = Path(__file__).resolve().parent
 EXAMPLES_DIR = _REPO_ROOT / "examples"
 
 #: Seed pinned for every run, so two runs of one entry are comparable.
@@ -36,7 +37,11 @@ _TEST_SEED = 20260731
 
 #: In-repo CBC population, used in place of every remote population file. Small and fixed, so a
 #: run is reproducible and needs no network.
-POPULATION_FIXTURE = EXAMPLES_DIR / "signal" / "bbh_population.csv"
+#:
+#: Test-owned rather than the example's copy, because its coalescence time has to sit at the epoch
+#: below and the examples deliberately use 2030. Identical to
+#: ``examples/signal/bbh_population.csv`` apart from that time.
+POPULATION_FIXTURE = _THIS_DIRECTORY / "data" / "bbh_population.csv"
 
 #: In-repo pulsar catalogue for the continuous-wave entry.
 #:
@@ -47,12 +52,28 @@ POPULATION_FIXTURE = EXAMPLES_DIR / "signal" / "bbh_population.csv"
 CW_POPULATION_FIXTURE = EXAMPLES_DIR / "signal" / "cw_population.csv"
 
 #: The single event in :data:`POPULATION_FIXTURE`.
-_FIXTURE_EVENT_GPS = 1577491300.0
+_FIXTURE_EVENT_GPS = 1419724820.0
 
 #: Start time placing that event inside a short segment. A run whose span misses the population
 #: still succeeds and writes only zeros, so this is not a cosmetic choice -- see the
 #: ``contains_signal`` assertions in the end-to-end tests.
-_ALIGNED_START = 1577491296.0
+#:
+#: 2025-01-01, and the choice of *year* is load-bearing. The shipped examples run in 2030 to match
+#: the Einstein Telescope era, which is roughly 885 days beyond the end of the IERS Earth-orientation
+#: table Astropy ships. Astropy clamps UT1-UTC to the table's final value there, so every weekly
+#: `astropy-iers-data` release moved that clamped value and with it the generated strain -- measured
+#: at 1.569e-06 of peak, above this suite's 1e-06 drift tolerance, so the reference comparison failed
+#: roughly weekly on something that was not a defect.
+#:
+#: Inside the *finalised* part of the table, nothing moves. Measured across the 0.2026.7.27 and
+#: 0.2026.8.3 releases: UT1-UTC at 2024-01-01, 2025-01-01 and 2026-01-01 is bit-identical, while
+#: 2030-01-01 stepped by 2.740 ms. Finalised data ended 2026-07-23 when this was chosen, so this
+#: epoch keeps about eighteen months of margin before the prediction boundary.
+#:
+#: The cost, stated because it is a real one: the suite no longer exercises the epoch the examples
+#: document. What that could hide is an error that depends on being far outside the IERS table --
+#: which is the situation this deliberately stops testing.
+_ALIGNED_START = 1419724816.0
 
 #: Entries that cannot be run without fetching from the network, with the reason. These are
 #: skipped rather than run against a remote URL. Removing an entry from here requires adding a
@@ -147,8 +168,14 @@ _OVERLAYS: dict[str, dict[str, Any]] = {
                 "sampling-frequency": 256,
                 "duration": 8,
                 "total-duration": 16,
+                "start-time": _ALIGNED_START,
             }
         },
+        # The SSB reference moves with the data. It could stay in 2030 -- it is only the epoch the
+        # spin parameters refer to -- but then the phase would be accumulated across five years for
+        # no reason, and the run would be describing a catalogue referenced to a time it never
+        # covers.
+        "signal": {"arguments": {"reference_time_ssb": _ALIGNED_START}},
         "orchestration": {"population": {"arguments": {"path": str(CW_POPULATION_FIXTURE)}}},
     },
     # Deliberately the same overlay as the ripple entry above: the two configs differ only by
