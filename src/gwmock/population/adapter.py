@@ -27,9 +27,10 @@ def _materialise_on_host(values: Sequence[Any]) -> tuple[Any, ...]:
     a tuple of floats, measured over eight parameters. So the bulk form is used for the transfer and
     discarded, which also keeps the stored type exactly what it was before.
 
-    Anything numpy cannot represent as a numeric array -- object columns, ragged input -- falls back
-    to the plain tuple. The per-element cost is real there, but such values were never
-    device-resident to begin with.
+    Ragged input, which ``np.asarray`` refuses, falls back to the plain tuple. Object columns do
+    *not* need a fallback: ``tolist`` on an object array hands the objects back unchanged, checked for
+    ``None``, dicts, ``Decimal``, ``datetime`` and nested lists, so a branch for them would be code
+    that cannot change an outcome.
 
     Args:
         values: One parameter's values, as the backend produced them.
@@ -40,8 +41,6 @@ def _materialise_on_host(values: Sequence[Any]) -> tuple[Any, ...]:
     try:
         materialised = np.asarray(values)
     except (TypeError, ValueError):
-        return tuple(values)
-    if materialised.dtype == object:
         return tuple(values)
     if materialised.ndim != 1:
         # Returned as the array, deliberately, so the shape check in `_validate_parameter_values`

@@ -421,3 +421,67 @@ class TestBulkHostTransfer:
                 {"coa_time": np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])},
                 source_type="bbh",
             )
+
+    def test_input_numpy_cannot_convert_falls_back_without_crashing(self):
+        """Ragged input makes ``np.asarray`` raise, and the fallback must catch it.
+
+        numpy 2.x raises ``ValueError`` for a ragged nested sequence rather than building an object
+        array. The values then go through the plain tuple, which is the pre-change behaviour: a
+        two-event catalogue whose parameter values are lists. That is not obviously desirable, but it
+        is what this adapter has always done, and the bulk transfer is not the place to change it.
+        """
+        adapter = PopulationAdapter.from_mapping(
+            {"coa_time": [[1.0, 2.0], [3.0]]},
+            source_type="bbh",
+        )
+
+        assert len(adapter) == 2
+        assert adapter.get_event_parameters(0) == {"coa_time": [1.0, 2.0]}
+
+    def test_an_object_column_survives_the_bulk_path(self):
+        """No fallback for object columns, because none is needed, and that is worth pinning.
+
+        ``tolist`` on an object array returns the objects unchanged -- verified for ``None``, dicts,
+        ``Decimal``, ``datetime`` and nested lists -- so an earlier revision's ``dtype == object``
+        branch could not change an outcome. It was removed rather than kept with a test that passed
+        whether or not it existed. This asserts the values still come back intact without it.
+        """
+        adapter = PopulationAdapter.from_mapping({"value": [None, 1.0]}, source_type="bbh")
+
+        assert adapter.get_event_parameters(0) == {"value": None}
+        assert adapter.get_event_parameters(1) == {"value": 1.0}
+
+    def test_a_scalar_column_is_refused_for_its_shape(self):
+        """A 0-d array reaches the shape check, not the length check.
+
+        Worth pinning because it is the reason the validator's ``TypeError`` branch is now
+        unreachable through the public API: everything ``_materialise_on_host`` returns is a tuple or
+        an array, so the shape check fires first for anything not one-dimensional.
+        """
+        with pytest.raises(ValueError, match="one-dimensional"):
+            PopulationAdapter.from_mapping({"coa_time": 5.0}, source_type="bbh")
+
+    def test_the_validator_still_refuses_values_with_no_length(self):
+        """The validator's own contract, exercised directly because nothing public reaches it.
+
+        Tested at the private boundary on purpose. It is defensive code guarding a caller that does
+        not currently exist -- ``_materialise_on_host`` always yields something sized -- and a test
+        through the public API would be impossible rather than merely awkward. Pinned so the message
+        survives if a future conversion path does reach it.
+        """
+        with pytest.raises(TypeError, match="indexable sequences"):
+            PopulationAdapter._validate_parameter_values(
+                parameter_name="coa_time",
+                values=object(),
+                expected_length=None,
+            )
+
+    def test_from_backend_refuses_something_that_is_not_a_backend(self):
+        """The protocol check, which nothing exercised before.
+
+        Not part of the bulk-transfer work, but it is the last uncovered branch in this module and the
+        message is worth pinning: a caller passing the wrong object should be told the protocol is the
+        problem, not meet an ``AttributeError`` from inside ``simulate``.
+        """
+        with pytest.raises(TypeError, match="GWPopSimulator protocol"):
+            PopulationAdapter.from_backend(object(), n_samples=1)
