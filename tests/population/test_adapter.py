@@ -8,7 +8,7 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -300,8 +300,57 @@ class TestPopulationAdapter:
             PopulationAdapter.from_mapping({"coa_time": np.array([1.0])}, source_type="")
 
 
+class _ConversionSpy:
+    """Stands in for a device array and records how it was read.
+
+    The point is to distinguish *one bulk conversion* from *many element reads*, which is the whole
+    claim. Inferring that from the stored value type does not work: a per-element loop that calls
+    ``float()`` on each sample also leaves Python floats behind, so it passes a type check while
+    costing what the bulk transfer exists to avoid.
+    """
+
+    def __init__(self, values: np.ndarray) -> None:
+        self._values = values
+        self.bulk_conversions = 0
+        self.element_reads = 0
+
+    def __array__(self, dtype: Any = None, copy: Any = None) -> np.ndarray:
+        self.bulk_conversions += 1
+        return np.asarray(self._values, dtype=dtype)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __getitem__(self, index: Any) -> Any:
+        self.element_reads += 1
+        return self._values[index]
+
+    def __iter__(self):
+        for index in range(len(self._values)):
+            self.element_reads += 1
+            yield self._values[index]
+
+
 class TestBulkHostTransfer:
     """``gwmock-pop`` returns JAX device arrays, and how they are read dominates this adapter."""
+
+    def test_the_values_are_read_in_one_bulk_conversion(self):
+        """The faithful witness: count the conversions, do not infer them from the stored type.
+
+        A reviewer defeated the type-based check by writing a per-element implementation that calls
+        ``float()`` on each sample -- Python floats in the store, every test passing, and 1.4 s per
+        500 elements against 0.4 ms. Counting is what actually pins the behaviour.
+        """
+        spy = _ConversionSpy(np.arange(5.0))
+
+        adapter = PopulationAdapter.from_mapping({"coa_time": spy}, source_type="bbh")
+
+        assert spy.bulk_conversions == 1, f"converted {spy.bulk_conversions} times, expected exactly one"
+        assert spy.element_reads == 0, (
+            f"read {spy.element_reads} elements individually; on a device array each of those is its "
+            f"own transfer, which is the cost this exists to avoid"
+        )
+        assert adapter.population_mapping["coa_time"] == (0.0, 1.0, 2.0, 3.0, 4.0)
 
     def test_device_arrays_are_transferred_in_bulk_not_element_by_element(self):
         """Pinned by the *type* of the stored values, because timing tests are flaky.
@@ -344,10 +393,31 @@ class TestBulkHostTransfer:
         assert stored == tuple(exact), f"bulk transfer changed the values: {stored} against {tuple(exact)}"
 
     def test_a_non_numeric_column_still_works(self):
-        """Object columns cannot go through the numeric path, and must not crash it."""
+        """Object columns cannot go through the numeric path, and must not crash it.
+
+        This one checks behaviour, not the bulk path: it passes whichever conversion runs. Stated so
+        the module is not read as three guards on the transfer when only the type witness above is
+        one.
+        """
         adapter = PopulationAdapter.from_mapping(
             {"label": ["a", "b"], "value": np.array([1.0, 2.0])},
             source_type="bbh",
         )
 
         assert adapter.get_event_parameters(1) == {"label": "b", "value": 2.0}
+
+    def test_a_two_dimensional_column_is_refused_rather_than_reinterpreted(self):
+        """A 2-D column used to become one entry per row, silently shortening the catalogue.
+
+        ``tuple(values)`` on a 2-D array yields row arrays, and the shape check in
+        ``_validate_parameter_values`` looks for a ``.shape`` attribute -- which a tuple does not
+        have. So a (3, 2) column became a 3-event catalogue of array-valued parameters and no
+        validation noticed. Pre-existing rather than introduced by the bulk transfer, but the bulk
+        transfer is where the fix belongs: the array is passed through so the validator can see its
+        shape.
+        """
+        with pytest.raises(ValueError, match="one-dimensional"):
+            PopulationAdapter.from_mapping(
+                {"coa_time": np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])},
+                source_type="bbh",
+            )
