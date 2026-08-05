@@ -95,9 +95,13 @@ gwmock rewriting their internal structure.
 `signal.injections` records the source parameters of the signals attributed to
 that batch's frame(s), in injection order. Each entry is
 `{"event_id": <index in the population>, "parameters": {...}}`. A signal is
-attributed to the frame in which it **merges** (its `coa_time` falls inside that
-frame's time segment); a long waveform whose inspiral or ringdown extends into
-adjacent frames is listed only under its merger frame. `event_id` is the event's
+listed against **every frame its samples reach**, so a long inspiral crossing a
+segment boundary appears in each frame it spans, and a continuous wave appears
+in all of them. This changed in schema 1.5.0: a signal used to be listed only
+under the frame it was generated for, which for a 48 s inspiral across 32 s
+segments meant one frame out of three -- and not the one holding the merger. The
+frame a signal is _generated_ for is the one its waveform **starts** in (schema
+1.4.0; before that, the one its `coa_time` fell in). `event_id` is the event's
 index in the population as ordered for the run (by `coa_time` under the default
 ordering), so it is stable for a fixed configuration. Stationary/SGWB segments
 have no discrete events and record an empty list.
@@ -154,8 +158,12 @@ Requirements and limits:
 ## Finding which frame contains a signal
 
 Alongside the per-file `index.yaml`, a run writes `signal_index.yaml` mapping
-each signal's `event_id` to the frame file(s) that contain it. Use
-`gwmock find-signal` to resolve a signal to its frame:
+each signal's `event_id` to the frame file(s) that contain it. The entry records
+one contribution per batch, because a signal reaching several segments is
+written by several batches; `find-signal` flattens them, and reports `metadata`
+as a **list** of batch metadata files on both lookup paths. An index written
+before schema 1.5.0 is still read. Use `gwmock find-signal` to resolve a signal
+to its frame:
 
 ```bash
 # By id (fast path via signal_index.yaml)

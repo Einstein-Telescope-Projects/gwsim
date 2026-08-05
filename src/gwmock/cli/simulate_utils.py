@@ -569,6 +569,28 @@ def update_metadata_index(
         raise
 
 
+def _withdraw_batch(index: dict[str, Any], metadata_file_name: str) -> dict[str, Any]:
+    """Return *index* with every contribution from *metadata_file_name* removed.
+
+    Entries left with no contributions are dropped, so a re-run that injects nothing no longer
+    leaves an id pointing at frames it did not write.
+
+    Pre-1.5.0 entries carried a single ``metadata`` string and a flat ``frames`` list. They are
+    migrated in passing rather than rejected: an index is a rebuildable cache, and refusing to read
+    one written by an older gwmock would make an upgrade look like data loss.
+    """
+    migrated: dict[str, Any] = {}
+    for event_id, entry in index.items():
+        batches = entry.get("batches")
+        if batches is None:
+            batches = [{"metadata": entry.get("metadata"), "frames": entry.get("frames") or []}]
+        kept = [batch for batch in batches if batch.get("metadata") != metadata_file_name]
+        if not kept:
+            continue
+        migrated[event_id] = {"batches": kept, "coa_time": entry.get("coa_time")}
+    return migrated
+
+
 def update_signal_index(
     metadata_directory: Path,
     metadata: dict[str, Any],
@@ -604,10 +626,11 @@ def update_signal_index(
     else:
         index = {}
 
-    # Drop any entries this batch wrote previously so a re-run or overwrite (which
-    # may now inject different or no events) cannot leave stale id -> frame rows
-    # that the id fast-path would trust.
-    index = {event_id: entry for event_id, entry in index.items() if entry.get("metadata") != metadata_file_name}
+    # Withdraw this batch's previous contribution, per event, so a re-run or overwrite (which may
+    # now inject different or no events) cannot leave stale id -> frame rows the fast path would
+    # trust. This used to drop whole entries whose `metadata` matched, which was equivalent only
+    # while an entry belonged to exactly one batch -- and that is the assumption being removed here.
+    index = _withdraw_batch(index, metadata_file_name)
 
     signal_frames = [
         output["path"] for output in metadata.get("outputs", []) if output.get("kind") == "signal" and "path" in output
@@ -616,11 +639,16 @@ def update_signal_index(
         event_id = injection.get("event_id")
         if event_id is None:
             continue
-        index[str(event_id)] = {
-            "frames": signal_frames,
-            "metadata": metadata_file_name,
-            "coa_time": (injection.get("parameters") or {}).get("coa_time"),
-        }
+        # Appended, not assigned. A signal reaches every frame its samples land in, and each of those
+        # frames belongs to a different batch writing this index in turn, so the previous
+        # `index[event_id] = ...` kept whichever batch happened to write last. For a continuous wave
+        # that is one frame out of every frame in the run; for a 48 s inspiral across 32 s segments it
+        # was one of three, and not the one holding the merger.
+        entry = index.setdefault(
+            str(event_id),
+            {"batches": [], "coa_time": (injection.get("parameters") or {}).get("coa_time")},
+        )
+        entry["batches"].append({"metadata": metadata_file_name, "frames": signal_frames})
 
     try:
         with index_file.open("w") as f:

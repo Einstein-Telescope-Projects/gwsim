@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 #: so a consumer reading the old version parses the new one without noticing -- which is exactly why
 #: the version has to move. A reader comparing records across a run boundary needs to be able to tell
 #: which convention produced each one.
-SCHEMA_VERSION = "1.4.0"
+SCHEMA_VERSION = "1.5.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 

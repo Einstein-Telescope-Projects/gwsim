@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,6 +21,56 @@ from gwmock.utils.datetime_parser import parse_duration_to_seconds
 logger = logging.getLogger("gwmock")
 
 
+def _injection_record(chunk: TimeSeries) -> dict[str, Any] | None:
+    """Return the injection record a chunk carries, or ``None`` if it carries none.
+
+    Both are stamped at generation and copied onto a tail when a chunk crosses a segment boundary,
+    which is what lets a carried-forward chunk still say what it is. A chunk with parameters but no
+    ``event_id`` is recorded with ``event_id`` ``None`` rather than dropped: the parameters are still
+    the provenance, and dropping it would silently lose a signal from the record.
+    """
+    parameters = chunk.metadata.get("injection_parameters")
+    if parameters is None:
+        return None
+    event_id = chunk.metadata.get("event_id")
+    return {"event_id": event_id, "parameters": dict(parameters)}
+
+
+def _contributing_injections(segment: TimeSeries, chunks: Iterable[TimeSeries]) -> list[dict[str, Any]]:
+    """Return injection records for the chunks that place at least one sample in *segment*."""
+    records: list[dict[str, Any]] = []
+    for chunk in chunks:
+        if not segment.contributes_samples(chunk):
+            continue
+        record = _injection_record(chunk)
+        if record is not None:
+            records.append(record)
+    return records
+
+
+def _merge_injection_records(*groups: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Concatenate injection records, keeping the first of each ``event_id`` and order stable.
+
+    Deduplicated because one signal can reach a segment through several chunks -- a multi-detector
+    generation emits one chunk per detector, all carrying the same record -- and a provenance list
+    naming the same event three times would read as three injections.
+
+    Records whose ``event_id`` is ``None`` are never merged together: without an id there is nothing
+    to say two chunks are the same signal, so collapsing them would drop real injections.
+    """
+    merged: list[dict[str, Any]] = []
+    seen: set[Any] = set()
+    for group in groups:
+        for record in group:
+            event_id = record.get("event_id")
+            if event_id is not None:
+                if event_id in seen:
+                    continue
+                seen.add(event_id)
+            merged.append(record)
+    return merged
+
+
 class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Mixin providing timing and duration management.
 
@@ -29,6 +80,11 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
 
     start_time = StateAttribute(Quantity(0, unit="s"))
     cached_data_chunks = TimeSeriesList()
+    #: Injection records for every signal that reaches the segment currently being built, including
+    #: signals generated for an *earlier* segment whose content extends into this one. Rebuilt per
+    #: segment by :meth:`simulate`; a subclass writing provenance should union this with whatever it
+    #: generated itself. Empty for simulators that do not inject.
+    carried_injections: list[dict[str, Any]]
 
     def __init__(
         self,
@@ -53,6 +109,9 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
         super().__init__(**kwargs)
         # TimeSeriesMixin is the last mixin in the hierarchy, so no super().__init__() call needed
         self.start_time = Quantity(start_time, unit="s")
+        # Per instance, not a class attribute: two simulators in one process must not share the
+        # list of signals reaching the segment each is building.
+        self.carried_injections = []
         self.duration = duration
         self.total_duration = total_duration
         self.sampling_frequency = sampling_frequency
@@ -211,11 +270,23 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
             sampling_frequency=self.sampling_frequency,
         )
 
+        # Which carried-forward chunks reach this segment, recorded *before* injecting them.
+        # Injection sums into shared channels, so after this line there is no way to ask which
+        # signal contributed to the segment -- and a signal long enough to cross a boundary is
+        # exactly the case where the answer is not the segment it was generated in.
+        self.carried_injections = _contributing_injections(segment, self.cached_data_chunks)
+
         # Inject cached data chunks into the segment
         self.cached_data_chunks = segment.inject_from_list(self.cached_data_chunks)
 
         # Generate new chunks of data
         new_chunks = self._simulate(*args, **kwargs)
+
+        # Chunks generated for this segment that do not actually reach it are excluded for the same
+        # reason the carried ones are included: the record names the frames a signal is *in*.
+        self.carried_injections = _merge_injection_records(
+            self.carried_injections, _contributing_injections(segment, new_chunks)
+        )
 
         # Add the new chunks to the segment
         remaining_chunks = segment.inject_from_list(new_chunks)
