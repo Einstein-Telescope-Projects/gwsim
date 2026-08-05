@@ -8,7 +8,7 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -298,3 +298,199 @@ class TestPopulationAdapter:
     def test_from_mapping_rejects_invalid_source_type(self):
         with pytest.raises(ValueError, match="non-empty string"):
             PopulationAdapter.from_mapping({"coa_time": np.array([1.0])}, source_type="")
+
+
+class _ConversionSpy:
+    """Stands in for a device array and records how it was read.
+
+    The point is to distinguish *one bulk conversion* from *many element reads*, which is the whole
+    claim. Inferring that from the stored value type does not work: a per-element loop that calls
+    ``float()`` on each sample also leaves Python floats behind, so it passes a type check while
+    costing what the bulk transfer exists to avoid.
+    """
+
+    def __init__(self, values: np.ndarray) -> None:
+        self._values = values
+        self.bulk_conversions = 0
+        self.element_reads = 0
+
+    def __array__(self, dtype: Any = None, copy: Any = None) -> np.ndarray:
+        self.bulk_conversions += 1
+        return np.asarray(self._values, dtype=dtype)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __getitem__(self, index: Any) -> Any:
+        self.element_reads += 1
+        return self._values[index]
+
+    def __iter__(self):
+        for index in range(len(self._values)):
+            self.element_reads += 1
+            yield self._values[index]
+
+
+class TestBulkHostTransfer:
+    """``gwmock-pop`` returns JAX device arrays, and how they are read dominates this adapter."""
+
+    def test_the_values_are_read_in_one_bulk_conversion(self):
+        """The faithful witness: count the conversions, do not infer them from the stored type.
+
+        A reviewer defeated the type-based check by writing a per-element implementation that calls
+        ``float()`` on each sample -- Python floats in the store, every test passing, and 1.4 s per
+        500 elements against 0.4 ms. Counting is what actually pins the behaviour.
+        """
+        spy = _ConversionSpy(np.arange(5.0))
+
+        adapter = PopulationAdapter.from_mapping({"coa_time": spy}, source_type="bbh")
+
+        assert spy.bulk_conversions == 1, f"converted {spy.bulk_conversions} times, expected exactly one"
+        assert spy.element_reads == 0, (
+            f"read {spy.element_reads} elements individually; on a device array each of those is its "
+            f"own transfer, which is the cost this exists to avoid"
+        )
+        assert adapter.population_mapping["coa_time"] == (0.0, 1.0, 2.0, 3.0, 4.0)
+
+    def test_device_arrays_are_transferred_in_bulk_not_element_by_element(self):
+        """Pinned by the *type* of the stored values, because timing tests are flaky.
+
+        A bare ``tuple(device_array)`` iterates the array, pulling each element back with its own
+        device operation, and leaves JAX scalars behind. Converting in bulk first leaves plain Python
+        floats. So the element type is a faithful witness for which path ran, and it fails
+        immediately if the bulk conversion is removed.
+
+        The cost this guards is not marginal: 0.994 ms per event against 0.0021 ms over a
+        1000-event, eight-parameter catalogue, a factor of 469, and it was the entire construction
+        cost of the adapter.
+        """
+        jax = pytest.importorskip("jax", reason="the [jax] extra is not installed")
+
+        adapter = PopulationAdapter.from_mapping(
+            {"coa_time": jax.numpy.asarray([1.0, 2.0, 3.0])},
+            source_type="bbh",
+        )
+
+        stored = adapter.population_mapping["coa_time"]
+        assert [type(value) for value in stored] == [float, float, float], (
+            f"stored {[type(v).__name__ for v in stored]}; JAX scalars here mean the device array was "
+            f"iterated element by element rather than transferred once"
+        )
+        assert stored == (1.0, 2.0, 3.0)
+
+    def test_the_values_survive_the_bulk_conversion_unchanged(self):
+        """Speed is worthless if the numbers move. Full float64 precision, not just close."""
+        jax = pytest.importorskip("jax", reason="the [jax] extra is not installed")
+
+        # Asserted, not set. An earlier version called `jax.config.update` here, which mutates JAX's
+        # global state and leaked x64 into every test that ran afterwards -- and it was redundant:
+        # importing this adapter imports `gwmock_pop`, whose `_precision` module enables x64 because
+        # float32 spacing at GPS scale is 128 s. So the invariant is checked rather than imposed,
+        # which also makes this a guard on `gwmock_pop` continuing to do it.
+        assert jax.config.jax_enable_x64, (
+            "float64 is unavailable, so this test cannot say anything about precision; gwmock_pop is "
+            "supposed to enable x64 on import"
+        )
+
+        exact = [1577491296.123456789, -0.30000000000000004, 1e-21, 2.5e30]
+        adapter = PopulationAdapter.from_mapping(
+            {"value": jax.numpy.asarray(exact, dtype=jax.numpy.float64)},
+            source_type="bbh",
+        )
+
+        stored = adapter.population_mapping["value"]
+        assert stored == tuple(exact), f"bulk transfer changed the values: {stored} against {tuple(exact)}"
+
+    def test_a_non_numeric_column_still_works(self):
+        """Object columns cannot go through the numeric path, and must not crash it.
+
+        This one checks behaviour, not the bulk path: it passes whichever conversion runs. Stated so
+        the module is not read as three guards on the transfer when only the type witness above is
+        one.
+        """
+        adapter = PopulationAdapter.from_mapping(
+            {"label": ["a", "b"], "value": np.array([1.0, 2.0])},
+            source_type="bbh",
+        )
+
+        assert adapter.get_event_parameters(1) == {"label": "b", "value": 2.0}
+
+    def test_a_two_dimensional_column_is_refused_rather_than_reinterpreted(self):
+        """A 2-D column used to become one entry per row, silently shortening the catalogue.
+
+        ``tuple(values)`` on a 2-D array yields row arrays, and the shape check in
+        ``_validate_parameter_values`` looks for a ``.shape`` attribute -- which a tuple does not
+        have. So a (3, 2) column became a 3-event catalogue of array-valued parameters and no
+        validation noticed. Pre-existing rather than introduced by the bulk transfer, but the bulk
+        transfer is where the fix belongs: the array is passed through so the validator can see its
+        shape.
+        """
+        with pytest.raises(ValueError, match="one-dimensional"):
+            PopulationAdapter.from_mapping(
+                {"coa_time": np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])},
+                source_type="bbh",
+            )
+
+    def test_input_numpy_cannot_convert_falls_back_without_crashing(self):
+        """Ragged input makes ``np.asarray`` raise, and the fallback must catch it.
+
+        numpy 2.x raises ``ValueError`` for a ragged nested sequence rather than building an object
+        array. The values then go through the plain tuple, which is the pre-change behaviour: a
+        two-event catalogue whose parameter values are lists. That is not obviously desirable, but it
+        is what this adapter has always done, and the bulk transfer is not the place to change it.
+        """
+        adapter = PopulationAdapter.from_mapping(
+            {"coa_time": [[1.0, 2.0], [3.0]]},
+            source_type="bbh",
+        )
+
+        assert len(adapter) == 2
+        assert adapter.get_event_parameters(0) == {"coa_time": [1.0, 2.0]}
+
+    def test_an_object_column_survives_the_bulk_path(self):
+        """No fallback for object columns, because none is needed, and that is worth pinning.
+
+        ``tolist`` on an object array returns the objects unchanged -- verified for ``None``, dicts,
+        ``Decimal``, ``datetime`` and nested lists -- so an earlier revision's ``dtype == object``
+        branch could not change an outcome. It was removed rather than kept with a test that passed
+        whether or not it existed. This asserts the values still come back intact without it.
+        """
+        adapter = PopulationAdapter.from_mapping({"value": [None, 1.0]}, source_type="bbh")
+
+        assert adapter.get_event_parameters(0) == {"value": None}
+        assert adapter.get_event_parameters(1) == {"value": 1.0}
+
+    def test_a_scalar_column_is_refused_for_its_shape(self):
+        """A 0-d array reaches the shape check, not the length check.
+
+        Worth pinning because it is the reason the validator's ``TypeError`` branch is now
+        unreachable through the public API: everything ``_materialise_on_host`` returns is a tuple or
+        an array, so the shape check fires first for anything not one-dimensional.
+        """
+        with pytest.raises(ValueError, match="one-dimensional"):
+            PopulationAdapter.from_mapping({"coa_time": 5.0}, source_type="bbh")
+
+    def test_the_validator_still_refuses_values_with_no_length(self):
+        """The validator's own contract, exercised directly because nothing public reaches it.
+
+        Tested at the private boundary on purpose. It is defensive code guarding a caller that does
+        not currently exist -- ``_materialise_on_host`` always yields something sized -- and a test
+        through the public API would be impossible rather than merely awkward. Pinned so the message
+        survives if a future conversion path does reach it.
+        """
+        with pytest.raises(TypeError, match="indexable sequences"):
+            PopulationAdapter._validate_parameter_values(
+                parameter_name="coa_time",
+                values=object(),
+                expected_length=None,
+            )
+
+    def test_from_backend_refuses_something_that_is_not_a_backend(self):
+        """The protocol check, which nothing exercised before.
+
+        Not part of the bulk-transfer work, but it is the last uncovered branch in this module and the
+        message is worth pinning: a caller passing the wrong object should be told the protocol is the
+        problem, not meet an ``AttributeError`` from inside ``simulate``.
+        """
+        with pytest.raises(TypeError, match="GWPopSimulator protocol"):
+            PopulationAdapter.from_backend(object(), n_samples=1)
