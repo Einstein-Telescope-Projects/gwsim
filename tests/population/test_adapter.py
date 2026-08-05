@@ -381,7 +381,16 @@ class TestBulkHostTransfer:
     def test_the_values_survive_the_bulk_conversion_unchanged(self):
         """Speed is worthless if the numbers move. Full float64 precision, not just close."""
         jax = pytest.importorskip("jax", reason="the [jax] extra is not installed")
-        jax.config.update("jax_enable_x64", True)
+
+        # Asserted, not set. An earlier version called `jax.config.update` here, which mutates JAX's
+        # global state and leaked x64 into every test that ran afterwards -- and it was redundant:
+        # importing this adapter imports `gwmock_pop`, whose `_precision` module enables x64 because
+        # float32 spacing at GPS scale is 128 s. So the invariant is checked rather than imposed,
+        # which also makes this a guard on `gwmock_pop` continuing to do it.
+        assert jax.config.jax_enable_x64, (
+            "float64 is unavailable, so this test cannot say anything about precision; gwmock_pop is "
+            "supposed to enable x64 on import"
+        )
 
         exact = [1577491296.123456789, -0.30000000000000004, 1e-21, 2.5e30]
         adapter = PopulationAdapter.from_mapping(
