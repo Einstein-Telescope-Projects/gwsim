@@ -298,3 +298,56 @@ class TestPopulationAdapter:
     def test_from_mapping_rejects_invalid_source_type(self):
         with pytest.raises(ValueError, match="non-empty string"):
             PopulationAdapter.from_mapping({"coa_time": np.array([1.0])}, source_type="")
+
+
+class TestBulkHostTransfer:
+    """``gwmock-pop`` returns JAX device arrays, and how they are read dominates this adapter."""
+
+    def test_device_arrays_are_transferred_in_bulk_not_element_by_element(self):
+        """Pinned by the *type* of the stored values, because timing tests are flaky.
+
+        A bare ``tuple(device_array)`` iterates the array, pulling each element back with its own
+        device operation, and leaves JAX scalars behind. Converting in bulk first leaves plain Python
+        floats. So the element type is a faithful witness for which path ran, and it fails
+        immediately if the bulk conversion is removed.
+
+        The cost this guards is not marginal: 0.994 ms per event against 0.0021 ms over a
+        1000-event, eight-parameter catalogue, a factor of 469, and it was the entire construction
+        cost of the adapter.
+        """
+        jax = pytest.importorskip("jax", reason="the [jax] extra is not installed")
+
+        adapter = PopulationAdapter.from_mapping(
+            {"coa_time": jax.numpy.asarray([1.0, 2.0, 3.0])},
+            source_type="bbh",
+        )
+
+        stored = adapter.population_mapping["coa_time"]
+        assert [type(value) for value in stored] == [float, float, float], (
+            f"stored {[type(v).__name__ for v in stored]}; JAX scalars here mean the device array was "
+            f"iterated element by element rather than transferred once"
+        )
+        assert stored == (1.0, 2.0, 3.0)
+
+    def test_the_values_survive_the_bulk_conversion_unchanged(self):
+        """Speed is worthless if the numbers move. Full float64 precision, not just close."""
+        jax = pytest.importorskip("jax", reason="the [jax] extra is not installed")
+        jax.config.update("jax_enable_x64", True)
+
+        exact = [1577491296.123456789, -0.30000000000000004, 1e-21, 2.5e30]
+        adapter = PopulationAdapter.from_mapping(
+            {"value": jax.numpy.asarray(exact, dtype=jax.numpy.float64)},
+            source_type="bbh",
+        )
+
+        stored = adapter.population_mapping["value"]
+        assert stored == tuple(exact), f"bulk transfer changed the values: {stored} against {tuple(exact)}"
+
+    def test_a_non_numeric_column_still_works(self):
+        """Object columns cannot go through the numeric path, and must not crash it."""
+        adapter = PopulationAdapter.from_mapping(
+            {"label": ["a", "b"], "value": np.array([1.0, 2.0])},
+            source_type="bbh",
+        )
+
+        assert adapter.get_event_parameters(1) == {"label": "b", "value": 2.0}
