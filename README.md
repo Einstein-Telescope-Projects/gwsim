@@ -31,6 +31,8 @@ generation.
 ## Installation
 
 We recommend using `uv` to manage virtual environments for installing gwmock.
+The commands below use `uv`, but gwmock is a regular PyPI package that also
+installs fine with plain `pip` in any environment.
 
 If you don't have `uv` installed, you can install it with pip. See the project
 pages for more details:
@@ -39,6 +41,25 @@ pages for more details:
 - Project pages: [uv on PyPI](https://pypi.org/project/uv/) |
   [uv on GitHub](https://github.com/astral-sh/uv)
 - Full documentation and usage guide: [uv docs](https://docs.astral.sh/uv/)
+
+### Without uv (venv or Conda)
+
+If you prefer not to use uv, install with plain `pip` in a standard virtual
+environment:
+
+```bash
+# venv
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install gwmock
+```
+
+```bash
+# Conda
+conda create -n gwmock python=3.13
+conda activate gwmock
+pip install gwmock
+```
 
 **Note:** The package requires Python 3.12 or later and is built and tested
 against Python 3.12–3.14. When creating a virtual environment with `uv`, specify
