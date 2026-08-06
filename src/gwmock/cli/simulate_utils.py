@@ -26,7 +26,7 @@ from gwmock_noise import SimulationResult
 from tqdm import tqdm
 
 from gwmock.cli.adapter_orchestration import AdapterOrchestrationResult, AdapterOrchestrator
-from gwmock.cli.utils.checkpoint import CheckpointManager
+from gwmock.cli.utils.checkpoint import CheckpointManager, spillover_applies
 from gwmock.cli.utils.config import OrchestrationConfig, SimulatorConfig, resolve_class_path
 from gwmock.cli.utils.environment import capture_environment
 from gwmock.cli.utils.hash import compute_content_hash, compute_file_hash
@@ -725,7 +725,10 @@ def instantiate_simulator(
 
 
 def restore_batch_state(
-    simulator: Simulator, batch: SimulationBatch, last_simulator_state: dict[str, Any] | None = None
+    simulator: Simulator,
+    batch: SimulationBatch,
+    last_simulator_state: dict[str, Any] | None = None,
+    last_simulator_spillover: Any = None,
 ) -> None:
     """Restore simulator state from batch metadata or checkpoint file if available.
 
@@ -775,6 +778,12 @@ def restore_batch_state(
                 last_simulator_state.get("counter"),
             )
             simulator.state = last_simulator_state
+            # Restored only on this branch -- the one that resumes from the checkpoint's *last*
+            # state. The branch above restores from a batch metadata record, which by design does
+            # not carry samples, so there is no spillover to restore there and a run resumed that
+            # way still loses the tail. Stated rather than silently half-handled.
+            if last_simulator_spillover is not None:
+                simulator.cached_data_chunks = last_simulator_spillover
             logger.debug(
                 "[RESTORE] Batch %d: State restored successfully - new_counter=%s",
                 batch.batch_index,
@@ -1212,7 +1221,14 @@ def execute_plan(  # noqa: PLR0915
 
     # Initialize checkpoint manager for resumption support
     checkpoint_manager = CheckpointManager(plan.checkpoint_directory)
-    loaded_batch_indices = checkpoint_manager.get_completed_batch_indices()
+    # One decode for the whole setup. The file now carries the spillover -- 131 MB of base64 for a
+    # 1000 s tail -- and every `load_checkpoint` decodes all of it, so each convenience getter used
+    # here would pay that again before the run started.
+    checkpoint = checkpoint_manager.load_checkpoint() or {}
+    # A set, matching what `get_completed_batch_indices` returned: it is compared against
+    # `reconcile_completed_batches`'s output below, and a list never equals a set, which silently
+    # sends every resume down the "outputs are missing" branch.
+    loaded_batch_indices = set(checkpoint.get("completed_batch_indices") or [])
     resuming = bool(loaded_batch_indices)
 
     # Reconcile the checkpoint against the filesystem: a batch may be recorded as
@@ -1223,9 +1239,18 @@ def execute_plan(  # noqa: PLR0915
     if not resuming:
         logger.debug("No checkpoint found or no batches completed yet")
         last_simulator_state = None
+        last_simulator_spillover = None
+        spillover_simulator_name = None
+        spillover_batch_index = None
     elif completed_batch_indices == loaded_batch_indices:
         logger.info("Loaded checkpoint: %d batches already completed", len(completed_batch_indices))
-        last_simulator_state = checkpoint_manager.get_last_simulator_state()
+        # From the single decode above. The per-batch scoping the getter would apply is done at the
+        # restore call instead, from these values.
+        last_simulator_state = checkpoint.get("last_simulator_state")
+        last_simulator_state = last_simulator_state if isinstance(last_simulator_state, dict) else None
+        last_simulator_spillover = checkpoint.get("last_simulator_spillover")
+        spillover_simulator_name = checkpoint.get("last_simulator_name")
+        spillover_batch_index = checkpoint.get("last_completed_batch_index")
     else:
         # One or more checkpointed batches are missing their outputs. The checkpoint
         # only holds the tail simulator state, so an interior batch cannot be
@@ -1239,6 +1264,9 @@ def execute_plan(  # noqa: PLR0915
         )
         completed_batch_indices = set()
         last_simulator_state = None
+        last_simulator_spillover = None
+        spillover_simulator_name = None
+        spillover_batch_index = None
 
     # Group batches by simulator name to execute sequentially per simulator
     simulator_batches: dict[str, list[SimulationBatch]] = {}
@@ -1289,9 +1317,30 @@ def execute_plan(  # noqa: PLR0915
                         simulator.counter,
                         batch.has_state_snapshot(),
                     )
-                    restore_batch_state(simulator, batch, last_simulator_state)
+                    # Scoped before it is handed over. A plan can execute several simulators and
+                    # the checkpoint holds one tail, so an unscoped hand-off can put one simulator's
+                    # spillover into another's segment -- real strain of the right shape, in the
+                    # wrong place. It is also only valid for the batch immediately after the one
+                    # that produced it.
+                    spillover_for_batch = (
+                        last_simulator_spillover
+                        if spillover_applies(
+                            spillover_simulator_name,
+                            spillover_batch_index,
+                            batch.simulator_name,
+                            batch.batch_index,
+                        )
+                        else None
+                    )
+                    restore_batch_state(simulator, batch, last_simulator_state, spillover_for_batch)
                     logger.debug("[EXECUTE] Batch %s: After restore - counter=%s", batch.batch_index, simulator.counter)
                     pre_batch_state = copy.deepcopy(simulator.state)
+                    # Spillover too, and separately, because it is not part of `state`. `simulate`
+                    # consumes `cached_data_chunks` and replaces it with the new tail, so a retry
+                    # after a failed write would re-run against consumed chunks and produce
+                    # different data than the first attempt -- silently, since a retry that
+                    # succeeds looks like a success.
+                    pre_batch_spillover = copy.deepcopy(getattr(simulator, "cached_data_chunks", None))
                     logger.debug(
                         "[EXECUTE] Batch %s: Captured pre_batch_state - keys=%s",
                         batch.batch_index,
@@ -1341,9 +1390,15 @@ def execute_plan(  # noqa: PLR0915
                         # Update the state after successful save
                         _simulator.update_state()
 
-                    def restore_state_for_retry(_simulator=simulator, _pre_batch_state=pre_batch_state):
+                    def restore_state_for_retry(
+                        _simulator=simulator,
+                        _pre_batch_state=pre_batch_state,
+                        _pre_batch_spillover=pre_batch_spillover,
+                    ):
                         """Restore simulator state to pre-batch state before retry."""
                         _simulator.state = copy.deepcopy(_pre_batch_state)
+                        if _pre_batch_spillover is not None:
+                            _simulator.cached_data_chunks = copy.deepcopy(_pre_batch_spillover)
 
                     # Execute batch with retry mechanism that restores state on failure
                     retry_with_backoff(
@@ -1361,6 +1416,9 @@ def execute_plan(  # noqa: PLR0915
                         last_simulator_name=simulator_name,
                         last_completed_batch_index=batch.batch_index,
                         last_simulator_state=copy.deepcopy(simulator.state),
+                        # Beside the state, not inside it: `state` also goes into every batch
+                        # metadata record, and spillover is raw samples. See `save_checkpoint`.
+                        last_simulator_spillover=copy.deepcopy(getattr(simulator, "cached_data_chunks", None)),
                     )
                     logger.debug(
                         "Checkpoint saved after batch %d - state counter=%s",

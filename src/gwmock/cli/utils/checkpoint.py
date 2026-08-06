@@ -14,6 +14,50 @@ from gwmock.data.serialize.encoder import Encoder
 logger = logging.getLogger("gwmock")
 
 
+def spillover_applies(
+    saved_simulator_name: str | None,
+    saved_batch_index: int | None,
+    simulator_name: str | None,
+    batch_index: int | None,
+) -> bool:
+    """Whether spillover saved by one batch may be given to another.
+
+    One function rather than the same two comparisons at each call site: the checkpoint getter and
+    ``execute_plan`` both need this, and the reason `execute_plan` cannot simply call the getter is
+    cost -- each load decodes the whole file, spillover included. Two copies of a predicate this
+    consequential would drift.
+
+    Both conditions guard against a *wrongly accepted* tail, which is worse than a rejected one: it
+    is real strain of the right shape placed at the wrong time, in the wrong simulator's segment,
+    and nothing downstream would flag it.
+
+    ``None`` for either caller-supplied value skips that check, for callers that have already
+    established it.
+
+    **Not checked, and it cannot be from here:** whether the checkpoint belongs to *this plan* at
+    all. Nothing in a checkpoint identifies the config that produced it, so reusing a checkpoint
+    directory across two different runs with the same simulator name and batch numbering will pass
+    both tests below. That predates spillover -- ``last_simulator_state`` was never scoped either --
+    but spillover makes the consequence bigger. Tracked as
+    ``gwmock/checkpoint-has-no-plan-identity``.
+
+    Args:
+        saved_simulator_name: ``last_simulator_name`` from the checkpoint.
+        saved_batch_index: ``last_completed_batch_index`` from the checkpoint.
+        simulator_name: The simulator about to run, or ``None`` to skip the check.
+        batch_index: The batch about to run, or ``None`` to skip the check.
+
+    Returns:
+        ``True`` if the saved spillover belongs to this simulator and batch.
+    """
+    if simulator_name is not None and saved_simulator_name != simulator_name:
+        return False
+    # Spillover belongs to the batch immediately after the one that produced it. A plan whose batch
+    # indices are not contiguous therefore rejects spillover it could have used -- which loses a
+    # tail rather than misplacing one, the safe direction, and no such plan exists today.
+    return not (batch_index is not None and saved_batch_index != batch_index - 1)
+
+
 class CheckpointManager:
     """Manages checkpoint files for simulation recovery.
 
@@ -25,7 +69,8 @@ class CheckpointManager:
         "completed_batch_indices": [0, 1, 2, ...],
         "last_simulator_name": "signal",
         "last_completed_batch_index": 2,
-        "last_simulator_state": {...}
+        "last_simulator_state": {...},
+        "last_simulator_spillover": ...  # chunks continuing into the next segment, or null
     }
 
     The checkpoint is written atomically:
@@ -91,6 +136,7 @@ class CheckpointManager:
         last_simulator_name: str,
         last_completed_batch_index: int,
         last_simulator_state: dict[str, Any],
+        last_simulator_spillover: Any = None,
     ) -> None:
         """Save checkpoint after completing a batch.
 
@@ -99,6 +145,18 @@ class CheckpointManager:
             last_simulator_name: Name of the simulator that completed the batch
             last_completed_batch_index: Index of the batch that just completed
             last_simulator_state: State dict of the simulator after completion
+            last_simulator_spillover: Chunks that extend past the completed segment and belong to
+                the next one -- the tail of any signal crossing the boundary.
+
+                Carried **beside** the state rather than in it, deliberately. ``state`` is also
+                serialized into every batch metadata record, and those are provenance documents
+                meant to stay small and readable; spillover is raw samples, megabytes of them for a
+                long inspiral. Putting it in ``state`` would bloat every metadata record and, since
+                those are written with plain ``json``, fail outright on a ``TimeSeriesList``.
+
+                Without this a resumed run starts with no spillover, so the tail is never placed and
+                the segment after the resume point silently loses that content: a measured peak of
+                8.6e-22 became 0.0, with the merger simply absent.
 
         Raises:
             OSError: If checkpoint cannot be written
@@ -108,6 +166,7 @@ class CheckpointManager:
             "last_simulator_name": last_simulator_name,
             "last_completed_batch_index": last_completed_batch_index,
             "last_simulator_state": last_simulator_state,
+            "last_simulator_spillover": last_simulator_spillover,
         }
 
         # Write to temp file first (atomic write pattern)
@@ -176,6 +235,34 @@ class CheckpointManager:
             return None
         last_state = checkpoint.get("last_simulator_state")
         return last_state if isinstance(last_state, dict) else None
+
+    def get_last_simulator_spillover(self, simulator_name: str | None = None, batch_index: int | None = None) -> Any:
+        """Return the spillover chunks saved with the last completed batch, if any.
+
+        ``None`` both when the checkpoint predates this field and when the last segment had no
+        spillover, which are the same thing to a caller: there is nothing to carry in.
+
+        Args:
+            simulator_name: Restrict to spillover produced by this simulator. A plan can execute
+                several, and the checkpoint holds one tail; without this the wrong simulator can
+                receive it. ``None`` skips the check, for callers that have already established it.
+            batch_index: The batch about to run. Spillover is only valid for the batch immediately
+                following the one that produced it.
+
+        Returns:
+            The chunks that belong to the next segment, or ``None``.
+        """
+        checkpoint = self.load_checkpoint()
+        if checkpoint is None:
+            return None
+        if not spillover_applies(
+            checkpoint.get("last_simulator_name"),
+            checkpoint.get("last_completed_batch_index"),
+            simulator_name,
+            batch_index,
+        ):
+            return None
+        return checkpoint.get("last_simulator_spillover")
 
     def should_skip_batch(self, batch_index: int) -> bool:
         """Check if a batch has already been completed.
