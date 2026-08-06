@@ -14,6 +14,50 @@ from gwmock.data.serialize.encoder import Encoder
 logger = logging.getLogger("gwmock")
 
 
+def spillover_applies(
+    saved_simulator_name: str | None,
+    saved_batch_index: int | None,
+    simulator_name: str | None,
+    batch_index: int | None,
+) -> bool:
+    """Whether spillover saved by one batch may be given to another.
+
+    One function rather than the same two comparisons at each call site: the checkpoint getter and
+    ``execute_plan`` both need this, and the reason `execute_plan` cannot simply call the getter is
+    cost -- each load decodes the whole file, spillover included. Two copies of a predicate this
+    consequential would drift.
+
+    Both conditions guard against a *wrongly accepted* tail, which is worse than a rejected one: it
+    is real strain of the right shape placed at the wrong time, in the wrong simulator's segment,
+    and nothing downstream would flag it.
+
+    ``None`` for either caller-supplied value skips that check, for callers that have already
+    established it.
+
+    **Not checked, and it cannot be from here:** whether the checkpoint belongs to *this plan* at
+    all. Nothing in a checkpoint identifies the config that produced it, so reusing a checkpoint
+    directory across two different runs with the same simulator name and batch numbering will pass
+    both tests below. That predates spillover -- ``last_simulator_state`` was never scoped either --
+    but spillover makes the consequence bigger. Tracked as
+    ``gwmock/checkpoint-has-no-plan-identity``.
+
+    Args:
+        saved_simulator_name: ``last_simulator_name`` from the checkpoint.
+        saved_batch_index: ``last_completed_batch_index`` from the checkpoint.
+        simulator_name: The simulator about to run, or ``None`` to skip the check.
+        batch_index: The batch about to run, or ``None`` to skip the check.
+
+    Returns:
+        ``True`` if the saved spillover belongs to this simulator and batch.
+    """
+    if simulator_name is not None and saved_simulator_name != simulator_name:
+        return False
+    # Spillover belongs to the batch immediately after the one that produced it. A plan whose batch
+    # indices are not contiguous therefore rejects spillover it could have used -- which loses a
+    # tail rather than misplacing one, the safe direction, and no such plan exists today.
+    return not (batch_index is not None and saved_batch_index != batch_index - 1)
+
+
 class CheckpointManager:
     """Manages checkpoint files for simulation recovery.
 
@@ -211,14 +255,12 @@ class CheckpointManager:
         checkpoint = self.load_checkpoint()
         if checkpoint is None:
             return None
-        if simulator_name is not None and checkpoint.get("last_simulator_name") != simulator_name:
-            # A plan can hold several simulators, and only one of them produced this tail. Handing
-            # it to another would inject one simulator's spillover into another's segment -- wrong
-            # data that looks entirely plausible, since it is real strain of the right shape.
-            return None
-        if batch_index is not None and checkpoint.get("last_completed_batch_index") != batch_index - 1:
-            # Spillover belongs to the batch immediately after the one that produced it. Restoring
-            # it anywhere else places a tail at the wrong time.
+        if not spillover_applies(
+            checkpoint.get("last_simulator_name"),
+            checkpoint.get("last_completed_batch_index"),
+            simulator_name,
+            batch_index,
+        ):
             return None
         return checkpoint.get("last_simulator_spillover")
 

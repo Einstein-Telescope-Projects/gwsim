@@ -456,9 +456,10 @@ class TimeSeries(JSONSerializable):
             # (10.7 bytes/sample). At a realistic 1000 s binary-neutron-star tail, measured rather
             # than extrapolated: 131 MB and 1.1 s, which is 1.33x the raw float64 bytes.
             #
-            # Not free of loss: base64 here goes through whatever dtype the array holds, and the
-            # constructor widens float32 to float64 on the way back, so a narrow chunk returns wider
-            # than it left. That predates this and costs memory rather than accuracy.
+            # It also fixes a loss the list form had: `tolist()` went through Python floats and
+            # widened float32 to float64 on the way back. Base64 carries the dtype, so a float32
+            # chunk returns float32 -- checked for both widths rather than assumed, because the
+            # comment here previously claimed the opposite and was wrong.
             "data": np.asarray([self[i].value for i in range(self.num_of_channels)]),
             # Carried because a serialized chunk is a *spillover tail* waiting in a checkpoint, and
             # the next segment reads exactly these on restore. Omitting them restores the samples

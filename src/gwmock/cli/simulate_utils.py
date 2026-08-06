@@ -26,7 +26,7 @@ from gwmock_noise import SimulationResult
 from tqdm import tqdm
 
 from gwmock.cli.adapter_orchestration import AdapterOrchestrationResult, AdapterOrchestrator
-from gwmock.cli.utils.checkpoint import CheckpointManager
+from gwmock.cli.utils.checkpoint import CheckpointManager, spillover_applies
 from gwmock.cli.utils.config import OrchestrationConfig, SimulatorConfig, resolve_class_path
 from gwmock.cli.utils.environment import capture_environment
 from gwmock.cli.utils.hash import compute_content_hash, compute_file_hash
@@ -1221,7 +1221,14 @@ def execute_plan(  # noqa: PLR0915
 
     # Initialize checkpoint manager for resumption support
     checkpoint_manager = CheckpointManager(plan.checkpoint_directory)
-    loaded_batch_indices = checkpoint_manager.get_completed_batch_indices()
+    # One decode for the whole setup. The file now carries the spillover -- 131 MB of base64 for a
+    # 1000 s tail -- and every `load_checkpoint` decodes all of it, so each convenience getter used
+    # here would pay that again before the run started.
+    checkpoint = checkpoint_manager.load_checkpoint() or {}
+    # A set, matching what `get_completed_batch_indices` returned: it is compared against
+    # `reconcile_completed_batches`'s output below, and a list never equals a set, which silently
+    # sends every resume down the "outputs are missing" branch.
+    loaded_batch_indices = set(checkpoint.get("completed_batch_indices") or [])
     resuming = bool(loaded_batch_indices)
 
     # Reconcile the checkpoint against the filesystem: a batch may be recorded as
@@ -1237,11 +1244,8 @@ def execute_plan(  # noqa: PLR0915
         spillover_batch_index = None
     elif completed_batch_indices == loaded_batch_indices:
         logger.info("Loaded checkpoint: %d batches already completed", len(completed_batch_indices))
-        # One load for everything below. Each `load_checkpoint` decodes the whole file including the
-        # spillover, which is 131 MB of base64 for a 1000 s tail, so calling the individual getters
-        # here would pay that decode once per getter before the run even starts. The per-batch
-        # scoping the getters would apply is done at the restore call instead, from these values.
-        checkpoint = checkpoint_manager.load_checkpoint() or {}
+        # From the single decode above. The per-batch scoping the getter would apply is done at the
+        # restore call instead, from these values.
         last_simulator_state = checkpoint.get("last_simulator_state")
         last_simulator_state = last_simulator_state if isinstance(last_simulator_state, dict) else None
         last_simulator_spillover = checkpoint.get("last_simulator_spillover")
@@ -1320,9 +1324,11 @@ def execute_plan(  # noqa: PLR0915
                     # that produced it.
                     spillover_for_batch = (
                         last_simulator_spillover
-                        if (
-                            spillover_simulator_name == batch.simulator_name
-                            and spillover_batch_index == batch.batch_index - 1
+                        if spillover_applies(
+                            spillover_simulator_name,
+                            spillover_batch_index,
+                            batch.simulator_name,
+                            batch.batch_index,
                         )
                         else None
                     )

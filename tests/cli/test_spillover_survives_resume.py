@@ -188,24 +188,51 @@ class TestARetryDoesNotConsumeTheSpillover:
     success, so nothing would say which of the two a frame came from.
     """
 
-    def test_the_retry_restore_is_wired_to_both(self):
-        """Reads the closure `execute_plan` builds, so a revert to state-only fails here.
+    def test_a_forced_failure_leaves_the_second_attempt_the_same_tail(self):
+        """A real retry, not an inspection of the source that implements one.
 
-        Inspecting the source rather than running a failing batch: provoking a real retry needs a
-        write failure deep inside `execute_plan`, and the thing worth pinning is only that the
-        closure touches both attributes.
+        An earlier version of this test read `execute_plan`'s closure with `inspect.getsource`. That
+        catches a revert to state-only and nothing else -- it cannot tell whether restoring the tail
+        actually gives the second attempt the same input. This drives `retry_with_backoff` with the
+        same capture-and-restore `execute_plan` builds, and a callable that fails once.
+
+        The assertion is what each attempt *consumed*: with the restore, both attempts see the full
+        tail; without it, the second sees what the first left behind.
         """
-        import inspect
+        import copy
 
-        from gwmock.cli import simulate_utils
+        from gwmock.cli.simulate_utils import retry_with_backoff
 
-        source = inspect.getsource(simulate_utils.execute_plan)
-        start = source.index("def restore_state_for_retry(")
-        closure = source[start : source.index("# Execute batch with retry", start)]
+        class _Simulator:
+            def __init__(self):
+                self.cached_data_chunks = TimeSeriesList([_chunk(event_id=4)])
+                self.state = {"counter": 0}
 
-        assert "_simulator.state" in closure
-        assert "cached_data_chunks" in closure, (
-            "the retry restores state but not spillover, so a retried batch runs from consumed chunks"
+        simulator = _Simulator()
+        pre_batch_state = copy.deepcopy(simulator.state)
+        pre_batch_spillover = copy.deepcopy(simulator.cached_data_chunks)
+
+        consumed: list[int] = []
+
+        def _attempt():
+            # What `TimeSeriesMixin.simulate` does to this attribute: read it, then replace it with
+            # the new tail. The second attempt therefore starts from whatever the first left.
+            consumed.append(len(simulator.cached_data_chunks))
+            simulator.cached_data_chunks = TimeSeriesList()
+            if len(consumed) == 1:
+                raise RuntimeError("forced write failure")
+            return "ok"
+
+        def _restore(_simulator=simulator, _state=pre_batch_state, _spillover=pre_batch_spillover):
+            _simulator.state = copy.deepcopy(_state)
+            _simulator.cached_data_chunks = copy.deepcopy(_spillover)
+
+        result = retry_with_backoff(_attempt, max_retries=2, initial_delay=0.0, state_restore_func=_restore)
+
+        assert result == "ok"
+        assert consumed == [1, 1], (
+            f"the two attempts consumed {consumed}; [1, 0] means the retry ran from chunks the "
+            f"first attempt had already taken, so it would write different data"
         )
 
 
@@ -305,6 +332,7 @@ def test_a_resumed_run_places_the_tail_end_to_end(tmp_path):
     On the unfixed code the third peak is exactly 0.0 against 7.280e-23.
     """
     pytest.importorskip("ripplegw", reason="ripplegw not installed")
+    import json
     import signal as signal_module
     import subprocess
     import time
@@ -332,6 +360,15 @@ def test_a_resumed_run_places_the_tail_end_to_end(tmp_path):
         while not checkpoint.exists() and process.poll() is None and time.monotonic() < deadline:
             time.sleep(0.1)
         assert checkpoint.exists(), "no checkpoint was written, so there was nothing to resume from"
+        # The one way this test could pass without testing anything: if the interrupt lands after
+        # the *last* batch has checkpointed, the resume has nothing left to do and the frames match
+        # trivially. Reading the checkpoint here rules that out rather than trusting the timing.
+        completed = set(json.loads(checkpoint.read_text()).get("completed_batch_indices") or [])
+        assert completed, "the checkpoint records no completed batch, so there is nothing to resume from"
+        assert len(completed) < 3, (
+            f"the interrupt landed with batches {sorted(completed)} complete out of 3; the resume "
+            f"would have nothing to carry, so this run proves nothing"
+        )
         process.send_signal(signal_module.SIGINT)
         process.wait(timeout=120)
     finally:
