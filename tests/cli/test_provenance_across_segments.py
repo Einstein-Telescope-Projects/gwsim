@@ -195,6 +195,30 @@ class TestTheIndexAccumulatesAcrossBatches:
         assert matches[0]["frames"] == ["signal/old.gwf"]
         assert matches[0]["metadata"] == ["orchestration-old.metadata.json"]
 
+    def test_a_new_batch_does_not_discard_a_pre_migration_entry(self, tmp_path):
+        """Writing after an upgrade must migrate old entries, not quietly delete them.
+
+        Separate from the read-side migration test above, and the reason is a measured gap: dropping
+        the migration inside ``_withdraw_batch`` -- so every pre-1.5.0 entry vanishes on the next
+        write -- left the whole suite green. Reading an old index was covered; *surviving a write*
+        was not, and that is the path a real upgrade takes, since the next batch of a resumed run
+        rewrites the index.
+        """
+        import yaml
+
+        (tmp_path / "signal_index.yaml").write_text(
+            yaml.safe_dump(
+                {"9": {"frames": ["signal/old.gwf"], "metadata": "orchestration-old.metadata.json", "coa_time": 1.0}}
+            )
+        )
+
+        _write_batch(tmp_path, "orchestration-new.metadata.json", ["signal/new.gwf"], [0])
+
+        assert find_signals(tmp_path, event_id=9)[0]["frames"] == ["signal/old.gwf"], (
+            "the pre-1.5.0 entry was discarded when an unrelated batch wrote the index"
+        )
+        assert find_signals(tmp_path, event_id=0)[0]["frames"] == ["signal/new.gwf"]
+
     def test_both_lookup_paths_report_metadata_the_same_way(self, tmp_path):
         """The id path and the parameter path must not differ in the *type* of what they return."""
         _write_batch(tmp_path, "orchestration-a.metadata.json", ["signal/a.gwf"], [0])

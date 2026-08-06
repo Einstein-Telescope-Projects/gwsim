@@ -84,6 +84,14 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
     #: signals generated for an *earlier* segment whose content extends into this one. Rebuilt per
     #: segment by :meth:`simulate`; a subclass writing provenance should union this with whatever it
     #: generated itself. Empty for simulators that do not inject.
+    #:
+    #: **Lost across a checkpoint resume**, along with the samples themselves: ``cached_data_chunks``
+    #: is not a :class:`~gwmock.simulator.state.StateAttribute`, so a resumed run regenerates neither
+    #: the spillover nor its record, and the segment after the resume point silently loses the rest of
+    #: any signal crossing it. That is a data bug older than this attribute -- the samples go missing
+    #: whether or not anything records them -- so it is tracked separately as
+    #: ``gwmock/spillover-lost-on-checkpoint-resume`` rather than papered over here. What it means for
+    #: provenance is that "recorded against every frame it reaches" is false at exactly that boundary.
     carried_injections: list[dict[str, Any]]
 
     def __init__(

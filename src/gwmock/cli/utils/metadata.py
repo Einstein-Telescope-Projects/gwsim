@@ -11,11 +11,18 @@ import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-#: 1.4.0 because ``signal.injections`` changed meaning: an event is now attributed to the frame its
-#: waveform *starts* in rather than the frame holding its coalescence. No field was added or removed,
-#: so a consumer reading the old version parses the new one without noticing -- which is exactly why
-#: the version has to move. A reader comparing records across a run boundary needs to be able to tell
-#: which convention produced each one.
+#: Two changes to the meaning of ``signal.injections`` ride on this constant, and neither altered the
+#: shape of a record -- so a consumer reading an old version parses a new one without noticing, which
+#: is exactly why the version has to move.
+#:
+#: 1.4.0: an event is attributed to the frame its waveform *starts* in rather than the frame holding
+#: its coalescence.
+#:
+#: 1.5.0: ``injections`` lists every event **present** in the frame, including one generated for an
+#: earlier segment, so a signal crossing a boundary now appears in each frame it reaches. The list
+#: was already a list, so its *cardinality* changed without its type: a consumer that sums
+#: ``injections`` across a run to count events will now overcount, and only ``schema_version`` says
+#: so. ``signal_index.yaml`` changed shape in the same release.
 SCHEMA_VERSION = "1.5.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
@@ -46,12 +53,18 @@ class SignalSection(BaseModel):
     backend: str
     waveform_model: str | None = None
     detector_network: list[str] = Field(default_factory=list)
-    # Source parameters of the signals injected into this batch's frame(s), in
-    # injection order: [{"event_id": int, "parameters": {...}}]. An event is
-    # attributed to the frame its waveform *starts* in -- for a compact binary that
+    # Source parameters of every signal **present in** this batch's frame(s), in
+    # injection order: [{"event_id": int, "parameters": {...}}]. That includes a signal
+    # generated for an earlier segment whose content extends into this one, so one event
+    # appears in the record of every frame it reaches. An event is *generated* for the
+    # frame its waveform *starts* in -- for a compact binary that
     # is at or before the frame containing its coalescence, because the buffer begins
-    # seconds earlier. Content extending forward into later frames is not
-    # cross-listed. Empty for stationary/SGWB segments.
+    # seconds earlier. Empty for stationary/SGWB segments.
+    #
+    # One gap, and it is a pre-existing data bug rather than a provenance one: spillover
+    # chunks are not part of simulator state, so a run resumed from a checkpoint loses the
+    # tail itself -- both the samples and the record. See
+    # `gwmock/spillover-lost-on-checkpoint-resume`.
     injections: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 

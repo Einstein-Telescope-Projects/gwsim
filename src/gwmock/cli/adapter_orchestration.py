@@ -979,14 +979,10 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             # Recorded for every segment, not once: a continuous wave is present in all of them, so
             # attributing it to one frame the way a transient is attributed would be wrong.
             #
-            # Known limitation, tracked as `gwmock/per-event-provenance-on-segments`. The per-batch
-            # metadata written from this list is correct and is the documented source of truth, so
-            # parameter-based lookup finds every frame. But `update_signal_index` assigns
-            # `index[event_id] = ...` rather than merging, so the id fast path keeps only the last
-            # frame written for each pulsar -- `gwmock find-signal --id N` returns one frame where
-            # a continuous wave is in all of them. Fixing it means letting an index entry hold
-            # several frames and metadata files, which is a schema change and belongs with that
-            # item rather than here. A continuous wave makes it universal rather than occasional.
+            # This used to be undone downstream: `update_signal_index` assigned rather than
+            # merged, so the id fast path kept only the last frame written for each pulsar and
+            # `gwmock find-signal --id N` named one frame where a continuous wave is in all of
+            # them. The index now accumulates per batch, so appending here is what it looks like.
             self._batch_injections.append({"event_id": source_id, "parameters": dict(source)})
 
         if strain is None:  # pragma: no cover - guarded by the empty-catalogue check above

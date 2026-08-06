@@ -601,7 +601,15 @@ def update_signal_index(
 
     The index (``signal_index.yaml``) maps a signal's ``event_id`` to the signal
     frame file(s) that contain it plus the batch metadata file, enabling O(1)
-    signal->frame lookup by id. Parameter-based lookup reads the injections
+    signal->frame lookup by id.
+
+    **Not safe against concurrent writers.** This is an unlocked read-modify-write, so two
+    processes updating the index at once can lose one side's contribution -- reproduced
+    deterministically with a barrier. It predates the per-batch accumulation below and is not
+    made worse by it, but the accumulation does change what is lost: a dropped update used to
+    cost one assignment, and now costs one batch's frames for every event in it. gwmock writes
+    batches sequentially within a run, so this bites only when two runs share a metadata
+    directory. Tracked as ``gwmock/signal-index-concurrent-writers``. Parameter-based lookup reads the injections
     recorded in the batch metadata files (their source of truth); this index is
     only the id shortcut. A batch with no injected signals writes nothing.
 
