@@ -14,6 +14,57 @@ from gwmock.data.serialize.encoder import Encoder
 logger = logging.getLogger("gwmock")
 
 
+class ForeignCheckpointError(RuntimeError):
+    """A checkpoint in this directory was written by a different configuration."""
+
+
+def require_matching_config(saved_sha256: str | None, plan_sha256: str | None, checkpoint_file: Path) -> None:
+    """Refuse to resume from a checkpoint another configuration wrote.
+
+    **Why this refuses instead of quietly starting fresh.** Silently ignoring the checkpoint would
+    fix the data loss and hide its cause: the user would be left with a stale checkpoint in the
+    directory, no idea it was there, and a full re-run they did not ask for. Refusing says which two
+    things collided and lets them choose. It is also the safer default -- deleting someone's
+    checkpoint on their behalf is not recoverable, and stopping is.
+
+    **What went wrong without it,** measured: two configs run from one working directory, the first
+    interrupted after two batches. The second loaded the first's checkpoint, skipped those batches as
+    already complete, and wrote one frame where a clean run writes three. Exit code 0, no warning.
+    `_batch_outputs_present` does not catch it because it looks up
+    ``{simulator_name}-{batch_index}.metadata.json`` -- a name with nothing config-specific in it --
+    and then verifies the outputs *that file* records, so the first run's metadata satisfies the
+    check on the second run's behalf.
+
+    A checkpoint written before this field existed has ``None`` and is accepted, with a warning. The
+    alternative -- refusing -- would break a legitimate resume for anyone who upgrades mid-run, which
+    is a certain cost against an uncertain one.
+
+    Args:
+        saved_sha256: ``config_sha256`` from the checkpoint, or ``None`` if it predates the field.
+        plan_sha256: Hash of the configuration about to run, or ``None`` if unavailable.
+        checkpoint_file: Path named in the error, so the message says what to delete or move.
+
+    Raises:
+        ForeignCheckpointError: If both hashes are known and they differ.
+    """
+    if saved_sha256 is None:
+        logger.warning(
+            "Checkpoint %s predates configuration fingerprinting, so it cannot be checked against "
+            "the configuration being run. If it was written by a different config, batches it "
+            "records as complete will be skipped and their outputs never produced.",
+            checkpoint_file,
+        )
+        return
+    if plan_sha256 is None or saved_sha256 == plan_sha256:
+        return
+    raise ForeignCheckpointError(
+        f"The checkpoint at {checkpoint_file} was written by a different configuration "
+        f"(checkpoint {saved_sha256[:12]}, this run {plan_sha256[:12]}). Resuming from it would "
+        f"skip the batches it records as complete and never produce their outputs. Delete or move "
+        f"the checkpoint to start this configuration fresh, or run it from its own directory."
+    )
+
+
 def spillover_applies(
     saved_simulator_name: str | None,
     saved_batch_index: int | None,
@@ -70,7 +121,8 @@ class CheckpointManager:
         "last_simulator_name": "signal",
         "last_completed_batch_index": 2,
         "last_simulator_state": {...},
-        "last_simulator_spillover": ...  # chunks continuing into the next segment, or null
+        "last_simulator_spillover": ...,  # chunks continuing into the next segment, or null
+        "config_sha256": "..."  # which configuration produced this run, or null if pre-1.5.0
     }
 
     The checkpoint is written atomically:
@@ -137,6 +189,7 @@ class CheckpointManager:
         last_completed_batch_index: int,
         last_simulator_state: dict[str, Any],
         last_simulator_spillover: Any = None,
+        config_sha256: str | None = None,
     ) -> None:
         """Save checkpoint after completing a batch.
 
@@ -158,6 +211,11 @@ class CheckpointManager:
                 the segment after the resume point silently loses that content: a measured peak of
                 8.6e-22 became 0.0, with the merger simply absent.
 
+            config_sha256: Hash of the configuration that produced this run, so a resume can tell
+                whether the checkpoint belongs to it. Without this a second config run from the same
+                working directory resumes from the first's checkpoint and *skips its batches*:
+                measured at 1 frame written where a clean run writes 3, exit code 0, no warning.
+
         Raises:
             OSError: If checkpoint cannot be written
         """
@@ -167,6 +225,7 @@ class CheckpointManager:
             "last_completed_batch_index": last_completed_batch_index,
             "last_simulator_state": last_simulator_state,
             "last_simulator_spillover": last_simulator_spillover,
+            "config_sha256": config_sha256,
         }
 
         # Write to temp file first (atomic write pattern)
