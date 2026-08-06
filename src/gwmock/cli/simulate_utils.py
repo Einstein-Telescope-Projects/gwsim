@@ -1181,6 +1181,10 @@ def execute_plan(  # noqa: PLR0915
     output_directory: Path,
     metadata_directory: Path,
     overwrite: bool,
+    # Keyword-only from here. Inserting `ignore_checkpoint` before `max_retries` made a positional
+    # call bind the retry count to it -- any non-zero count is truthy and would silently skip the
+    # checkpoint, which is the failure this whole change exists to prevent.
+    *,
     ignore_checkpoint: bool = False,
     max_retries: int = 3,
 ) -> None:
@@ -1213,6 +1217,8 @@ def execute_plan(  # noqa: PLR0915
         output_directory: Directory for output files
         metadata_directory: Directory for metadata files
         overwrite: Whether to overwrite existing files
+        ignore_checkpoint: Discard any checkpoint in the directory and start fresh. The way past
+            a refused resume for a caller that cannot delete the file by hand.
         max_retries: Maximum retries per batch
     """
     logger.info("Executing simulation plan: %d batches", plan.total_batches)

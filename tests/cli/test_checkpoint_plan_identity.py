@@ -104,11 +104,20 @@ class TestTheFingerprintIsTheRunNotTheConfigFile:
         assert first != second
 
     def test_an_equivalent_path_does_not(self, tmp_path):
-        """Resolved, so `./out` and its absolute form are one run -- a false refusal is still a bug."""
+        """Two spellings of one directory are one run -- a false refusal is still a bug.
+
+        Uses ``out/../out`` rather than ``out/.``: `Path` collapses a lone ``.`` at construction, so
+        that spelling never reaches `resolve()` and the assertion compared a value with itself. ``..``
+        survives construction, so this exercises the normalization it claims to. The premise is
+        asserted rather than assumed, because that is precisely what went wrong the first time.
+        """
         (tmp_path / "out").mkdir()
         (tmp_path / "meta").mkdir()
+        roundabout = tmp_path / "out" / ".." / "out"
+        assert str(roundabout) != str(tmp_path / "out"), "the spellings collapsed before resolve(); this proves nothing"
+
         first = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta")
-        second = run_fingerprint(["a" * 64], tmp_path / "out" / ".", tmp_path / "meta")
+        second = run_fingerprint(["a" * 64], roundabout, tmp_path / "meta")
         assert first == second
 
     def test_every_batch_hash_counts_not_just_the_first(self, tmp_path):
@@ -127,6 +136,30 @@ class TestTheFingerprintIsTheRunNotTheConfigFile:
         """The property every resume depends on: unchanged inputs give an unchanged identity."""
         assert run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta") == run_fingerprint(
             ["a" * 64], tmp_path / "out", tmp_path / "meta"
+        )
+
+
+class TestTheEscapeHatchCannotBeBoundByAccident:
+    """`ignore_checkpoint` skips the guard, so nothing may reach it positionally.
+
+    It was inserted before `max_retries`, which is an int: a positional call passing a retry count
+    would bind it here, and any non-zero count is truthy. The checkpoint would be skipped silently,
+    which is the exact failure this change exists to prevent -- reintroduced by an argument order.
+    """
+
+    @pytest.mark.parametrize(
+        ("module", "name"),
+        [("gwmock.cli.simulate_utils", "execute_plan"), ("gwmock.cli.simulate", "_simulate_impl")],
+    )
+    def test_it_is_keyword_only(self, module, name):
+        import importlib
+        import inspect
+
+        parameter = inspect.signature(getattr(importlib.import_module(module), name)).parameters["ignore_checkpoint"]
+
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY, (
+            f"{name} accepts ignore_checkpoint positionally, so a caller passing a later argument "
+            f"by position can switch off the checkpoint guard without meaning to"
         )
 
 

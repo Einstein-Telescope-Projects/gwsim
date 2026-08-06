@@ -120,6 +120,11 @@ def _maybe_isolate(
 
 def _simulate_impl(  # pylint: disable=too-many-locals, too-many-branches, too-many-statements
     config_file_names: str | list[str],
+    # Keyword-only: these are seven options of which five are bools, so a positional call binds them
+    # by accident rather than by intent. `ignore_checkpoint` sits between two of those bools and
+    # skips the checkpoint when truthy, which is the failure this change exists to prevent. Every
+    # caller already passes by keyword, so nothing is broken by saying so.
+    *,
     output_dir: str | None = None,
     metadata_dir: str | None = None,
     overwrite: bool = False,
