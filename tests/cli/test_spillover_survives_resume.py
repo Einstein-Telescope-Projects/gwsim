@@ -179,6 +179,36 @@ class TestRestorePutsSpilloverBack:
         assert simulator.cached_data_chunks[0].metadata["event_id"] == 9
 
 
+class TestARetryDoesNotConsumeTheSpillover:
+    """A retried batch must start from the same tail the first attempt did.
+
+    `simulate` consumes `cached_data_chunks` and replaces it with the *new* tail, so restoring only
+    `state` on retry leaves the second attempt working from consumed chunks. It would then write
+    different data than the first attempt tried to -- and a retry that succeeds looks like a
+    success, so nothing would say which of the two a frame came from.
+    """
+
+    def test_the_retry_restore_is_wired_to_both(self):
+        """Reads the closure `execute_plan` builds, so a revert to state-only fails here.
+
+        Inspecting the source rather than running a failing batch: provoking a real retry needs a
+        write failure deep inside `execute_plan`, and the thing worth pinning is only that the
+        closure touches both attributes.
+        """
+        import inspect
+
+        from gwmock.cli import simulate_utils
+
+        source = inspect.getsource(simulate_utils.execute_plan)
+        start = source.index("def restore_state_for_retry(")
+        closure = source[start : source.index("# Execute batch with retry", start)]
+
+        assert "_simulator.state" in closure
+        assert "cached_data_chunks" in closure, (
+            "the retry restores state but not spillover, so a retried batch runs from consumed chunks"
+        )
+
+
 _RESUME_CONFIG = """
 globals:
     simulator-arguments:
