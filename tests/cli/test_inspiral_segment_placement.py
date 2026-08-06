@@ -501,6 +501,12 @@ class TestNothingIsDiscarded:
 
         Stated rather than assumed, because it is a change -- an event used to be listed against the
         frame containing its coalescence, and a reader of the metadata needs to know which.
+
+        About ``_batch_injections``, which is what each batch *generated*. That is deliberately not
+        what reaches the metadata: a signal crossing a boundary is present in both frames, so
+        ``_segment_injections`` cross-lists it, and
+        ``test_provenance_across_segments.py`` pins that. The two used to be the same list, and
+        conflating them is what made `gwmock find-signal` name one frame out of three.
         """
         orchestrator = _orchestrator(tmp_path, "per-event", total_duration=2 * _SEGMENT_DURATION)
         coa_time = _START + _SEGMENT_DURATION + 1.0
@@ -515,21 +521,55 @@ class TestNothingIsDiscarded:
         assert [entry["event_id"] for entry in first_segment_injections] == [0], (
             "the event belongs to the first segment, where its waveform starts"
         )
-        assert second_segment_injections == [], "and it is not cross-listed against the frame its coalescence falls in"
+        assert second_segment_injections == [], (
+            "and the second segment generated nothing -- `_batch_injections` is what this batch "
+            "produced, which is the attribution #311 changed"
+        )
 
 
 class TestWhatAConsumerSees:
     """The attribution change reaches serialized metadata and the lookup, so it is checked there."""
 
-    def test_the_schema_version_records_that_the_attribution_changed(self):
-        """No field was added or removed, so nothing but the version tells the two conventions apart.
+    def test_a_signal_crossing_a_boundary_is_recorded_against_both_segments(self, tmp_path):
+        """The metadata a consumer reads must name every frame the signal is in, not only the first.
 
-        A consumer reading a 1.3.0 record and a new one sees the same shape while ``injections`` means
+        Goes through the orchestrator rather than the helpers because the defect was in the *wiring*:
+        `_contributing_injections` can be perfectly correct while nothing calls it before the chunks
+        are injected, and after injection the attribution is gone -- chunks are summed into shared
+        channels. Reproduced end to end before the fix, this second segment recorded ``injections:
+        []`` while holding the merger.
+        """
+        orchestrator = _orchestrator(tmp_path, "per-event", total_duration=2 * _SEGMENT_DURATION)
+        coa_time = _START + _SEGMENT_DURATION + 1.0
+
+        orchestrator._population_events = ({**_COMPLETE_EVENT, "coa_time": coa_time},)
+        orchestrator.simulate()
+        first = [entry["event_id"] for entry in orchestrator._segment_injections()]
+        orchestrator.update_state()
+        orchestrator.simulate()
+        second = [entry["event_id"] for entry in orchestrator._segment_injections()]
+
+        assert first == [0], "the segment its waveform starts in must record it"
+        assert second == [0], (
+            "the segment holding the rest of the signal -- including the coalescence -- recorded "
+            "nothing, so `find-signal` names one frame out of two"
+        )
+
+    def test_the_schema_version_records_that_the_attribution_changed(self):
+        """No field was added or removed, so nothing but the version tells the conventions apart.
+
+        Two changes now ride on this version, and both are invisible in the shape of a record.
+        1.4.0: ``injections`` lists an event against the frame its waveform *starts* in rather than
+        the frame holding its coalescence. 1.5.0: ``injections`` lists every event *present* in the
+        frame, including one generated for an earlier segment, and ``signal_index.yaml`` stores
+        contributions per batch so one event can name the frames of several.
+
+        A consumer reading an old record and a new one sees the same shape while ``injections`` means
         something different in each. The version is the only signal available, so it has to move.
         """
         from gwmock.cli.utils.metadata import SCHEMA_VERSION
 
-        assert SCHEMA_VERSION == "1.4.0"
+        assert SCHEMA_VERSION == "1.5.0"
 
     def test_an_older_record_still_loads(self):
         """Bumping the minor must not orphan archived runs: the major is what gates parsing."""
@@ -563,7 +603,7 @@ class TestWhatAConsumerSees:
         (metadata_directory / "orchestration-0.metadata.json").write_text(
             json.dumps(
                 {
-                    "schema_version": "1.4.0",
+                    "schema_version": "1.5.0",
                     "subpackage_versions": {},
                     "config": {},
                     "config_sha256": "0" * 64,

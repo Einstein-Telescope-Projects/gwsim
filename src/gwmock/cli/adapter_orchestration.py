@@ -444,7 +444,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                     "detectors": self.detectors,
                     "network_resolution": self._detector_resolution,
                     "segment_seed": signal_segment_seed,
-                    "injections": list(self._batch_injections),
+                    "injections": self._segment_injections(),
                 },
                 "noise": {
                     "arguments": self.noise_arguments,
@@ -559,7 +559,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 waveform_options=self.waveform_options,
                 earth_rotation=self.earth_rotation,
             )
-            strain.metadata.update({"injection_parameters": dict(parameters)})
+            # `event_id` alongside the parameters, and both survive onto a tail, so a chunk that
+            # crosses a segment boundary can still be attributed to its event in the next segment.
+            strain.metadata.update({"injection_parameters": dict(parameters), "event_id": event_id})
             self._batch_injections.append({"event_id": event_id, "parameters": dict(parameters)})
             chunks.append(strain)
             self.population_index = cast(int, self.population_index) + 1
@@ -779,6 +781,27 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         if event_ids:
             self.population_index = cast(int, self.population_index) + len(event_ids)
 
+    def _segment_injections(self) -> list[dict[str, Any]]:
+        """Return one record per signal present in the segment just built.
+
+        Not the same list as ``_batch_injections``, and the difference is the whole point of
+        `gwmock/per-event-provenance-on-segments`: that list holds what this batch *generated*, while
+        a segment also contains the continuing part of any signal generated earlier. A 1.6+1.4
+        binary from 30 Hz runs about 48 s, so across 32 s segments it appears in three frames and
+        only one of them generated it -- and the frame holding the merger, the loudest part, was not
+        that one.
+
+        Ordered generated-first so the common case reads as it did before, then the carried ones.
+        Deduplicated on ``event_id``, because a multi-detector batch emits one chunk per detector
+        carrying the same record.
+
+        Returns:
+            Injection records for this segment, generated and carried alike.
+        """
+        from gwmock.mixin.time_series import _merge_injection_records  # noqa: PLC0415
+
+        return _merge_injection_records(self._batch_injections, getattr(self, "carried_injections", []))
+
     def _batched_waveform_backend(self) -> Any:
         """Return the ripple backend the batched path should generate with.
 
@@ -901,7 +924,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             for event_id, event in zip(event_ids, events, strict=True)
         ]
         for chunk, record in zip(chunks, self._batch_injections, strict=True):
-            chunk.metadata.update({"injection_parameters": dict(record["parameters"])})
+            chunk.metadata.update({"injection_parameters": dict(record["parameters"]), "event_id": record["event_id"]})
         return chunks
 
     def _simulate_continuous_wave_segment(self) -> TimeSeriesList:
@@ -956,14 +979,10 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             # Recorded for every segment, not once: a continuous wave is present in all of them, so
             # attributing it to one frame the way a transient is attributed would be wrong.
             #
-            # Known limitation, tracked as `gwmock/per-event-provenance-on-segments`. The per-batch
-            # metadata written from this list is correct and is the documented source of truth, so
-            # parameter-based lookup finds every frame. But `update_signal_index` assigns
-            # `index[event_id] = ...` rather than merging, so the id fast path keeps only the last
-            # frame written for each pulsar -- `gwmock find-signal --id N` returns one frame where
-            # a continuous wave is in all of them. Fixing it means letting an index entry hold
-            # several frames and metadata files, which is a schema change and belongs with that
-            # item rather than here. A continuous wave makes it universal rather than occasional.
+            # This used to be undone downstream: `update_signal_index` assigned rather than
+            # merged, so the id fast path kept only the last frame written for each pulsar and
+            # `gwmock find-signal --id N` named one frame where a continuous wave is in all of
+            # them. The index now accumulates per batch, so appending here is what it looks like.
             self._batch_injections.append({"event_id": source_id, "parameters": dict(source)})
 
         if strain is None:  # pragma: no cover - guarded by the empty-catalogue check above

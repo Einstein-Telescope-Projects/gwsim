@@ -313,7 +313,7 @@ def test_simulate_command_runs_adapter_orchestration(monkeypatch, tmp_path: Path
     assert (tmp_path / "output" / "signal" / "signal-1.gwf").exists()
     _assert_noise_outputs_exist(tmp_path / "output" / "noise")
     metadata = yaml.safe_load((tmp_path / "metadata" / "orchestration-0.metadata.json").read_text())
-    assert metadata["schema_version"] == "1.4.0"
+    assert metadata["schema_version"] == "1.5.0"
     assert metadata["config"]["orchestration"]["population"]["backend"] == FAKE_POPULATION_BACKEND
     assert metadata["config"]["orchestration"]["signal"]["backend"] == FAKE_SIGNAL_BACKEND
     assert metadata["config"]["orchestration"]["noise"]["backend"] == FAKE_NOISE_BACKEND
@@ -372,7 +372,7 @@ def test_orchestration_records_injections_and_signal_lookup(monkeypatch, tmp_pat
     # Part B: signal_index.yaml maps each event id to its containing frame(s).
     index = yaml.safe_load((metadata_dir / "signal_index.yaml").read_text())
     assert set(index) == {"0", "1"}
-    assert any("signal-0.gwf" in frame for frame in index["0"]["frames"])
+    assert any("signal-0.gwf" in frame for batch in index["0"]["batches"] for frame in batch["frames"])
 
     # Lookup by id (fast path) resolves to the right frame.
     by_id = find_signals(metadata_dir, event_id=1)

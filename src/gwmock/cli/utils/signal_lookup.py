@@ -77,6 +77,38 @@ def _iter_metadata_files(metadata_directory: Path) -> Iterator[Path]:
     yield from sorted(metadata_directory.glob("*.metadata.json"))
 
 
+def _flatten_batches(entry: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Return ``(frames, metadata_files)`` for one index entry, in the order written.
+
+    The index stores contributions per batch rather than a flattened list of frames, because a
+    re-run has to be able to withdraw one batch's contribution and a flattened copy alongside it
+    would be a second place for the same fact to live. Flattening happens here, once, on read.
+
+    Frames are deduplicated: two batches can legitimately name the same frame when a segment is
+    written once and contributed to twice.
+
+    Pre-1.5.0 entries carried ``metadata`` as a string and ``frames`` flat; they are read as a single
+    batch rather than rejected, so an index written by an older gwmock still answers.
+    """
+    batches = entry.get("batches")
+    if batches is None:
+        metadata = entry.get("metadata")
+        return list(entry.get("frames") or []), ([] if metadata is None else [metadata])
+
+    frames: list[str] = []
+    seen: set[str] = set()
+    metadata_files: list[str] = []
+    for batch in batches:
+        for frame in batch.get("frames") or []:
+            if frame not in seen:
+                seen.add(frame)
+                frames.append(frame)
+        name = batch.get("metadata")
+        if name is not None and name not in metadata_files:
+            metadata_files.append(name)
+    return frames, metadata_files
+
+
 def find_signals(
     metadata_directory: Path | str,
     *,
@@ -88,9 +120,10 @@ def find_signals(
     With only ``event_id`` set, the fast ``signal_index.yaml`` path is used. When
     parameter filters are supplied, the batch metadata files are scanned (their
     ``signal.injections`` are the source of truth). Each result is a mapping with
-    ``event_id``, ``frames`` (signal frame paths), ``metadata`` (batch metadata
-    file name), and ``coa_time``; parameter-filtered results also carry
-    ``parameters``.
+    ``event_id``, ``frames`` (signal frame paths), ``metadata`` (a *list* of batch
+    metadata file names, since a signal long enough to cross a segment boundary is
+    recorded by every batch whose frames it reaches), and ``coa_time``;
+    parameter-filtered results also carry ``parameters``.
     """
     metadata_directory = Path(metadata_directory)
     param_filters = param_filters or []
@@ -104,11 +137,14 @@ def find_signals(
             index = yaml.safe_load(f) or {}
         entry = index.get(str(event_id))
         if entry:
+            frames, metadata_files = _flatten_batches(entry)
             results.append(
                 {
                     "event_id": event_id,
-                    "frames": entry.get("frames", []),
-                    "metadata": entry.get("metadata"),
+                    "frames": frames,
+                    # A list now, because one signal spans the frames of several batches. Kept as a
+                    # list even when there is one, so a consumer never has to branch on the type.
+                    "metadata": metadata_files,
                     "coa_time": entry.get("coa_time"),
                 }
             )
@@ -138,7 +174,10 @@ def find_signals(
                 {
                     "event_id": injection.get("event_id"),
                     "frames": frames,
-                    "metadata": meta_path.name,
+                    # A one-element list, matching the id path's shape. This path yields one result
+                    # per batch, so each result genuinely has one metadata file -- but a consumer
+                    # reading both paths should not have to know which one it asked.
+                    "metadata": [meta_path.name],
                     "parameters": parameters,
                     "coa_time": parameters.get("coa_time"),
                 }

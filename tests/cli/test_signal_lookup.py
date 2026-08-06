@@ -73,16 +73,19 @@ def test_parse_param_filter_rejects_garbage() -> None:
 def test_signal_index_written(metadata_dir: Path) -> None:
     index = yaml.safe_load((metadata_dir / "signal_index.yaml").read_text())
     assert set(index) == {"0", "1"}
-    assert index["0"]["frames"] == ["signal/signal-0.gwf"]
+    # One batch here, but stored as a list of batch contributions: an event reaching several
+    # segments has one entry per batch, which is what `update_signal_index` was fixed to record.
+    assert index["0"]["batches"] == [{"metadata": "orchestration-0.metadata.json", "frames": ["signal/signal-0.gwf"]}]
     assert index["0"]["coa_time"] == 100.5
-    assert index["1"]["metadata"] == "orchestration-1.metadata.json"
+    assert [batch["metadata"] for batch in index["1"]["batches"]] == ["orchestration-1.metadata.json"]
 
 
 def test_find_by_id_uses_index(metadata_dir: Path) -> None:
     matches = find_signals(metadata_dir, event_id=1)
     assert len(matches) == 1
     assert matches[0]["frames"] == ["signal/signal-1.gwf"]
-    assert matches[0]["metadata"] == "orchestration-1.metadata.json"
+    # A list on both lookup paths, so a consumer never branches on which one it asked.
+    assert matches[0]["metadata"] == ["orchestration-1.metadata.json"]
 
 
 def test_find_by_id_missing_returns_empty(metadata_dir: Path) -> None:

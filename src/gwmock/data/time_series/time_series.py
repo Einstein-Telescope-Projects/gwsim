@@ -392,6 +392,35 @@ class TimeSeries(JSONSerializable):
             self.start_time,
         )
 
+    def contributes_samples(self, other: TimeSeries) -> bool:
+        """Whether injecting *other* into this segment would place at least one sample.
+
+        Provenance needs this, and it cannot be recovered after the fact: injection sums chunks into
+        shared channels, so once a segment is built there is no way to ask which signal put samples
+        where. It has to be asked before.
+
+        Deliberately a *time* predicate rather than a look at the data. A chunk of genuine zeros --
+        a signal whose amplitude is below the sample quantum, or a segment covering only its tapered
+        edge -- still means the signal is present in that frame, which is what a provenance record
+        is claiming. Reading the samples would call that absent.
+
+        The two endpoints are exclusive because a chunk ending exactly at ``self.start_time`` has no
+        sample inside this segment: the segment's first sample is *at* that time and the chunk's last
+        sample is one interval before it. This is tested across the boundary rather than argued, in
+        ``test_provenance_across_segments.py``, because an off-by-one here silently over- or
+        under-reports one frame per signal.
+
+        Args:
+            other: The chunk that would be injected.
+
+        Returns:
+            ``True`` if the chunk overlaps this segment's sampled span.
+        """
+        unit = self.start_time.unit
+        chunk_start = float(other.start_time.to(unit).value)
+        chunk_end = float(other.end_time.to(unit).value)
+        return chunk_start < float(self.end_time.to(unit).value) and chunk_end > float(self.start_time.value)
+
     def inject_from_list(self, ts_iterable: Iterable[TimeSeries]) -> TimeSeriesList:
         """Inject multiple TimeSeries from an iterable into the current TimeSeries.
 

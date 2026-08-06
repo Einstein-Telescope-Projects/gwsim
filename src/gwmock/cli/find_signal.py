@@ -30,6 +30,9 @@ def find_signal_command(
     Look up by ``--id`` (fast, via ``signal_index.yaml``) and/or by one or more
     ``--param`` predicates matched against the source parameters recorded in the
     batch metadata (e.g. ``--param mass_1>=30 --param network_snr>8``).
+
+    Reports every frame the signal reaches, which for a waveform crossing a segment
+    boundary -- or for a continuous wave, which is in all of them -- is more than one.
     """
     from gwmock.cli.utils.signal_lookup import find_signals, parse_param_filter
 
