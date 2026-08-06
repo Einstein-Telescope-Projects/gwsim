@@ -5,12 +5,12 @@
 
 ## Schema
 
-Each record is validated at write time and uses schema version `1.3.0`.
+Each record is validated at write time and uses schema version `1.5.0`.
 Consumers must reject unknown major versions.
 
 ```json
 {
-    "schema_version": "1.3.0",
+    "schema_version": "1.5.0",
     "gwmock_version": "x.y.z",
     "subpackage_versions": {
         "gwmock_signal": "x.y.z",
