@@ -98,6 +98,31 @@ class TestTheCheckpointCarriesSpillover:
         assert CheckpointManager(tmp_path).get_last_simulator_spillover() is None
 
 
+class TestSpilloverIsScopedToItsOwnBatch:
+    """One checkpoint holds one tail, and handing it to the wrong consumer is worse than losing it.
+
+    A plan can execute several simulators, and a lost tail is a hole -- visible, once you look for
+    it. A *misplaced* tail is real strain of the right shape at the wrong time, in the wrong
+    simulator's segment, and nothing downstream would flag it.
+    """
+
+    def test_another_simulators_spillover_is_refused(self, tmp_path):
+        manager = CheckpointManager(tmp_path)
+        manager.save_checkpoint([0], "orchestration", 0, {"counter": 1}, TimeSeriesList([_chunk()]))
+
+        assert manager.get_last_simulator_spillover("noise", 1) is None
+        assert manager.get_last_simulator_spillover("orchestration", 1) is not None
+
+    def test_spillover_is_refused_for_any_batch_but_the_next_one(self, tmp_path):
+        """It belongs to the batch immediately after the one that produced it, and nowhere else."""
+        manager = CheckpointManager(tmp_path)
+        manager.save_checkpoint([0], "orchestration", 0, {"counter": 1}, TimeSeriesList([_chunk()]))
+
+        assert manager.get_last_simulator_spillover("orchestration", 1) is not None
+        assert manager.get_last_simulator_spillover("orchestration", 0) is None, "the batch that produced it"
+        assert manager.get_last_simulator_spillover("orchestration", 2) is None, "a later batch"
+
+
 class TestRestorePutsSpilloverBack:
     """The wiring half, which the serialization test above cannot reach."""
 
@@ -154,22 +179,142 @@ class TestRestorePutsSpilloverBack:
         assert simulator.cached_data_chunks[0].metadata["event_id"] == 9
 
 
-@pytest.mark.integration
-def test_a_resumed_run_keeps_the_merger():
-    """The end-to-end statement, recorded here because the unit tests cannot make it.
+_RESUME_CONFIG = """
+globals:
+    simulator-arguments:
+        sampling-frequency: 1024
+        duration: 32
+        total-duration: 96
+        start-time: 1000000540
+    working-directory: .
+    output-directory: output
+    metadata-directory: metadata
 
-    Not automated: it needs a real interrupt at a real checkpoint boundary, and the timing is
-    process-dependent. Reproduced by hand on 2026-08-06 with the config in the investigation record,
-    interrupting once ``.gwmock_checkpoints/simulation.checkpoint.json`` appears and re-running:
+orchestration:
+    population:
+        backend: FilePopulationLoader
+        source-type: bns
+        arguments:
+            path: pop.csv
+    signal:
+        waveform-model: IMRPhenomXPHM
+        minimum-frequency: 30
+        earth-rotation: true
+        detectors:
+            - ET-Triangle-Sardinia
+        output:
+            output_directory: signal
+            file_name: 'E-{{ detectors }}_STRAIN_BNS-{{ start_time }}-{{ duration }}.gwf'
+            arguments:
+                channel: '{{ detectors }}:STRAIN'
+"""
 
-    ======================  ==============  =================  ===================
-    frame                   uninterrupted   resumed on main    resumed with fix
-    ======================  ==============  =================  ===================
-    ...540                  1.286e-23       1.286e-23          1.286e-23
-    ...572                  1.837e-23       1.837e-23          1.837e-23
-    ...604 (merger)         7.280e-23       **0.000e+00**      7.280e-23
-    ======================  ==============  =================  ===================
+#: A 1.6+1.4 binary coalescing 6 s into the third 32 s segment. From 30 Hz its inspiral runs about
+#: 48 s, so it spans all three -- which is the only reason this test can see anything.
+_RESUME_POPULATION = (
+    "detector_frame_mass_1,detector_frame_mass_2,coa_time,distance,"
+    "declination,right_ascension,polarization_angle,inclination\n"
+    "1.6,1.4,1000000610.0,100.0,0.3,1.1,0.2,0.5\n"
+)
 
-    Skipped rather than deleted so the procedure stays with the code it describes.
+
+def _gwmock_executable() -> str:
+    """Return the absolute path to the console script, or skip.
+
+    Absolute rather than leaving PATH resolution to the subprocess: that is both a lint failure and
+    a real ambiguity when more than one environment is active.
     """
-    pytest.skip("manual: requires interrupting a real run at a checkpoint boundary")
+    import shutil
+
+    executable = shutil.which("gwmock")
+    if executable is None:
+        pytest.skip("the gwmock console script is not on PATH")
+    return executable
+
+
+def _run_to_completion(directory):
+    import subprocess
+
+    subprocess.run(  # noqa: S603 - absolute path, resolved by `_gwmock_executable`
+        [_gwmock_executable(), "simulate", "config.yaml"],
+        cwd=directory,
+        capture_output=True,
+        check=True,
+        timeout=900,
+    )
+
+
+def _peaks(directory) -> list[float]:
+    import glob
+
+    from gwpy.io.gwf import iter_channel_names
+    from gwpy.timeseries import TimeSeries as GWpyTimeSeries
+
+    files = sorted(glob.glob(str(directory / "output" / "signal" / "*ET1*.gwf")))
+    if not files:
+        return []
+    channel = next(iter(iter_channel_names(files[0])))
+    return [float(np.max(np.abs(np.asarray(GWpyTimeSeries.read(f, channel).value)))) for f in files]
+
+
+@pytest.mark.integration
+def test_a_resumed_run_places_the_tail_end_to_end(tmp_path):
+    """Interrupt a real run at a real checkpoint, resume it, and require the merger back.
+
+    This is the only test here that guards the **save** side. Everything above hands the spillover
+    to ``save_checkpoint`` itself, so gutting the one call site in ``execute_plan`` leaves them all
+    green -- measured. It is also the only one that exercises the two halves together.
+
+    Deterministic despite involving a signal: the interrupt waits for
+    ``simulation.checkpoint.json`` to appear rather than for a wall-clock delay, so it lands after a
+    batch has committed however slow the machine is. If the file never appears the test fails on the
+    timeout rather than passing vacuously.
+
+    Compared against an uninterrupted run in a separate directory rather than against a literal:
+    the peaks depend on the waveform model and would otherwise need updating whenever ripple changes.
+    On the unfixed code the third peak is exactly 0.0 against 7.280e-23.
+    """
+    pytest.importorskip("ripplegw", reason="ripplegw not installed")
+    import signal as signal_module
+    import subprocess
+    import time
+
+    executable = _gwmock_executable()
+
+    reference = tmp_path / "reference"
+    resumed = tmp_path / "resumed"
+    for directory in (reference, resumed):
+        directory.mkdir()
+        (directory / "config.yaml").write_text(_RESUME_CONFIG)
+        (directory / "pop.csv").write_text(_RESUME_POPULATION)
+
+    _run_to_completion(reference)
+    expected = _peaks(reference)
+    assert len(expected) == 3, f"the reference run wrote {len(expected)} frames, not 3"
+    assert expected[-1] > 0.0, "the reference run has no signal in the last frame, so this proves nothing"
+
+    checkpoint = resumed / ".gwmock_checkpoints" / "simulation.checkpoint.json"
+    process = subprocess.Popen(  # noqa: S603 - absolute path, resolved by `_gwmock_executable`
+        [executable, "simulate", "config.yaml"], cwd=resumed, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    try:
+        deadline = time.monotonic() + 600.0
+        while not checkpoint.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert checkpoint.exists(), "no checkpoint was written, so there was nothing to resume from"
+        process.send_signal(signal_module.SIGINT)
+        process.wait(timeout=120)
+    finally:
+        if process.poll() is None:  # pragma: no cover - only on an unexpected hang
+            process.kill()
+
+    _run_to_completion(resumed)
+
+    actual = _peaks(resumed)
+    assert len(actual) == len(expected)
+    for index, (got, want) in enumerate(zip(actual, expected, strict=True)):
+        # atol=0.0: these are ~1e-23, and any default absolute tolerance would make two arbitrary
+        # strain arrays compare equal, so the assertion could not fail.
+        assert got == pytest.approx(want, rel=1e-9, abs=0.0), (
+            f"frame {index} differs after a resume: {got:.3e} against {want:.3e} uninterrupted"
+        )

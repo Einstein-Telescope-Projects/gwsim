@@ -25,7 +25,8 @@ class CheckpointManager:
         "completed_batch_indices": [0, 1, 2, ...],
         "last_simulator_name": "signal",
         "last_completed_batch_index": 2,
-        "last_simulator_state": {...}
+        "last_simulator_state": {...},
+        "last_simulator_spillover": ...  # chunks continuing into the next segment, or null
     }
 
     The checkpoint is written atomically:
@@ -191,17 +192,33 @@ class CheckpointManager:
         last_state = checkpoint.get("last_simulator_state")
         return last_state if isinstance(last_state, dict) else None
 
-    def get_last_simulator_spillover(self) -> Any:
+    def get_last_simulator_spillover(self, simulator_name: str | None = None, batch_index: int | None = None) -> Any:
         """Return the spillover chunks saved with the last completed batch, if any.
 
         ``None`` both when the checkpoint predates this field and when the last segment had no
         spillover, which are the same thing to a caller: there is nothing to carry in.
+
+        Args:
+            simulator_name: Restrict to spillover produced by this simulator. A plan can execute
+                several, and the checkpoint holds one tail; without this the wrong simulator can
+                receive it. ``None`` skips the check, for callers that have already established it.
+            batch_index: The batch about to run. Spillover is only valid for the batch immediately
+                following the one that produced it.
 
         Returns:
             The chunks that belong to the next segment, or ``None``.
         """
         checkpoint = self.load_checkpoint()
         if checkpoint is None:
+            return None
+        if simulator_name is not None and checkpoint.get("last_simulator_name") != simulator_name:
+            # A plan can hold several simulators, and only one of them produced this tail. Handing
+            # it to another would inject one simulator's spillover into another's segment -- wrong
+            # data that looks entirely plausible, since it is real strain of the right shape.
+            return None
+        if batch_index is not None and checkpoint.get("last_completed_batch_index") != batch_index - 1:
+            # Spillover belongs to the batch immediately after the one that produced it. Restoring
+            # it anywhere else places a tail at the wrong time.
             return None
         return checkpoint.get("last_simulator_spillover")
 

@@ -82,28 +82,25 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
     #: Spillover: the part of a chunk that extends past the segment being built, waiting for the
     #: next one.
     #:
-    #: **Not a `StateAttribute`, and not for want of trying.** A resumed run starts with none of it,
-    #: so the tail of any signal crossing the resume point is never placed and the following segment
-    #: loses that content silently -- 8.6e-22 to 0.0, the merger absent. The obvious fix, making this
-    #: stateful, does not work: `state` is serialized into every *batch metadata record* as well as
-    #: into the checkpoint, so it would write the spillover samples into a provenance document that
-    #: is meant to stay small and readable -- megabytes of base64 per record -- and those records are
-    #: dumped with plain `json`, which has no encoder for a `TimeSeriesList`. Persisting spillover
-    #: needs a checkpoint-only channel, separate from `state`. Tracked as
-    #: `gwmock/spillover-lost-on-checkpoint-resume`.
+    #: **Not a `StateAttribute`, deliberately, and it is still persisted.** It used to be neither,
+    #: and a resumed run started with none of it: the tail of any signal crossing the resume point
+    #: was never placed and the following segment lost that content silently -- 7.280e-23 to exactly
+    #: 0.0, the merger absent, with the frames before it bit-identical.
+    #:
+    #: The obvious fix, making this stateful, does not work: `state` is serialized into every *batch
+    #: metadata record* as well as into the checkpoint, so it would write spillover samples into a
+    #: provenance document meant to stay small and readable, and those records are dumped with plain
+    #: `json`, which has no encoder for a `TimeSeriesList`. So it travels as its own checkpoint
+    #: field, `last_simulator_spillover`, scoped to the simulator and batch that produced it.
     cached_data_chunks = TimeSeriesList()
     #: Injection records for every signal that reaches the segment currently being built, including
     #: signals generated for an *earlier* segment whose content extends into this one. Rebuilt per
     #: segment by :meth:`simulate`; a subclass writing provenance should union this with whatever it
     #: generated itself. Empty for simulators that do not inject.
     #:
-    #: **Lost across a checkpoint resume**, along with the samples themselves: ``cached_data_chunks``
-    #: is not a :class:`~gwmock.simulator.state.StateAttribute`, so a resumed run regenerates neither
-    #: the spillover nor its record, and the segment after the resume point silently loses the rest of
-    #: any signal crossing it. That is a data bug older than this attribute -- the samples go missing
-    #: whether or not anything records them -- so it is tracked separately as
-    #: ``gwmock/spillover-lost-on-checkpoint-resume`` rather than papered over here. What it means for
-    #: provenance is that "recorded against every frame it reaches" is false at exactly that boundary.
+    #: Survives a checkpoint resume, because the chunks carrying these records do: see
+    #: ``cached_data_chunks`` above. It did not until the spillover was persisted -- a resumed run
+    #: lost both the samples and their provenance at the resume boundary.
     carried_injections: list[dict[str, Any]]
 
     def __init__(

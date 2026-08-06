@@ -1233,10 +1233,18 @@ def execute_plan(  # noqa: PLR0915
         logger.debug("No checkpoint found or no batches completed yet")
         last_simulator_state = None
         last_simulator_spillover = None
+        spillover_simulator_name = None
+        spillover_batch_index = None
     elif completed_batch_indices == loaded_batch_indices:
         logger.info("Loaded checkpoint: %d batches already completed", len(completed_batch_indices))
         last_simulator_state = checkpoint_manager.get_last_simulator_state()
-        last_simulator_spillover = checkpoint_manager.get_last_simulator_spillover()
+        # Read once, not per batch: spillover can run to hundreds of MB for a long inspiral, and
+        # re-reading the checkpoint inside the loop would pay that on every batch. The scoping the
+        # getter would do is applied at the restore call instead, from these two values.
+        _checkpoint = checkpoint_manager.load_checkpoint() or {}
+        last_simulator_spillover = _checkpoint.get("last_simulator_spillover")
+        spillover_simulator_name = _checkpoint.get("last_simulator_name")
+        spillover_batch_index = _checkpoint.get("last_completed_batch_index")
     else:
         # One or more checkpointed batches are missing their outputs. The checkpoint
         # only holds the tail simulator state, so an interior batch cannot be
@@ -1251,6 +1259,8 @@ def execute_plan(  # noqa: PLR0915
         completed_batch_indices = set()
         last_simulator_state = None
         last_simulator_spillover = None
+        spillover_simulator_name = None
+        spillover_batch_index = None
 
     # Group batches by simulator name to execute sequentially per simulator
     simulator_batches: dict[str, list[SimulationBatch]] = {}
@@ -1301,7 +1311,20 @@ def execute_plan(  # noqa: PLR0915
                         simulator.counter,
                         batch.has_state_snapshot(),
                     )
-                    restore_batch_state(simulator, batch, last_simulator_state, last_simulator_spillover)
+                    # Scoped before it is handed over. A plan can execute several simulators and
+                    # the checkpoint holds one tail, so an unscoped hand-off can put one simulator's
+                    # spillover into another's segment -- real strain of the right shape, in the
+                    # wrong place. It is also only valid for the batch immediately after the one
+                    # that produced it.
+                    spillover_for_batch = (
+                        last_simulator_spillover
+                        if (
+                            spillover_simulator_name == batch.simulator_name
+                            and spillover_batch_index == batch.batch_index - 1
+                        )
+                        else None
+                    )
+                    restore_batch_state(simulator, batch, last_simulator_state, spillover_for_batch)
                     logger.debug("[EXECUTE] Batch %s: After restore - counter=%s", batch.batch_index, simulator.counter)
                     pre_batch_state = copy.deepcopy(simulator.state)
                     logger.debug(
