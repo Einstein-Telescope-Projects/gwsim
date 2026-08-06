@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,50 @@ from gwmock.data.serialize.decoder import Decoder
 from gwmock.data.serialize.encoder import Encoder
 
 logger = logging.getLogger("gwmock")
+
+
+def run_fingerprint(config_hashes: Iterable[str | None], output_directory: Path, metadata_directory: Path) -> str:
+    """Identify a run by everything that decides where its outputs go, not just its config file.
+
+    The config file hash alone is not the run. Two invocations of the *same* file with different
+    ``--output-dir`` produce identical hashes, so a checkpoint from the first is accepted by the
+    second, which then skips the batches it records and writes nothing for them into the new
+    directory -- measured at 2 frames where a clean run writes 3. That is the bug the fingerprint
+    exists to stop, arriving through a different door.
+
+    The output and metadata directories are resolved, so ``./out`` and an absolute path to the same
+    place are one run rather than two, and a relative path is not mistaken for a different one when
+    the working directory changes.
+
+    Every batch's config hash goes in, not the first: a plan assembled from several metadata records
+    can mix configurations, and taking one of them would let the rest through unchecked.
+
+    **Two things it does not cover, both verified in review rather than assumed.**
+
+    *Cosmetic edits refuse a valid resume.* The hash is over config bytes, so adding a comment or
+    reindenting changes it and a legitimate resume is turned away. Annoying, and the safe direction;
+    ``--ignore-checkpoint`` is the way out.
+
+    *External inputs are invisible.* The same config file with a different population CSV behind it
+    fingerprints identically, so a resume can mix the old catalogue's completed batches with the new
+    one's remaining batches. This does not make anything worse than before -- nothing checked it
+    previously either -- but it is the sharp edge left in this guard, and hashing referenced inputs
+    is the fix if it ever bites.
+
+    Args:
+        config_hashes: Per-batch ``config_sha256`` values, in plan order. ``None`` entries are kept
+            as a literal marker rather than dropped, so a plan with an unhashed batch does not
+            fingerprint the same as one without that batch.
+        output_directory: Where this run writes its data.
+        metadata_directory: Where this run writes its metadata and index.
+
+    Returns:
+        A hex digest identifying the run.
+    """
+    parts = [hash_value if hash_value is not None else "<none>" for hash_value in config_hashes]
+    parts.append(str(Path(output_directory).resolve()))
+    parts.append(str(Path(metadata_directory).resolve()))
+    return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()
 
 
 class ForeignCheckpointError(RuntimeError):
@@ -37,7 +83,12 @@ def require_matching_config(saved_sha256: str | None, plan_sha256: str | None, c
 
     A checkpoint written before this field existed has ``None`` and is accepted, with a warning. The
     alternative -- refusing -- would break a legitimate resume for anyone who upgrades mid-run, which
-    is a certain cost against an uncertain one.
+    is a certain cost against an uncertain one. **The residual is real:** every pre-fingerprint
+    checkpoint stays exactly as exposed as before, and interrupted runs are precisely the population
+    that resumes, so this is not a rare corner. It closes as those checkpoints age out.
+
+    ``--ignore-checkpoint`` exists because refusing is otherwise a dead end for anything that cannot
+    answer a prompt.
 
     Args:
         saved_sha256: ``config_sha256`` from the checkpoint, or ``None`` if it predates the field.

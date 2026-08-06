@@ -34,7 +34,12 @@ from pathlib import Path
 
 import pytest
 
-from gwmock.cli.utils.checkpoint import CheckpointManager, ForeignCheckpointError, require_matching_config
+from gwmock.cli.utils.checkpoint import (
+    CheckpointManager,
+    ForeignCheckpointError,
+    require_matching_config,
+    run_fingerprint,
+)
 
 #: Only ever formatted into an error message -- nothing here opens it -- so any path serves. Named
 #: rather than written inline so it does not read as a real location a test might depend on.
@@ -78,6 +83,51 @@ class TestTheGuardItself:
     def test_an_unknown_plan_hash_is_allowed(self):
         """Nothing to compare against is not evidence of a mismatch."""
         require_matching_config("a" * 64, None, _ANY_CHECKPOINT)
+
+
+class TestTheFingerprintIsTheRunNotTheConfigFile:
+    """The config hash alone is not run identity, and treating it as one leaves the bug reachable.
+
+    Found in review after the first version of this fix shipped the narrower identity: the same
+    config file with a different ``--output-dir`` hashes identically, so the checkpoint is accepted
+    and its batches skipped -- measured at 2 frames where a clean run writes 3.
+    """
+
+    def test_the_output_directory_changes_it(self, tmp_path):
+        first = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta")
+        second = run_fingerprint(["a" * 64], tmp_path / "out2", tmp_path / "meta")
+        assert first != second
+
+    def test_the_metadata_directory_changes_it(self, tmp_path):
+        first = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta")
+        second = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta2")
+        assert first != second
+
+    def test_an_equivalent_path_does_not(self, tmp_path):
+        """Resolved, so `./out` and its absolute form are one run -- a false refusal is still a bug."""
+        (tmp_path / "out").mkdir()
+        (tmp_path / "meta").mkdir()
+        first = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta")
+        second = run_fingerprint(["a" * 64], tmp_path / "out" / ".", tmp_path / "meta")
+        assert first == second
+
+    def test_every_batch_hash_counts_not_just_the_first(self, tmp_path):
+        """A plan assembled from several metadata records can mix configs; one of them is not enough."""
+        first = run_fingerprint(["a" * 64, "b" * 64], tmp_path / "out", tmp_path / "meta")
+        second = run_fingerprint(["a" * 64, "c" * 64], tmp_path / "out", tmp_path / "meta")
+        assert first != second
+
+    def test_an_unhashed_batch_is_not_the_same_as_no_batch(self, tmp_path):
+        """`None` is kept as a marker; dropping it would collapse two different plans onto one id."""
+        first = run_fingerprint(["a" * 64, None], tmp_path / "out", tmp_path / "meta")
+        second = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta")
+        assert first != second
+
+    def test_the_same_run_fingerprints_the_same(self, tmp_path):
+        """The property every resume depends on: unchanged inputs give an unchanged identity."""
+        assert run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta") == run_fingerprint(
+            ["a" * 64], tmp_path / "out", tmp_path / "meta"
+        )
 
 
 class TestTheFingerprintSurvivesTheCheckpoint:
@@ -148,6 +198,62 @@ def test_a_second_configuration_in_the_same_directory_is_refused_end_to_end(tmp_
     assert "different configuration" in (second.stdout + second.stderr)
     written = list((tmp_path / "output" / "signal").glob("*B-*.gwf"))
     assert not written, f"the refused run still wrote {[p.name for p in written]}"
+
+
+@pytest.mark.integration
+def test_ignore_checkpoint_gets_past_the_refusal(tmp_path):
+    """The refusal must have a way out that is not "delete the file by hand".
+
+    Without one it is a dead end for anything that cannot answer a prompt: an automated campaign
+    that knows the checkpoint is stale would fail on it with no forward path. Raised in review, and
+    the reason the default stays a refusal rather than a warning -- the escape is explicit, so
+    nothing is skipped by accident.
+    """
+    pytest.importorskip("ripplegw", reason="ripplegw not installed")
+    import json
+    import shutil
+    import signal as signal_module
+    import subprocess
+    import time
+
+    executable = shutil.which("gwmock")
+    if executable is None:
+        pytest.skip("the gwmock console script is not on PATH")
+
+    (tmp_path / "pop_a.csv").write_text(_POPULATION.format(mass_1="1.6", mass_2="1.4"))
+    (tmp_path / "a.yaml").write_text(_CONFIG.format(population="pop_a.csv", tag="A"))
+
+    checkpoint = tmp_path / ".gwmock_checkpoints" / "simulation.checkpoint.json"
+    first = subprocess.Popen(  # noqa: S603 - absolute path from `shutil.which`
+        [executable, "simulate", "a.yaml"], cwd=tmp_path, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    try:
+        deadline = time.monotonic() + 600.0
+        while not checkpoint.exists() and first.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert checkpoint.exists()
+        assert json.loads(checkpoint.read_text()).get("completed_batch_indices")
+        first.send_signal(signal_module.SIGINT)
+        first.wait(timeout=120)
+    finally:
+        if first.poll() is None:  # pragma: no cover - only on an unexpected hang
+            first.kill()
+
+    # A different output directory is a different run, so this would be refused without the flag --
+    # which the test above pins. Here it must go through and produce a complete dataset.
+    completed = subprocess.run(  # noqa: S603 - absolute path from `shutil.which`
+        [executable, "simulate", "a.yaml", "--output-dir", "elsewhere", "--ignore-checkpoint"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=900,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "different configuration" not in (completed.stdout + completed.stderr)
+    frames = sorted((tmp_path / "elsewhere" / "signal").glob("*ET1*.gwf"))
+    assert len(frames) == 3, f"ignoring the checkpoint should give a complete run, got {[f.name for f in frames]}"
 
 
 _POPULATION = (
