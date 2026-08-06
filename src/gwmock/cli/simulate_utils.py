@@ -725,7 +725,10 @@ def instantiate_simulator(
 
 
 def restore_batch_state(
-    simulator: Simulator, batch: SimulationBatch, last_simulator_state: dict[str, Any] | None = None
+    simulator: Simulator,
+    batch: SimulationBatch,
+    last_simulator_state: dict[str, Any] | None = None,
+    last_simulator_spillover: Any = None,
 ) -> None:
     """Restore simulator state from batch metadata or checkpoint file if available.
 
@@ -775,6 +778,12 @@ def restore_batch_state(
                 last_simulator_state.get("counter"),
             )
             simulator.state = last_simulator_state
+            # Restored only on this branch -- the one that resumes from the checkpoint's *last*
+            # state. The branch above restores from a batch metadata record, which by design does
+            # not carry samples, so there is no spillover to restore there and a run resumed that
+            # way still loses the tail. Stated rather than silently half-handled.
+            if last_simulator_spillover is not None:
+                simulator.cached_data_chunks = last_simulator_spillover
             logger.debug(
                 "[RESTORE] Batch %d: State restored successfully - new_counter=%s",
                 batch.batch_index,
@@ -1223,9 +1232,11 @@ def execute_plan(  # noqa: PLR0915
     if not resuming:
         logger.debug("No checkpoint found or no batches completed yet")
         last_simulator_state = None
+        last_simulator_spillover = None
     elif completed_batch_indices == loaded_batch_indices:
         logger.info("Loaded checkpoint: %d batches already completed", len(completed_batch_indices))
         last_simulator_state = checkpoint_manager.get_last_simulator_state()
+        last_simulator_spillover = checkpoint_manager.get_last_simulator_spillover()
     else:
         # One or more checkpointed batches are missing their outputs. The checkpoint
         # only holds the tail simulator state, so an interior batch cannot be
@@ -1239,6 +1250,7 @@ def execute_plan(  # noqa: PLR0915
         )
         completed_batch_indices = set()
         last_simulator_state = None
+        last_simulator_spillover = None
 
     # Group batches by simulator name to execute sequentially per simulator
     simulator_batches: dict[str, list[SimulationBatch]] = {}
@@ -1289,7 +1301,7 @@ def execute_plan(  # noqa: PLR0915
                         simulator.counter,
                         batch.has_state_snapshot(),
                     )
-                    restore_batch_state(simulator, batch, last_simulator_state)
+                    restore_batch_state(simulator, batch, last_simulator_state, last_simulator_spillover)
                     logger.debug("[EXECUTE] Batch %s: After restore - counter=%s", batch.batch_index, simulator.counter)
                     pre_batch_state = copy.deepcopy(simulator.state)
                     logger.debug(
@@ -1361,6 +1373,9 @@ def execute_plan(  # noqa: PLR0915
                         last_simulator_name=simulator_name,
                         last_completed_batch_index=batch.batch_index,
                         last_simulator_state=copy.deepcopy(simulator.state),
+                        # Beside the state, not inside it: `state` also goes into every batch
+                        # metadata record, and spillover is raw samples. See `save_checkpoint`.
+                        last_simulator_spillover=copy.deepcopy(getattr(simulator, "cached_data_chunks", None)),
                     )
                     logger.debug(
                         "Checkpoint saved after batch %d - state counter=%s",

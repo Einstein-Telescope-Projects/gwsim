@@ -91,6 +91,7 @@ class CheckpointManager:
         last_simulator_name: str,
         last_completed_batch_index: int,
         last_simulator_state: dict[str, Any],
+        last_simulator_spillover: Any = None,
     ) -> None:
         """Save checkpoint after completing a batch.
 
@@ -99,6 +100,18 @@ class CheckpointManager:
             last_simulator_name: Name of the simulator that completed the batch
             last_completed_batch_index: Index of the batch that just completed
             last_simulator_state: State dict of the simulator after completion
+            last_simulator_spillover: Chunks that extend past the completed segment and belong to
+                the next one -- the tail of any signal crossing the boundary.
+
+                Carried **beside** the state rather than in it, deliberately. ``state`` is also
+                serialized into every batch metadata record, and those are provenance documents
+                meant to stay small and readable; spillover is raw samples, megabytes of them for a
+                long inspiral. Putting it in ``state`` would bloat every metadata record and, since
+                those are written with plain ``json``, fail outright on a ``TimeSeriesList``.
+
+                Without this a resumed run starts with no spillover, so the tail is never placed and
+                the segment after the resume point silently loses that content: a measured peak of
+                8.6e-22 became 0.0, with the merger simply absent.
 
         Raises:
             OSError: If checkpoint cannot be written
@@ -108,6 +121,7 @@ class CheckpointManager:
             "last_simulator_name": last_simulator_name,
             "last_completed_batch_index": last_completed_batch_index,
             "last_simulator_state": last_simulator_state,
+            "last_simulator_spillover": last_simulator_spillover,
         }
 
         # Write to temp file first (atomic write pattern)
@@ -176,6 +190,20 @@ class CheckpointManager:
             return None
         last_state = checkpoint.get("last_simulator_state")
         return last_state if isinstance(last_state, dict) else None
+
+    def get_last_simulator_spillover(self) -> Any:
+        """Return the spillover chunks saved with the last completed batch, if any.
+
+        ``None`` both when the checkpoint predates this field and when the last segment had no
+        spillover, which are the same thing to a caller: there is nothing to carry in.
+
+        Returns:
+            The chunks that belong to the next segment, or ``None``.
+        """
+        checkpoint = self.load_checkpoint()
+        if checkpoint is None:
+            return None
+        return checkpoint.get("last_simulator_spillover")
 
     def should_skip_batch(self, batch_index: int) -> bool:
         """Check if a batch has already been completed.

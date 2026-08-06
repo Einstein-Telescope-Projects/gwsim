@@ -79,6 +79,18 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
     """
 
     start_time = StateAttribute(Quantity(0, unit="s"))
+    #: Spillover: the part of a chunk that extends past the segment being built, waiting for the
+    #: next one.
+    #:
+    #: **Not a `StateAttribute`, and not for want of trying.** A resumed run starts with none of it,
+    #: so the tail of any signal crossing the resume point is never placed and the following segment
+    #: loses that content silently -- 8.6e-22 to 0.0, the merger absent. The obvious fix, making this
+    #: stateful, does not work: `state` is serialized into every *batch metadata record* as well as
+    #: into the checkpoint, so it would write the spillover samples into a provenance document that
+    #: is meant to stay small and readable -- megabytes of base64 per record -- and those records are
+    #: dumped with plain `json`, which has no encoder for a `TimeSeriesList`. Persisting spillover
+    #: needs a checkpoint-only channel, separate from `state`. Tracked as
+    #: `gwmock/spillover-lost-on-checkpoint-resume`.
     cached_data_chunks = TimeSeriesList()
     #: Injection records for every signal that reaches the segment currently being built, including
     #: signals generated for an *earlier* segment whose content extends into this one. Rebuilt per

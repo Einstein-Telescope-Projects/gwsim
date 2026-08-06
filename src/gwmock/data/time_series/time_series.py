@@ -450,6 +450,20 @@ class TimeSeries(JSONSerializable):
         return {
             "__type__": "TimeSeries",
             "data": [self[i].value.tolist() for i in range(self.num_of_channels)],
+            # Carried because a serialized chunk is a *spillover tail* waiting in a checkpoint, and
+            # the next segment reads exactly these on restore. Omitting them restores the samples
+            # while silently dropping `injection_parameters` and `event_id` -- so the run continues
+            # with data that no longer says which signal it is -- and drops the channel identity
+            # that `inject` copies onto a tail for the same reason.
+            "metadata": dict(self.metadata),
+            "channels": [
+                {
+                    "name": self[i].name,
+                    "channel": None if self[i].channel is None else str(self[i].channel),
+                    "unit": str(self[i].unit),
+                }
+                for i in range(self.num_of_channels)
+            ],
             "start_time": self.start_time.value,
             "start_time_unit": str(self.start_time.unit),
             "sampling_frequency": self.sampling_frequency.value,
@@ -469,4 +483,20 @@ class TimeSeries(JSONSerializable):
         data = np.array(json_dict["data"])
         start_time = Quantity(json_dict["start_time"], unit=json_dict["start_time_unit"])
         sampling_frequency = Quantity(json_dict["sampling_frequency"], unit=json_dict["sampling_frequency_unit"])
-        return cls(data=data, start_time=start_time, sampling_frequency=sampling_frequency)
+        series = cls(data=data, start_time=start_time, sampling_frequency=sampling_frequency)
+
+        # Both keys are absent from records written before this was carried, so both default rather
+        # than raise: a checkpoint is read by whatever version happens to resume the run, and
+        # refusing an older one would turn an upgrade mid-run into a lost run.
+        series.metadata.update(json_dict.get("metadata") or {})
+        for index, channel in enumerate(json_dict.get("channels") or []):
+            if index >= series.num_of_channels:
+                break
+            target = series[index]
+            target.name = channel.get("name")
+            target.channel = channel.get("channel")
+            unit = channel.get("unit")
+            if unit is not None:
+                # `unit` is read-only on a gwpy array; override_unit is the supported way to set it.
+                target.override_unit(unit)
+        return series
