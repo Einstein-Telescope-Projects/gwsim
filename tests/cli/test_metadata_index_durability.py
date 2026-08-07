@@ -22,8 +22,9 @@ nobody had looked at the file written on the line above.
 
 **Deliberately weaker than its sibling.** No staleness digest here: that guard's job is to refuse
 a write, and nothing in production reads ``index.yaml`` today, so aborting a run over it would
-cost more than the entry it protects. Cross-host staleness can still lose an entry here. If a
-real consumer appears, that decision should be revisited.
+cost more than it protects. The residue is **whole-index loss**, not one entry -- a stale
+negative dentry makes the loader start from an empty mapping and the write then replaces
+everything -- so the condition to revisit is a *reader-writer from another process*, not a reader.
 """
 
 from __future__ import annotations
@@ -160,7 +161,14 @@ def test_a_failed_write_leaves_the_previous_index_intact(tmp_path: Path, monkeyp
 
 
 def test_the_index_keeps_its_permissions(tmp_path: Path) -> None:
-    """Replacing by rename must not tighten the index, as it did for its sibling."""
+    """Replacing by rename must not tighten the index, as it did for its sibling.
+
+    **Not a discriminator for the atomic write.** This passes on the old in-place implementation
+    too, and for the same reason: ``open("w")`` truncates without touching the mode, so 0644 on
+    creation and a preserved 0664 hold either way. It guards the `mkstemp`-style regression that
+    bit the signal index (0600 on every replace), which is a property of the shared writer rather
+    than of this change. The race and failed-write tests are the ones that own this fix.
+    """
     previous = os.umask(0o022)
     try:
         update_metadata_index(tmp_path, [Path("data-0.gwf")], "orchestration-0.metadata.json")

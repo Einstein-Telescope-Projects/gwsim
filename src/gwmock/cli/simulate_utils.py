@@ -605,12 +605,18 @@ def update_metadata_index(
     because the loader above treats an unparsable index as "create a new index".
 
     **Deliberately weaker than :func:`update_signal_index`: there is no staleness digest here.**
-    That guard's job is to refuse a write, and on a shared filesystem a client can hold a stale
-    view of this file just as it can of the signal index. Nothing in production reads
-    ``index.yaml`` today, so aborting a run over it would cost more than the entry it protects.
-    The residue is that a cross-host stale read can still drop an entry here silently. **Revisit
-    when something starts reading it** -- the guarantee this file offers is then the guarantee
-    that consumer inherits.
+    That guard's job is to refuse a write, and nothing in production reads ``index.yaml`` today,
+    so aborting a run over it would cost more than it protects.
+
+    **Be precise about what that costs, because it is not one entry.** On a shared filesystem a
+    client can hold a stale *negative* view of this path -- measured: ``exists()`` answers False
+    from a cached dentry, the loader starts from an empty mapping, and the write replaces the
+    file, so ``{data-0, data-1}`` became ``{data-2}``. The residue is **whole-index loss**, the
+    same catastrophic case the sibling's digest guard exists to catch, not a single dropped row.
+
+    **Revisit when a reader-writer appears from another process**, not merely when a reader
+    appears: a second reader alone is harmless, while a second *writer* on another host can
+    discard everything recorded so far.
 
     Args:
         metadata_directory: Directory where metadata files are stored
