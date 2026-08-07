@@ -13,11 +13,13 @@ import platform
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from functools import cache
 from importlib import import_module
 from importlib import metadata as importlib_metadata
 from pathlib import Path
@@ -600,6 +602,16 @@ except ImportError:  # pragma: no cover - Windows, which the CI matrix does not 
     fcntl = None  # type: ignore[assignment]
 
 
+@cache
+def _warn_unlocked_once() -> None:
+    """Say once per process that the index is being updated without a lock.
+
+    Cached rather than flagged so the "warns once" claim is enforced by the decorator instead of
+    by a global nobody re-checks.
+    """
+    logger.warning("fcntl unavailable: the signal index is updated without a lock, so concurrent runs can race.")
+
+
 @contextmanager
 def _exclusive_index_lock(index_file: Path) -> Iterator[None]:
     """Hold an exclusive cross-process lock for the whole read-modify-write of the index.
@@ -624,7 +636,7 @@ def _exclusive_index_lock(index_file: Path) -> Iterator[None]:
         Nothing. The lock is held for the duration of the block.
     """
     if fcntl is None:  # pragma: no cover - not reachable on POSIX
-        logger.warning("fcntl unavailable: the signal index is updated without a lock, so concurrent runs can race.")
+        _warn_unlocked_once()
         yield
         return
 
@@ -665,10 +677,33 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
             yaml.safe_dump(index, handle, default_flow_style=False, sort_keys=True)
             handle.flush()
             os.fsync(handle.fileno())
+        # `mkstemp` creates 0600 and ignores the umask, and `os.replace` keeps the temporary's
+        # mode -- so replacing without this would quietly tighten a 0644 index to 0600 and lock a
+        # second account out of `find-signal` on exactly the shared metadata directory this
+        # locking exists for. Carry the existing index's mode over; for a first write, fall back
+        # to what a plain `open(..., "w")` would have produced under the caller's umask.
+        os.chmod(temporary, _mode_for_index(index_file))
         os.replace(temporary, index_file)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
+
+
+def _mode_for_index(index_file: Path) -> int:
+    """Return the mode the replaced index should carry.
+
+    Args:
+        index_file: The index being replaced; may not exist yet.
+
+    Returns:
+        The existing file's permission bits, or the umask-respecting default for a new file.
+    """
+    try:
+        return stat.S_IMODE(index_file.stat().st_mode)
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        return 0o666 & ~umask
 
 
 def update_signal_index(
@@ -691,6 +726,12 @@ def update_signal_index(
     the live index, so a failed or interrupted write leaves the previous index intact instead of
     truncating it -- which mattered because the loader below treats an unparsable index as
     "create a new one", turning one bad write into the loss of every entry.
+
+    The guarantee is exactly as strong as the filesystem's ``flock``: it holds for a local
+    filesystem and for any shared one that honours POSIX advisory locks across the participating
+    hosts, and it does **not** hold where it silently does not -- some NFS configurations and
+    cluster filesystems -- in which case this reverts to the unlocked race it closes. Settling
+    that for a given deployment is a two-host stress test, not a code question.
 
     Parameter-based lookup reads the injections recorded in the batch metadata files (their
     source of truth); this index is only the id shortcut. A batch with no injected signals
