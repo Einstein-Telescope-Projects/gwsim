@@ -28,8 +28,10 @@ real consumer appears, that decision should be revisited.
 
 from __future__ import annotations
 
+import contextlib
 import multiprocessing as mp
 import os
+import threading
 import time
 from multiprocessing.synchronize import Barrier
 from pathlib import Path
@@ -61,11 +63,11 @@ def _writer(directory: str, name: str, batch: int, ready: Barrier, barrier: Barr
 
     def _rendezvous_then_load(stream: Any) -> Any:
         loaded = real_load(stream)
-        try:
+        # A broken barrier is the expected outcome under the fix: the other process is blocked on
+        # the lock and cannot arrive, which is the point.
+        with contextlib.suppress(threading.BrokenBarrierError):
             barrier.wait(timeout=_BARRIER_TIMEOUT_SECONDS)
             evidence["rendezvous"] = True
-        except Exception:  # noqa: BLE001 - a broken barrier is the expected outcome under the fix
-            pass
         return loaded
 
     module.yaml.safe_load = _rendezvous_then_load
@@ -100,6 +102,11 @@ def test_two_processes_adding_entries_keep_both(tmp_path: Path) -> None:
     for attempt in range(_SCENARIO_ATTEMPTS):
         directory = tmp_path / f"attempt-{attempt}"
         directory.mkdir()
+        # Seed the index first. The rendezvous is armed on the load, and the load only happens
+        # when the index already exists -- against a fresh directory neither writer would take
+        # that path, so nothing would overlap and the run would prove nothing. Seeding also makes
+        # the lost update visible: an entry that was there before the race must still be there.
+        update_metadata_index(directory, [Path("data-seed.gwf")], "orchestration-seed.metadata.json")
         ready = context.Barrier(2)
         barrier = context.Barrier(2)
         evidence = [manager.dict(rendezvous=False, lock_wait=0.0) for _ in range(2)]
@@ -125,7 +132,7 @@ def test_two_processes_adding_entries_keep_both(tmp_path: Path) -> None:
         )
 
     index = yaml.safe_load((directory / "index.yaml").read_text())
-    assert set(index) == {"data-A.gwf", "data-B.gwf"}, index
+    assert set(index) == {"data-seed.gwf", "data-A.gwf", "data-B.gwf"}, index
 
 
 def test_a_failed_write_leaves_the_previous_index_intact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
