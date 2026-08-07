@@ -808,7 +808,7 @@ def update_signal_index(
     frame file(s) that contain it plus the batch metadata file, enabling O(1)
     signal->frame lookup by id.
 
-    **Safe against concurrent writers on one host**, which it was not before: the
+    **Safe against concurrent writers on one host, when the lock is taken**, which it was not before: the
     read-modify-write was unlocked, so two runs sharing a metadata directory lost one side's
     events -- reproduced deterministically with two processes and a barrier, where the loser's
     signals stayed in the frames while vanishing from the id lookup. The whole cycle now runs
@@ -834,8 +834,11 @@ def update_signal_index(
         filesystem revalidates instead of the index.
 
         **Until this is repaired, do not run concurrent writers against one metadata directory
-        from more than one host.** Concurrent writers on a single host are safe: one host has one
-        cache.
+        from more than one host.** Concurrent writers on a single host are safe *when the lock is
+        actually taken* — one host has one cache, so the staleness above cannot arise. They are
+        **not** safe on the two paths where :func:`_exclusive_index_lock` deliberately proceeds
+        unlocked: no ``fcntl`` module, and a filesystem that rejects ``flock``. Both warn once
+        and then race exactly as this function did before the lock existed.
 
     Parameter-based lookup reads the injections recorded in the batch metadata files (their
     source of truth); this index is only the id shortcut. A batch with no injected signals
