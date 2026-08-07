@@ -7,6 +7,7 @@ from __future__ import annotations
 import atexit
 import copy
 import errno
+import hashlib
 import json
 import logging
 import os
@@ -620,6 +621,16 @@ def _warn_unlocked_once() -> None:
     logger.warning("fcntl unavailable: the signal index is updated without a lock, so concurrent runs can race.")
 
 
+class StaleIndexReadError(RuntimeError):
+    """The index this process read is not the one the sidecar says is current.
+
+    Raised instead of writing, because writing is what discards the entries this process cannot
+    see. The usual cause is a client cache on a shared filesystem: the lock is held correctly and
+    the index is still read from a stale view, since acquiring the lock revalidates the sidecar
+    rather than the index.
+    """
+
+
 @contextmanager
 def _exclusive_index_lock(index_file: Path) -> Iterator[None]:
     """Hold an exclusive cross-process lock for the whole read-modify-write of the index.
@@ -719,6 +730,68 @@ def _align_lock_mode(lock_file: Path, index_file: Path) -> None:
     except (FileNotFoundError, PermissionError):
         return
     logger.debug("Widened %s from %s to %s to match the index.", lock_file, oct(current), oct(widened))
+
+
+def _index_digest(index_file: Path) -> str:
+    """Return a digest of the index's bytes, or the marker for "no index".
+
+    Bytes rather than the parsed mapping: the point is to detect that *this read* differs from
+    what the last writer committed, and a re-serialisation could mask a difference the reader
+    would then act on.
+
+    Args:
+        index_file: Path to ``signal_index.yaml``.
+
+    Returns:
+        Hex digest, or ``"absent"`` when the file does not exist.
+    """
+    try:
+        return hashlib.sha256(index_file.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        return "absent"
+
+
+def _recorded_digest(lock_file: Path) -> str | None:
+    """Return the digest the sidecar records, or ``None`` when it records none.
+
+    ``None`` means an index predating this guard, not a mismatch.
+
+    Args:
+        lock_file: The sidecar beside the index.
+
+    Returns:
+        The recorded hex digest or ``"absent"`` marker, or ``None`` if unrecorded.
+    """
+    try:
+        recorded = lock_file.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return recorded or None
+
+
+def _record_digest(lock_file: Path, digest: str) -> None:
+    """Write the digest of the index just committed into the sidecar.
+
+    Written in place, deliberately: the sidecar keeps its inode so the lock and this record stay
+    on the file the lock made the filesystem revalidate. Replacing it by rename -- as the index
+    is -- would reintroduce the cached-dentry problem this exists to detect.
+
+    Written *after* the index, so a crash in between leaves the sidecar behind the index rather
+    than ahead of it. Behind is recoverable (the reader sees a digest for an older index and
+    refuses, which is loud); ahead would mean promising an index that was never committed.
+
+    Args:
+        lock_file: The sidecar beside the index.
+        digest: Digest of the index as committed.
+    """
+    try:
+        with lock_file.open("r+", encoding="utf-8") as handle:
+            handle.write(digest)
+            handle.truncate()
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError as error:  # pragma: no cover - the lock path already proved it is writable
+        logger.warning("Could not record the index digest in %s: %s", lock_file, error)
 
 
 def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
@@ -855,8 +928,55 @@ def update_signal_index(
     if not injections and not index_file.exists():
         return
 
+    lock_file = index_file.with_name(index_file.name + ".lock")
     with _exclusive_index_lock(index_file):
+        _require_fresh_index_read(index_file, lock_file)
         _update_signal_index_locked(index_file, injections, metadata, metadata_file_name, encoding)
+        _record_digest(lock_file, _index_digest(index_file))
+
+
+def _require_fresh_index_read(index_file: Path, lock_file: Path) -> None:
+    """Refuse to proceed when this process cannot see the index the sidecar says is current.
+
+    Holding the lock does not make the read trustworthy across hosts: acquiring it revalidates
+    the sidecar, not the index, so a client with a cached view reads an older index -- or none --
+    and writing then discards everything it could not see. Measured on a shared NFS home, where
+    the lock excluded correctly for 26.7 s and the update was lost anyway.
+
+    The comparison is against the sidecar because that is the file the lock *does* make the
+    filesystem revalidate, and it is written in place so it keeps its inode.
+
+    A sidecar with no digest predates this guard and is accepted with a warning: refusing would
+    break every in-flight run on upgrade, a certain cost against an uncertain one. That
+    acceptance should become a refusal once no index predates the release carrying this.
+
+    Args:
+        index_file: Path to ``signal_index.yaml``.
+        lock_file: The sidecar holding the digest of the last committed index.
+
+    Raises:
+        StaleIndexReadError: If the index this process reads is not the one last committed.
+    """
+    recorded = _recorded_digest(lock_file)
+    if recorded is None:
+        logger.warning(
+            "The signal index at %s has no digest recorded in %s, so this write cannot verify it "
+            "is reading the current index. Predates the staleness guard; accepted once.",
+            index_file,
+            lock_file.name,
+        )
+        return
+    seen = _index_digest(index_file)
+    if seen == recorded:
+        return
+    raise StaleIndexReadError(
+        f"This process reads {index_file} as {seen}, but {lock_file.name} records the last "
+        f"committed index as {recorded}, so the read is stale and writing would discard entries "
+        "this process cannot see. The usual cause is a filesystem cache on a shared mount: the "
+        "lock is held correctly, and the index is still read from an out-of-date view. Retry the "
+        "batch; if it persists, the writers are on different hosts and must be serialised "
+        "outside gwmock until they share a client cache."
+    )
 
 
 def _update_signal_index_locked(
