@@ -155,6 +155,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         # malformed row fails only its own query and its cause differs from a whole-catalogue one --
         # collapsing both into one warning would name the wrong cause for everything after it.
         self._pre_coalescence_query_failures: set[str] = set()
+        self._post_coalescence_query_failures: set[str] = set()
         # Consumption order, as positions into `_population_events`. Established lazily by
         # `_placement_order`, because it costs one query per event and the continuous-wave and
         # stochastic paths never consume the catalogue this way.
@@ -549,6 +550,11 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             # place in the loaded catalogue rather than by the order generation happened to take.
             event_id = int(order[int(self.population_index)])
             parameters = dict(self._population_events[event_id])
+            if self._event_ended_before_segment_start(parameters):
+                # Consumed without being generated, the same as in `_events_for_this_segment`, and
+                # stepped over rather than breaking so the events behind it are still reached.
+                self.population_index = cast(int, self.population_index) + 1
+                continue
             if not self._event_starts_before_segment_end(parameters):
                 break
             strain = self.signal_adapter.simulate(
@@ -686,6 +692,99 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         start_time_value = float(coa_time) if lead is None else float(coa_time) - float(lead)
         return start_time_value < end_time_value
 
+    def _event_ended_before_segment_start(self, parameters: Mapping[str, Any]) -> bool:
+        """Return whether this event's waveform has finished before the current segment begins.
+
+        The lower bound, and the reason it exists: :meth:`_event_starts_before_segment_end` is
+        one-sided. In a sequential run that is invisible, because the earlier segments have already
+        consumed the earlier events. In a run whose ``start-time`` is later than its population's
+        first event -- resuming a campaign mid-catalogue, or slicing a long population into per-day
+        jobs -- nothing has consumed them, every one satisfies the upper bound, and the first
+        segment claims the whole back catalogue. Measured on the shipped ET config: 126 events
+        batched for a segment containing 13, refused by the preflight at an estimated 12.5 GiB.
+
+        **This must not be folded into the upper-bound predicate.** Both loops ``break`` on the
+        first event that does not belong, and ``population_index`` means "every event before this
+        one is consumed". An early event answering "does not belong" would stop the walk at
+        position 0, consume nothing, and repeat that on every following segment -- the run would
+        stall permanently, which is worse than the over-batching being fixed. A finished event is
+        *stepped over and consumed*, which is what the callers do with this answer.
+
+        ``None`` means *unknown*, and unknown claims the event. The tail is a fixed fraction of the
+        buffer rather than a physical ringdown -- 0.4 s for a 4 s binary-black-hole buffer, 25.6 s
+        for a 256 s binary-neutron-star one -- so an event coalescing seconds before the segment
+        may still be producing signal inside it. Reading an unknown tail as zero would conclude
+        every such event finished at ``coa_time`` and discard it, silently and for a whole backend
+        at a time; claiming it merely generates a waveform injection then crops.
+
+        Args:
+            parameters: The candidate event's source parameters.
+
+        Returns:
+            Whether the event's content is wholly behind this segment. Events without a
+            ``coa_time``, and events whose tail is unknown, are never reported as finished.
+        """
+        coa_time = parameters.get("coa_time")
+        if coa_time is None:
+            return False
+        tail = self._post_coalescence_duration(parameters)
+        if tail is None:
+            return False
+        start_time_value = float(getattr(self.start_time, "value", self.start_time))
+        # Strict, so an event ending exactly on the boundary is claimed: its final sample lands on
+        # the segment's first sample. The upper bound is strict at its own end for the same reason.
+        return float(coa_time) + float(tail) < start_time_value
+
+    def _post_coalescence_duration(self, parameters: Mapping[str, Any]) -> float | None:
+        """Return the event's waveform tail in seconds, or ``None`` when it cannot be established.
+
+        The complement of :meth:`_pre_coalescence_duration`, with the same swallow-and-report
+        handling and for the same reason: this query decides *placement*, and letting it fail a run
+        would turn an incomplete catalogue column into a crash in an unrelated part of the loop.
+
+        The fallback differs from the pre side's in what it costs. There, an unknown lead falls
+        back to the ``coa_time`` rule and the loss is reported per signal. Here, an unknown tail
+        means the event is claimed and generated -- work that may be discarded, which is exactly
+        today's behaviour and the thing being improved. Failing safe here is failing *slow*, not
+        failing wrong.
+
+        Args:
+            parameters: The candidate event's source parameters.
+
+        Returns:
+            Seconds after ``coa_time`` at which the waveform ends, or ``None`` for unknown.
+        """
+        if self.signal_adapter is None:
+            return None
+        query = getattr(self.signal_adapter, "post_coalescence_duration", None)
+        if query is None:
+            # An adapter predating gwmock-signal 0.16, or a caller's own stand-in. Unknown rather
+            # than an error: the packaging metadata requires a version that has it, so this is the
+            # duck-typed path, and the conservative answer keeps such a caller working unchanged.
+            return None
+        try:
+            return query(
+                parameters,
+                sampling_frequency=float(self.sampling_frequency.value),
+                minimum_frequency=self.minimum_frequency,
+                waveform_arguments=self.waveform_arguments,
+                waveform_options=self.waveform_options,
+            )
+        except Exception as exc:
+            # Deliberately broad, deduplicated by reason rather than by a flag -- see
+            # `_pre_coalescence_duration` for why a flag mislabels a second, different failure.
+            reason = f"{type(exc).__name__}: {exc}"
+            if reason not in self._post_coalescence_query_failures:
+                self._post_coalescence_query_failures.add(reason)
+                logger.warning(
+                    "Cannot establish how long after coalescence a waveform ends (%s). Affected "
+                    "events are claimed by every segment their coalescence precedes, so a run "
+                    "starting later than its population's first event may batch events whose "
+                    "signal it then crops.",
+                    reason,
+                )
+            return None
+
     def _pre_coalescence_duration(self, parameters: Mapping[str, Any]) -> float | None:
         """Return the event's waveform lead in seconds, or ``None`` when it cannot be established.
 
@@ -759,14 +858,34 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         # restores pre-batch state, so this is about direct library callers rather than the runner.
         order = self._placement_order()
         position = int(self.population_index)
+        skipped = 0
         while position < len(order):
             event_id = int(order[position])
             parameters = dict(self._population_events[event_id])
+            if self._event_ended_before_segment_start(parameters):
+                skipped += 1
+                position += 1
+                continue
             if not self._event_starts_before_segment_end(parameters):
                 break
             event_ids.append(event_id)
             events.append(parameters)
             position += 1
+
+        # Skipped events are advanced past here rather than in `_commit_consumed_events`, and this
+        # is the one exception to the read-without-advancing rule above. It is safe because nothing
+        # further can fail for them: a skipped event is not generated, so there is no later step
+        # whose failure would need the index rolled back. Deferring them to the commit would lose
+        # them outright -- `_simulate_batched_segment` returns early when the batch is empty, which
+        # is exactly the case where every event in front of the index was skipped, so the commit
+        # never runs and the next segment reconsiders the same events.
+        if skipped:
+            self.population_index = cast(int, self.population_index) + skipped
+            logger.info(
+                "Skipped %d event(s) whose waveform ends before this segment starts; they belong "
+                "to no segment this run writes.",
+                skipped,
+            )
         return event_ids, events
 
     def _commit_consumed_events(self, event_ids: list[int]) -> None:
