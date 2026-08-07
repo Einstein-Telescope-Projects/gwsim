@@ -6,15 +6,21 @@ from __future__ import annotations
 
 import atexit
 import copy
+import errno
 import json
 import logging
+import os
 import platform
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import time
-from collections.abc import Callable
+import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from functools import cache
 from importlib import import_module
 from importlib import metadata as importlib_metadata
 from pathlib import Path
@@ -591,6 +597,205 @@ def _withdraw_batch(index: dict[str, Any], metadata_file_name: str) -> dict[str,
     return migrated
 
 
+try:  # pragma: no cover - the except branch is unreachable on the supported platforms
+    import fcntl
+except ImportError:  # pragma: no cover - Windows, which the CI matrix does not cover
+    fcntl = None  # type: ignore[assignment]
+
+
+# `flock` errnos meaning "this filesystem cannot do advisory locks", as opposed to "you may not".
+# Only these fall back to an unlocked write; a refusal such as EACCES still raises.
+_LOCKING_UNSUPPORTED = frozenset(
+    getattr(errno, name) for name in ("EOPNOTSUPP", "ENOLCK", "ENOSYS", "ENOTSUP") if hasattr(errno, name)
+)
+
+
+@cache
+def _warn_unlocked_once() -> None:
+    """Say once per process that the index is being updated without a lock.
+
+    Cached rather than flagged so the "warns once" claim is enforced by the decorator instead of
+    by a global nobody re-checks.
+    """
+    logger.warning("fcntl unavailable: the signal index is updated without a lock, so concurrent runs can race.")
+
+
+@contextmanager
+def _exclusive_index_lock(index_file: Path) -> Iterator[None]:
+    """Hold an exclusive cross-process lock for the whole read-modify-write of the index.
+
+    A lock is needed rather than a thread lock because the writers are separate *runs* sharing a
+    metadata directory, in separate interpreters. The lock lives in a sidecar file rather than on
+    the index itself: the index is replaced by :func:`_atomically_write_index`, and a lock held on
+    a replaced inode protects nothing once the rename lands.
+
+    The sidecar is created and left in place, never unlinked. Deleting it on release would let a
+    second process hold a lock on an unlinked inode while a third creates a fresh one and takes a
+    lock nobody else can see -- the classic unlink race. An empty stray file is the cheaper cost.
+
+    **The sidecar is never tighter than the index**, which is not cosmetic: ``flock`` needs a
+    writable descriptor, so whoever may write the index must be able to open the sidecar for
+    append. Leaving the sidecar at the umask default while the index is group-writable gives a
+    second account read access to the index and a ``PermissionError`` at the lock -- the
+    multi-account case this locking exists to serve, broken at the gate. Alignment only ever
+    widens; see :func:`_align_lock_mode`.
+
+    Where ``fcntl`` is unavailable (Windows, which this project does not test) the body runs
+    unlocked and says so once, rather than failing at import: an unsynchronised index is what the
+    caller had before, while an ImportError would take out a working single-writer run.
+
+    Args:
+        index_file: Path to ``signal_index.yaml``; the sidecar sits beside it.
+
+    Yields:
+        Nothing. The lock is held for the duration of the block.
+    """
+    if fcntl is None:  # pragma: no cover - not reachable on POSIX
+        _warn_unlocked_once()
+        yield
+        return
+
+    lock_file = index_file.with_name(index_file.name + ".lock")
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        handle = lock_file.open("a+")
+    except PermissionError as error:
+        # This, not the chmod below, is where a second account actually fails: `flock` needs a
+        # writable descriptor, so a sidecar tighter than the index stops a writer at the gate with
+        # a bare Errno 13 that says nothing about locks. Name the cause and the repair.
+        raise PermissionError(
+            f"Cannot open the signal-index lock at {lock_file} for writing, so this run cannot "
+            f"safely update {index_file.name}. Taking the lock needs write access to the sidecar; "
+            "have its owner widen it to match the index (the owner's next gwmock run does this "
+            "automatically)."
+        ) from error
+    with handle:
+        # After the open, so the very first run aligns its own sidecar rather than leaving it at
+        # the umask default for the next one to repair.
+        _align_lock_mode(lock_file, index_file)
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except OSError as error:
+            if error.errno not in _LOCKING_UNSUPPORTED:
+                raise
+            # The filesystem does not implement advisory locks. Failing here would break a write
+            # that succeeds -- and did succeed before locking existed -- on exactly the shared
+            # filesystems this feature is aimed at. Degrade to the previous unsynchronised
+            # behaviour and say so, the same trade as a missing `fcntl` module.
+            _warn_unlocked_once()
+            yield
+            return
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _align_lock_mode(lock_file: Path, index_file: Path) -> None:
+    """Widen the sidecar so everyone who may write the index can take the lock. Best effort.
+
+    **Widen only.** Matching the index exactly would also *narrow*, and a sidecar is a permission
+    surface in its own right: an operator may deliberately open it to an account that takes locks
+    without writing the index. Silently pulling that back on the owner's next run would remove a
+    capability with no signal and no opt-out, to fix a problem nobody had. Too-tight sidecars are
+    the failure this repairs; too-loose ones are somebody's decision.
+
+    Only the file's owner may ``chmod``, so this cannot be an invariant every caller restores.
+    The owner's next run repairs a sidecar written before this behaviour existed.
+
+    Args:
+        lock_file: The sidecar; may not exist yet.
+        index_file: The index whose access the sidecar must not be tighter than.
+    """
+    desired = _existing_index_mode(index_file)
+    current = _existing_index_mode(lock_file)
+    if desired is None or current is None:
+        return
+    widened = current | desired
+    if widened == current:
+        return
+    try:
+        os.chmod(lock_file, widened)
+    except (FileNotFoundError, PermissionError):
+        return
+    logger.debug("Widened %s from %s to %s to match the index.", lock_file, oct(current), oct(widened))
+
+
+def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
+    """Write the index so a reader sees either the old file or the new one, never a fragment.
+
+    ``open(path, "w")`` truncates in place, so a crash or a full disk part-way through the dump
+    leaves an unparsable file -- and the loader in :func:`update_signal_index` treats an
+    unparsable index as "create a new one", which turns one failed write into the silent loss of
+    every entry the index already held. Writing a sibling temporary and renaming makes the
+    replacement atomic within the directory, so a failure leaves the previous index untouched.
+
+    The temporary is created in the destination directory because ``os.replace`` is only atomic
+    within a filesystem, and ``/tmp`` is routinely a different one.
+
+    Args:
+        index_file: Destination path.
+        index: The index mapping to serialise.
+
+    Raises:
+        OSError: If the file cannot be written or renamed.
+        yaml.YAMLError: If the index cannot be serialised.
+    """
+    # `os.replace` carries the temporary's mode to the destination, so the temporary must be
+    # created the way the destination should end up. `tempfile.mkstemp` is wrong here: it forces
+    # 0600 and ignores the umask, which would quietly tighten a 0644 index and lock a second
+    # account out of `find-signal` on the shared metadata directory this locking exists for.
+    # Opening with an explicit 0o666 lets the kernel apply the umask and any default ACLs exactly
+    # as a plain `open(..., "w")` would have -- no process-global umask read, which would race
+    # with any other thread creating a file (gwmock runs a resource monitor thread).
+    existing_mode = _existing_index_mode(index_file)
+    temporary = index_file.with_name(f"{index_file.name}.{uuid.uuid4().hex}.tmp")
+    descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+    try:
+        # Adopt the raw descriptor immediately. Anything that raises between `os.open` and
+        # `os.fdopen` -- the chmod below used to sit there -- leaves a descriptor that the
+        # cleanup path unlinks the file for but never closes, and this runs once per batch.
+        handle = os.fdopen(descriptor, "w", encoding="utf-8")
+    except BaseException:
+        os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+        raise
+    try:
+        if existing_mode is not None:
+            # An index that already exists keeps whatever mode it was given, so a deliberately
+            # group-writable index survives an update.
+            #
+            # `os.chmod` on the path, not `os.fchmod` on the descriptor: `fchmod` does not exist
+            # on Windows, and this line runs on every update once an index exists -- it would
+            # break the second write on exactly the platform the lock is written to degrade
+            # gracefully for. The path is a uuid4 name we just created in a directory we hold,
+            # so there is no meaningful window for it to be swapped.
+            os.chmod(temporary, existing_mode)
+        with handle:
+            yaml.safe_dump(index, handle, default_flow_style=False, sort_keys=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, index_file)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _existing_index_mode(index_file: Path) -> int | None:
+    """Return the index's current permission bits, or ``None`` when it does not exist yet.
+
+    Args:
+        index_file: The index being replaced.
+
+    Returns:
+        Permission bits to preserve, or ``None`` to let the umask decide.
+    """
+    try:
+        return stat.S_IMODE(index_file.stat().st_mode)
+    except FileNotFoundError:
+        return None
+
+
 def update_signal_index(
     metadata_directory: Path,
     metadata: dict[str, Any],
@@ -603,15 +808,24 @@ def update_signal_index(
     frame file(s) that contain it plus the batch metadata file, enabling O(1)
     signal->frame lookup by id.
 
-    **Not safe against concurrent writers.** This is an unlocked read-modify-write, so two
-    processes updating the index at once can lose one side's contribution -- reproduced
-    deterministically with a barrier. It predates the per-batch accumulation below and is not
-    made worse by it, but the accumulation does change what is lost: a dropped update used to
-    cost one assignment, and now costs one batch's frames for every event in it. gwmock writes
-    batches sequentially within a run, so this bites only when two runs share a metadata
-    directory. Tracked as ``gwmock/signal-index-concurrent-writers``. Parameter-based lookup reads the injections
-    recorded in the batch metadata files (their source of truth); this index is
-    only the id shortcut. A batch with no injected signals writes nothing.
+    **Safe against concurrent writers**, which it was not before: the read-modify-write was
+    unlocked, so two runs sharing a metadata directory lost one side's events -- reproduced
+    deterministically with two processes and a barrier, where the loser's signals stayed in the
+    frames while vanishing from the id lookup. The whole cycle now runs under an exclusive
+    ``flock`` on a sidecar file, and the result is renamed into place rather than written over
+    the live index, so a failed or interrupted write leaves the previous index intact instead of
+    truncating it -- which mattered because the loader below treats an unparsable index as
+    "create a new one", turning one bad write into the loss of every entry.
+
+    The guarantee is exactly as strong as the filesystem's ``flock``: it holds for a local
+    filesystem and for any shared one that honours POSIX advisory locks across the participating
+    hosts, and it does **not** hold where it silently does not -- some NFS configurations and
+    cluster filesystems -- in which case this reverts to the unlocked race it closes. Settling
+    that for a given deployment is a two-host stress test, not a code question.
+
+    Parameter-based lookup reads the injections recorded in the batch metadata files (their
+    source of truth); this index is only the id shortcut. A batch with no injected signals
+    writes nothing.
 
     Args:
         metadata_directory: Directory where metadata and the index live.
@@ -624,6 +838,30 @@ def update_signal_index(
     if not injections and not index_file.exists():
         return
 
+    with _exclusive_index_lock(index_file):
+        _update_signal_index_locked(index_file, injections, metadata, metadata_file_name, encoding)
+
+
+def _update_signal_index_locked(
+    index_file: Path,
+    injections: list[dict[str, Any]],
+    metadata: dict[str, Any],
+    metadata_file_name: str,
+    encoding: str,
+) -> None:
+    """Do the read-modify-write, with the caller holding the index lock.
+
+    Split out so the critical section is a single named span: the read, the withdrawal and the
+    write must all be inside one lock, and a reader of :func:`update_signal_index` should not have
+    to trace an indented block to confirm it.
+
+    Args:
+        index_file: Path to ``signal_index.yaml``.
+        injections: The batch's injected signals.
+        metadata: The batch metadata record just written.
+        metadata_file_name: File name of that batch metadata record.
+        encoding: File encoding for reading the index file.
+    """
     if index_file.exists():
         try:
             with index_file.open(encoding=encoding) as f:
@@ -659,8 +897,7 @@ def update_signal_index(
         entry["batches"].append({"metadata": metadata_file_name, "frames": signal_frames})
 
     try:
-        with index_file.open("w") as f:
-            yaml.safe_dump(index, f, default_flow_style=False, sort_keys=True)
+        _atomically_write_index(index_file, index)
     except (OSError, yaml.YAMLError) as e:
         logger.error("Failed to save signal index: %s", e)
         raise
