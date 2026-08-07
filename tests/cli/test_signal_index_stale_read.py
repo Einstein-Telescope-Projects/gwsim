@@ -175,10 +175,10 @@ def test_a_withdrawing_batch_is_not_skipped_by_a_stale_existence_check(
 
     monkeypatch.setattr(Path, "exists", _index_looks_absent)
     empty = {"signal": {"injections": []}, "outputs": []}
-    with pytest.raises(StaleIndexReadError, match="stale"):
-        update_signal_index(tmp_path, empty, "orchestration-0.metadata.json")
+    update_signal_index(tmp_path, empty, "orchestration-0.metadata.json")
     monkeypatch.undo()
 
-    # Refused, so the entry it should have withdrawn is still there -- and still accurate,
-    # because nothing was written on a view that could not see it.
-    assert set(yaml.safe_load(index_file.read_text())) == {"50"}
+    # The claim is that the batch reached the locked section instead of returning early: its
+    # previous row is withdrawn. Asserting a raise here would be wrong -- this client can read the
+    # index perfectly well, only `exists()` was made to lie, so the guard is right not to fire.
+    assert yaml.safe_load(index_file.read_text()) == {}, "the withdrawing batch was skipped"

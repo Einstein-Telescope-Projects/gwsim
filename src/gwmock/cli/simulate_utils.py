@@ -828,6 +828,10 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> str:
     # Opening with an explicit 0o666 lets the kernel apply the umask and any default ACLs exactly
     # as a plain `open(..., "w")` would have -- no process-global umask read, which would race
     # with any other thread creating a file (gwmock runs a resource monitor thread).
+    # Serialise first. Doing it after the temporary exists would leak both the file and its
+    # descriptor when serialisation fails, because the cleanup below is scoped to the write.
+    payload = yaml.safe_dump(index, default_flow_style=False, sort_keys=True).encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()
     existing_mode = _existing_index_mode(index_file)
     temporary = index_file.with_name(f"{index_file.name}.{uuid.uuid4().hex}.tmp")
     descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
@@ -840,8 +844,6 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> str:
         os.close(descriptor)
         temporary.unlink(missing_ok=True)
         raise
-    payload = yaml.safe_dump(index, default_flow_style=False, sort_keys=True).encode("utf-8")
-    digest = hashlib.sha256(payload).hexdigest()
     try:
         if existing_mode is not None:
             # An index that already exists keeps whatever mode it was given, so a deliberately
