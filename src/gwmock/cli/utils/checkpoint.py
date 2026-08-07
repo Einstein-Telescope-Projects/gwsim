@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,106 @@ from gwmock.data.serialize.decoder import Decoder
 from gwmock.data.serialize.encoder import Encoder
 
 logger = logging.getLogger("gwmock")
+
+
+def run_fingerprint(config_hashes: Iterable[str | None], output_directory: Path, metadata_directory: Path) -> str:
+    """Identify a run by everything that decides where its outputs go, not just its config file.
+
+    The config file hash alone is not the run. Two invocations of the *same* file with different
+    ``--output-dir`` produce identical hashes, so a checkpoint from the first is accepted by the
+    second, which then skips the batches it records and writes nothing for them into the new
+    directory -- measured at 2 frames where a clean run writes 3. That is the bug the fingerprint
+    exists to stop, arriving through a different door.
+
+    The output and metadata directories are resolved, so ``./out`` and an absolute path to the same
+    place are one run rather than two, and a relative path is not mistaken for a different one when
+    the working directory changes.
+
+    Every batch's config hash goes in, not the first: a plan assembled from several metadata records
+    can mix configurations, and taking one of them would let the rest through unchecked.
+
+    **Two things it does not cover, both verified in review rather than assumed.**
+
+    *Cosmetic edits refuse a valid resume.* The hash is over config bytes, so adding a comment or
+    reindenting changes it and a legitimate resume is turned away. Annoying, and the safe direction;
+    ``--ignore-checkpoint`` is the way out.
+
+    *External inputs are invisible.* The same config file with a different population CSV behind it
+    fingerprints identically, so a resume can mix the old catalogue's completed batches with the new
+    one's remaining batches. This does not make anything worse than before -- nothing checked it
+    previously either -- but it is the sharp edge left in this guard, and hashing referenced inputs
+    is the fix if it ever bites.
+
+    Args:
+        config_hashes: Per-batch ``config_sha256`` values, in plan order. ``None`` entries are kept
+            as a literal marker rather than dropped, so a plan with an unhashed batch does not
+            fingerprint the same as one without that batch.
+        output_directory: Where this run writes its data.
+        metadata_directory: Where this run writes its metadata and index.
+
+    Returns:
+        A hex digest identifying the run.
+    """
+    parts = [hash_value if hash_value is not None else "<none>" for hash_value in config_hashes]
+    parts.append(str(Path(output_directory).resolve()))
+    parts.append(str(Path(metadata_directory).resolve()))
+    return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()
+
+
+class ForeignCheckpointError(RuntimeError):
+    """A checkpoint in this directory was written by a different configuration."""
+
+
+def require_matching_config(saved_sha256: str | None, plan_sha256: str | None, checkpoint_file: Path) -> None:
+    """Refuse to resume from a checkpoint another configuration wrote.
+
+    **Why this refuses instead of quietly starting fresh.** Silently ignoring the checkpoint would
+    fix the data loss and hide its cause: the user would be left with a stale checkpoint in the
+    directory, no idea it was there, and a full re-run they did not ask for. Refusing says which two
+    things collided and lets them choose. It is also the safer default -- deleting someone's
+    checkpoint on their behalf is not recoverable, and stopping is.
+
+    **What went wrong without it,** measured: two configs run from one working directory, the first
+    interrupted after two batches. The second loaded the first's checkpoint, skipped those batches as
+    already complete, and wrote one frame where a clean run writes three. Exit code 0, no warning.
+    `_batch_outputs_present` does not catch it because it looks up
+    ``{simulator_name}-{batch_index}.metadata.json`` -- a name with nothing config-specific in it --
+    and then verifies the outputs *that file* records, so the first run's metadata satisfies the
+    check on the second run's behalf.
+
+    A checkpoint written before this field existed has ``None`` and is accepted, with a warning. The
+    alternative -- refusing -- would break a legitimate resume for anyone who upgrades mid-run, which
+    is a certain cost against an uncertain one. **The residual is real:** every pre-fingerprint
+    checkpoint stays exactly as exposed as before, and interrupted runs are precisely the population
+    that resumes, so this is not a rare corner. It closes as those checkpoints age out.
+
+    ``--ignore-checkpoint`` exists because refusing is otherwise a dead end for anything that cannot
+    answer a prompt.
+
+    Args:
+        saved_sha256: ``config_sha256`` from the checkpoint, or ``None`` if it predates the field.
+        plan_sha256: Hash of the configuration about to run, or ``None`` if unavailable.
+        checkpoint_file: Path named in the error, so the message says what to delete or move.
+
+    Raises:
+        ForeignCheckpointError: If both hashes are known and they differ.
+    """
+    if saved_sha256 is None:
+        logger.warning(
+            "Checkpoint %s predates configuration fingerprinting, so it cannot be checked against "
+            "the configuration being run. If it was written by a different config, batches it "
+            "records as complete will be skipped and their outputs never produced.",
+            checkpoint_file,
+        )
+        return
+    if plan_sha256 is None or saved_sha256 == plan_sha256:
+        return
+    raise ForeignCheckpointError(
+        f"The checkpoint at {checkpoint_file} was written by a different configuration "
+        f"(checkpoint {saved_sha256[:12]}, this run {plan_sha256[:12]}). Resuming from it would "
+        f"skip the batches it records as complete and never produce their outputs. Delete or move "
+        f"the checkpoint to start this configuration fresh, or run it from its own directory."
+    )
 
 
 def spillover_applies(
@@ -70,7 +172,8 @@ class CheckpointManager:
         "last_simulator_name": "signal",
         "last_completed_batch_index": 2,
         "last_simulator_state": {...},
-        "last_simulator_spillover": ...  # chunks continuing into the next segment, or null
+        "last_simulator_spillover": ...,  # chunks continuing into the next segment, or null
+        "config_sha256": "..."  # which configuration produced this run, or null if pre-1.5.0
     }
 
     The checkpoint is written atomically:
@@ -137,6 +240,7 @@ class CheckpointManager:
         last_completed_batch_index: int,
         last_simulator_state: dict[str, Any],
         last_simulator_spillover: Any = None,
+        config_sha256: str | None = None,
     ) -> None:
         """Save checkpoint after completing a batch.
 
@@ -158,6 +262,11 @@ class CheckpointManager:
                 the segment after the resume point silently loses that content: a measured peak of
                 8.6e-22 became 0.0, with the merger simply absent.
 
+            config_sha256: Hash of the configuration that produced this run, so a resume can tell
+                whether the checkpoint belongs to it. Without this a second config run from the same
+                working directory resumes from the first's checkpoint and *skips its batches*:
+                measured at 1 frame written where a clean run writes 3, exit code 0, no warning.
+
         Raises:
             OSError: If checkpoint cannot be written
         """
@@ -167,6 +276,7 @@ class CheckpointManager:
             "last_completed_batch_index": last_completed_batch_index,
             "last_simulator_state": last_simulator_state,
             "last_simulator_spillover": last_simulator_spillover,
+            "config_sha256": config_sha256,
         }
 
         # Write to temp file first (atomic write pattern)

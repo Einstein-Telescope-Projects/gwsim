@@ -26,7 +26,7 @@ from gwmock_noise import SimulationResult
 from tqdm import tqdm
 
 from gwmock.cli.adapter_orchestration import AdapterOrchestrationResult, AdapterOrchestrator
-from gwmock.cli.utils.checkpoint import CheckpointManager, spillover_applies
+from gwmock.cli.utils.checkpoint import CheckpointManager, require_matching_config, run_fingerprint, spillover_applies
 from gwmock.cli.utils.config import OrchestrationConfig, SimulatorConfig, resolve_class_path
 from gwmock.cli.utils.environment import capture_environment
 from gwmock.cli.utils.hash import compute_content_hash, compute_file_hash
@@ -1181,6 +1181,11 @@ def execute_plan(  # noqa: PLR0915
     output_directory: Path,
     metadata_directory: Path,
     overwrite: bool,
+    # Keyword-only from here. Inserting `ignore_checkpoint` before `max_retries` made a positional
+    # call bind the retry count to it -- any non-zero count is truthy and would silently skip the
+    # checkpoint, which is the failure this whole change exists to prevent.
+    *,
+    ignore_checkpoint: bool = False,
     max_retries: int = 3,
 ) -> None:
     """Execute a complete simulation plan.
@@ -1212,6 +1217,8 @@ def execute_plan(  # noqa: PLR0915
         output_directory: Directory for output files
         metadata_directory: Directory for metadata files
         overwrite: Whether to overwrite existing files
+        ignore_checkpoint: Discard any checkpoint in the directory and start fresh. The way past
+            a refused resume for a caller that cannot delete the file by hand.
         max_retries: Maximum retries per batch
     """
     logger.info("Executing simulation plan: %d batches", plan.total_batches)
@@ -1224,7 +1231,22 @@ def execute_plan(  # noqa: PLR0915
     # One decode for the whole setup. The file now carries the spillover -- 131 MB of base64 for a
     # 1000 s tail -- and every `load_checkpoint` decodes all of it, so each convenience getter used
     # here would pay that again before the run started.
-    checkpoint = checkpoint_manager.load_checkpoint() or {}
+    # `--ignore-checkpoint` discards it here rather than deleting the file: the refusal below is a
+    # dead end for anything that cannot answer a prompt -- an automated campaign would fail on a
+    # stale file with no way forward but manual intervention -- and deleting on the user's behalf is
+    # the one action that cannot be undone.
+    checkpoint = {} if ignore_checkpoint else (checkpoint_manager.load_checkpoint() or {})
+    if ignore_checkpoint:
+        logger.warning("Ignoring any checkpoint in %s: --ignore-checkpoint was given.", plan.checkpoint_directory)
+    # Checked before anything is read from it. A checkpoint another configuration wrote will
+    # otherwise be believed: the batches it records as complete are skipped and their outputs never
+    # produced, with no warning and exit code 0.
+    # Not `batch.config_sha256` on its own: that hashes the config *file*, so the same file run with
+    # a different `--output-dir` fingerprints identically and the guard waves it through -- measured
+    # at 2 frames where a clean run writes 3. The identity has to include where the outputs go.
+    plan_sha256 = run_fingerprint([batch.config_sha256 for batch in plan.batches], output_directory, metadata_directory)
+    if checkpoint:
+        require_matching_config(checkpoint.get("config_sha256"), plan_sha256, checkpoint_manager.checkpoint_file)
     # A set, matching what `get_completed_batch_indices` returned: it is compared against
     # `reconcile_completed_batches`'s output below, and a list never equals a set, which silently
     # sends every resume down the "outputs are missing" branch.
@@ -1419,6 +1441,7 @@ def execute_plan(  # noqa: PLR0915
                         # Beside the state, not inside it: `state` also goes into every batch
                         # metadata record, and spillover is raw samples. See `save_checkpoint`.
                         last_simulator_spillover=copy.deepcopy(getattr(simulator, "cached_data_chunks", None)),
+                        config_sha256=plan_sha256,
                     )
                     logger.debug(
                         "Checkpoint saved after batch %d - state counter=%s",

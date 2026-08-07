@@ -58,6 +58,7 @@ def _maybe_isolate(
     isolate: bool,
     output_dir: str | None,
     overwrite: bool,
+    ignore_checkpoint: bool = False,
     author: str | None,
     email: str | None,
     dry_run: bool = False,
@@ -103,6 +104,8 @@ def _maybe_isolate(
         child_args += ["--output-dir", output_dir]
     if overwrite:
         child_args.append("--overwrite")
+    if ignore_checkpoint:
+        child_args.append("--ignore-checkpoint")
     if author:
         child_args += ["--author", author]
     if email:
@@ -117,9 +120,15 @@ def _maybe_isolate(
 
 def _simulate_impl(  # pylint: disable=too-many-locals, too-many-branches, too-many-statements
     config_file_names: str | list[str],
+    # Keyword-only: these are seven options of which five are bools, so a positional call binds them
+    # by accident rather than by intent. `ignore_checkpoint` sits between two of those bools and
+    # skips the checkpoint when truthy, which is the failure this change exists to prevent. Every
+    # caller already passes by keyword, so nothing is broken by saying so.
+    *,
     output_dir: str | None = None,
     metadata_dir: str | None = None,
     overwrite: bool = False,
+    ignore_checkpoint: bool = False,
     metadata: bool = True,
     author: str | None = None,
     email: str | None = None,
@@ -198,6 +207,7 @@ def _simulate_impl(  # pylint: disable=too-many-locals, too-many-branches, too-m
                 isolate=isolate,
                 output_dir=output_dir,
                 overwrite=overwrite,
+                ignore_checkpoint=ignore_checkpoint,
                 author=author,
                 email=email,
                 dry_run=dry_run,
@@ -280,6 +290,7 @@ def _simulate_impl(  # pylint: disable=too-many-locals, too-many-branches, too-m
                 output_directory=final_output_dir,
                 metadata_directory=final_metadata_dir or Path("metadata"),
                 overwrite=overwrite,
+                ignore_checkpoint=ignore_checkpoint,
                 max_retries=3,
             )
 
@@ -311,6 +322,16 @@ def simulate_command(
         ),
     ] = None,
     overwrite: Annotated[bool, typer.Option("--overwrite", help="Overwrite existing files.")] = False,
+    ignore_checkpoint: Annotated[
+        bool,
+        typer.Option(
+            "--ignore-checkpoint",
+            help=(
+                "Start fresh, ignoring any checkpoint in the directory. Use when a resume is refused "
+                "because the checkpoint belongs to a different run and you know it is stale."
+            ),
+        ),
+    ] = False,
     metadata: Annotated[bool, typer.Option("--metadata", help="Generate metadata files (only in config mode).")] = True,
     author: Annotated[str | None, typer.Option("--author", help="Author name for the simulation.")] = None,
     email: Annotated[str | None, typer.Option("--email", help="Author email for the simulation.")] = None,
@@ -363,6 +384,7 @@ def simulate_command(
         output_dir=output_dir,
         metadata_dir=metadata_dir,
         overwrite=overwrite,
+        ignore_checkpoint=ignore_checkpoint,
         metadata=metadata,
         author=author,
         email=email,
