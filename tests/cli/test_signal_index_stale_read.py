@@ -215,3 +215,39 @@ def test_an_ordinary_failure_is_still_retried(monkeypatch: pytest.MonkeyPatch) -
 
     assert retry_with_backoff(_transient, max_retries=3, initial_delay=0.0) == "ok"
     assert calls["n"] == 3, calls["n"]
+
+
+def test_the_recorded_digest_matches_the_bytes_on_disk(tmp_path: Path) -> None:
+    """The digest must describe the file as stored, byte for byte.
+
+    Hashing the serialised payload and then writing it through a text-mode handle would on any
+    platform that translates newlines: the digest would never match the file again, and every
+    update after the first would refuse. Comparing the recorded digest against a fresh hash of
+    the file on disk catches that regardless of platform.
+    """
+    for batch, event in enumerate((60, 61)):
+        update_signal_index(tmp_path, _metadata(event, batch), f"orchestration-{batch}.metadata.json")
+    on_disk = hashlib.sha256((tmp_path / "signal_index.yaml").read_bytes()).hexdigest()
+    recorded = (tmp_path / "signal_index.yaml.lock").read_text().strip()
+    assert recorded == on_disk, f"recorded {recorded[:12]} but the file hashes to {on_disk[:12]}"
+
+
+def test_an_unreadable_sidecar_does_not_disable_the_guard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A sidecar that exists but cannot be read must refuse, not fall through as "no digest".
+
+    Mapping every read error to "no digest recorded" would take the permissive legacy path on a
+    corrupt or unreadable sidecar -- silently turning the guard off exactly when something is
+    already wrong.
+    """
+    update_signal_index(tmp_path, _metadata(70, 0), "orchestration-0.metadata.json")
+    sidecar = tmp_path / "signal_index.yaml.lock"
+    real_read_text = Path.read_text
+
+    def _unreadable(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self == sidecar:
+            raise OSError("input/output error")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _unreadable)
+    with pytest.raises(StaleIndexReadError, match="could not be read"):
+        update_signal_index(tmp_path, _metadata(71, 1), "orchestration-1.metadata.json")

@@ -785,8 +785,19 @@ def _recorded_digest(lock_file: Path) -> str | None:
     """
     try:
         recorded = lock_file.read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeDecodeError):
+    except FileNotFoundError:
         return None
+    except (OSError, UnicodeDecodeError) as error:
+        # `None` means "no digest yet", which is the permissive legacy path. A sidecar that
+        # exists and cannot be read is not that: it is a sidecar whose digest we are unable to
+        # check, and treating it as absent would silently disable the guard on a corrupt or
+        # unreadable file. Refuse instead.
+        raise StaleIndexReadError(
+            f"The signal-index sidecar {lock_file} exists but could not be read ({error}), so "
+            "this write cannot verify it is reading the current index. Stop all writers against "
+            f"this metadata directory, then delete {lock_file.name} to re-baseline the digest; "
+            "it holds only the digest and the lock, no data."
+        ) from error
     return recorded or None
 
 
@@ -825,8 +836,10 @@ def _record_digest(lock_file: Path, digest: str) -> None:
         raise IndexDigestNotRecordedError(
             f"The signal index was committed, but its digest could not be recorded in "
             f"{lock_file.name} ({error}). The index itself is intact and correct. Until the "
-            f"digest is re-synced every later write will refuse as stale, so delete {lock_file.name} "
-            "to re-baseline it -- the sidecar holds only the digest and the lock, no data."
+            f"digest is re-synced every later write will refuse as stale. Stop every writer "
+            f"against this directory, then delete {lock_file.name} to re-baseline it -- it holds "
+            "only the digest and the lock, no data. Deleting it while a writer is running lets "
+            "two processes lock different inodes and stop being serialised."
         ) from error
 
 
@@ -875,7 +888,10 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> str:
         # Adopt the raw descriptor immediately. Anything that raises between `os.open` and
         # `os.fdopen` -- the chmod below used to sit there -- leaves a descriptor that the
         # cleanup path unlinks the file for but never closes, and this runs once per batch.
-        handle = os.fdopen(descriptor, "w", encoding="utf-8")
+        # Binary, so the bytes written are the bytes hashed. A text handle translates newlines
+        # on Windows, and the recorded digest would then never match the file -- refusing every
+        # update after the first on exactly the platform the lock already degrades for.
+        handle = os.fdopen(descriptor, "wb")
     except BaseException:
         os.close(descriptor)
         temporary.unlink(missing_ok=True)
@@ -892,7 +908,7 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> str:
             # so there is no meaningful window for it to be swapped.
             os.chmod(temporary, existing_mode)
         with handle:
-            handle.write(payload.decode("utf-8"))
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, index_file)
