@@ -248,6 +248,174 @@ class TestTheBatchDoesNotGrowWithTheOffset:
         )
 
 
+class TestTheRealAdapterAnswers:
+    """No stub. The one test here that would have caught the fix being inert in production.
+
+    Every other test in this module supplies a ``_StubAdapter`` that defines
+    ``post_coalescence_duration``, so all of them passed while the *real* ``SignalAdapter`` had no
+    such method at all: the orchestrator's ``getattr`` guard returned ``None`` for every event, the
+    tail was always unknown, and the lower bound never fired in any real run. A reviewer found it
+    by instantiating an ordinary orchestrator and looking; the suite could not, because the suite
+    only ever asked a stand-in that was built to answer.
+    """
+
+    def test_the_orchestrators_own_adapter_exposes_the_query(self, tmp_path):
+        """The wiring, asserted on the object a run actually holds."""
+        orchestrator = _orchestrator(tmp_path)
+
+        assert hasattr(orchestrator.signal_adapter, "post_coalescence_duration"), (
+            "the adapter a real run holds cannot answer the tail query, so the lower bound is dead "
+            "code behind the orchestrator's getattr guard"
+        )
+
+    def test_the_real_adapter_returns_a_usable_tail(self, tmp_path):
+        """Present is not the same as answering, so the value is checked too.
+
+        A method returning ``None`` for a complete binary-black-hole event would satisfy the
+        `hasattr` test above while leaving the behaviour exactly as broken. The magnitude is pinned
+        loosely -- the point is that it is a real positive number from the installed backend, not
+        that it equals a figure recomputed here.
+        """
+        orchestrator = _orchestrator(tmp_path)
+
+        tail = orchestrator.signal_adapter.post_coalescence_duration(
+            {**_COMPLETE_EVENT, "coa_time": _START + 4.0},
+            sampling_frequency=_SAMPLING_FREQUENCY,
+            minimum_frequency=30.0,
+        )
+
+        assert tail is not None, "the installed gwmock-signal did not answer the tail query"
+        assert 0.0 < tail < 10.0, f"implausible tail for a 30+25 binary at 30 Hz: {tail} s"
+
+    def test_the_orchestrator_reaches_the_query_through_its_own_adapter(self, tmp_path):
+        """End to end through the private helper, with nothing substituted.
+
+        Closes the last gap between "the adapter has the method" and "the orchestrator calls it":
+        the two are wired by name, and a rename on either side would leave both tests above
+        passing.
+        """
+        orchestrator = _orchestrator(tmp_path)
+
+        tail = orchestrator._post_coalescence_duration({**_COMPLETE_EVENT, "coa_time": _START + 4.0})
+
+        assert tail is not None
+        assert tail > 0.0
+
+
+class TestADegradedAdapterIsReported:
+    """An adapter that cannot answer must say so once, not disappear into a silent fallback."""
+
+    def test_an_adapter_without_the_query_warns_rather_than_going_quiet(self, tmp_path, caplog):
+        """Why the query is called directly instead of behind a ``getattr`` guard.
+
+        The guard was how this change shipped as a no-op: the real ``SignalAdapter`` had no tail
+        method, the guard returned ``None`` for every event, and nothing in a run said anything.
+        Calling directly puts the ``AttributeError`` into the same handler the pre side uses, which
+        warns once and falls back -- the codebase's own rule that a fallback's cost is reported
+        rather than silent. Restoring the guard is invisible to every other test in this module,
+        because with the adapter fixed the two are behaviourally identical; this is the one test
+        that can tell them apart.
+        """
+
+        class _AdapterWithoutTheQuery:
+            detector_names = ("E1",)
+
+            def pre_coalescence_duration(self, parameters, **_):
+                del parameters
+                return 3.6
+
+        orchestrator = _orchestrator(tmp_path)
+        orchestrator.signal_adapter = _AdapterWithoutTheQuery()
+
+        with caplog.at_level("WARNING"):
+            tail = orchestrator._post_coalescence_duration({**_COMPLETE_EVENT, "coa_time": _START})
+
+        assert tail is None
+        assert any("after coalescence" in record.message for record in caplog.records), (
+            "the adapter could not answer and the run was told nothing"
+        )
+
+
+class TestTheIndexSurvivesInterleavedSkips:
+    """Skipped and claimed events interleave, so the index cannot be advanced by either count alone.
+
+    Consumption is ordered by waveform *start*; skipping is decided by waveform *end*. A long event
+    starting early and overlapping the segment can therefore be followed by a short one that starts
+    later and has already finished. Found by a reviewer, who built the case below by hand.
+    """
+
+    def test_a_claimed_event_is_not_left_behind_the_index_when_generation_fails(self, tmp_path):
+        """The one that silently drops a real event.
+
+        Event A starts early, ends inside the segment, and must be generated. Event B starts later
+        and is already finished, so it is skipped. Advancing by the skip count alone moves the index
+        past A -- and if generation then fails and a direct library caller retries on the same
+        orchestrator, A is behind the index and is never generated at all. Wasted work is the bug
+        being fixed here; losing a real event would be a worse one introduced by the fix.
+        """
+        orchestrator = _orchestrator(tmp_path)
+        start = _start_time(orchestrator)
+        orchestrator.signal_adapter = _StubAdapter()
+        # The leads must differ, or the case does not exist. Consumption is ordered by waveform
+        # start, so giving both events the same lead puts the finished one first and the skips are
+        # a prefix after all -- the first version of this test did exactly that and passed against
+        # the unsafe code. A starts earliest *and* overlaps; B starts later and has already ended.
+        #   A: coa S+20, lead 100 -> starts S-80, ends S+520   claimed, walked first
+        #   B: coa S-40, lead  10 -> starts S-50, ends S-39    skipped, walked second
+        leads = {start + 20.0: 100.0, start - 40.0: 10.0}
+        tails = {start + 20.0: 500.0, start - 40.0: 1.0}
+        orchestrator.signal_adapter.pre_coalescence_duration = lambda parameters, **_: leads[
+            float(parameters["coa_time"])
+        ]
+        orchestrator.signal_adapter.post_coalescence_duration = lambda parameters, **_: tails[
+            float(parameters["coa_time"])
+        ]
+        orchestrator._population_events = [
+            {**_COMPLETE_EVENT, "coa_time": start + 20.0},
+            {**_COMPLETE_EVENT, "coa_time": start - 40.0},
+        ]
+        orchestrator._placement_order_cache = None
+        orchestrator.population_index = 0
+
+        # The order the walk will take, asserted rather than assumed: if a future change to the
+        # placement key made the skipped event sort first again, this test would silently stop
+        # covering the interleaving it exists for.
+        order = orchestrator._placement_order()
+        assert order == (0, 1), f"the interleaving this test needs does not exist in order {order}"
+
+        event_ids, events = orchestrator._events_for_this_segment()
+
+        assert len(events) == 1, "expected only the overlapping event to be claimed"
+        # Generation has NOT happened, so nothing may have been committed for the claimed event.
+        # Only the walk's own bookkeeping may have moved, and it must not have stepped past A.
+        remaining = orchestrator._placement_order()[int(orchestrator.population_index) :]
+        assert event_ids[0] in remaining, (
+            "the claimed event is behind population_index before its generation succeeded; a "
+            "retry would never generate it"
+        )
+
+    def test_an_all_skipped_batch_advances_through_the_real_entry_point(self, tmp_path):
+        """The case that justifies advancing inside the walk, exercised through the caller.
+
+        The other index test drives `_events_for_this_segment` and `_commit_consumed_events`
+        directly, which is exactly the path that cannot show this: `_simulate_batched_segment`
+        returns early on an empty batch and never commits, so if the walk did not advance, the next
+        segment would reconsider the same finished events -- and so would every segment after it.
+        """
+        orchestrator = _orchestrator(tmp_path)
+        orchestrator.signal_adapter = _StubAdapter(lead=3.6, tail=0.4)
+        start = _start_time(orchestrator)
+        _install_events(orchestrator, [start - 900.0, start - 800.0, start - 700.0])
+
+        chunks = orchestrator._simulate_batched_segment()
+
+        assert len(chunks) == 0
+        assert orchestrator.population_index == 3, (
+            f"index is {orchestrator.population_index}; the finished events would be walked again "
+            "by every following segment"
+        )
+
+
 class TestUnknownStillClaims:
     """Unknown is not zero, and on this side reading it as zero deletes signal."""
 

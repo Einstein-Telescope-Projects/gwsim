@@ -156,6 +156,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         # collapsing both into one warning would name the wrong cause for everything after it.
         self._pre_coalescence_query_failures: set[str] = set()
         self._post_coalescence_query_failures: set[str] = set()
+        #: How far the last batched walk traversed, set by `_events_for_this_segment` and consumed
+        #: by `_commit_consumed_events`. `None` means no walk has happened since the last commit.
+        self._traversed_this_batch: int | None = None
         # Consumption order, as positions into `_population_events`. Established lazily by
         # `_placement_order`, because it costs one query per event and the continuous-wave and
         # stochastic paths never consume the catalogue this way.
@@ -756,14 +759,16 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         """
         if self.signal_adapter is None:
             return None
-        query = getattr(self.signal_adapter, "post_coalescence_duration", None)
-        if query is None:
-            # An adapter predating gwmock-signal 0.16, or a caller's own stand-in. Unknown rather
-            # than an error: the packaging metadata requires a version that has it, so this is the
-            # duck-typed path, and the conservative answer keeps such a caller working unchanged.
-            return None
+        # Called directly, exactly as the pre side calls its own query, and deliberately *not*
+        # behind a `getattr` guard. A guard here returns `None` for an adapter without the method
+        # and says nothing, which is precisely how this change shipped as a silent no-op: the
+        # orchestrator's own `SignalAdapter` had no `post_coalescence_duration`, every tail came
+        # back unknown, and the whole lower bound was dead in production while the stub-driven
+        # tests passed. Letting the `AttributeError` fall into the handler below produces the same
+        # conservative `None` *and* warns once, which is the codebase's stated rule: the fallback
+        # is the previous behaviour, and its cost is reported rather than silent.
         try:
-            return query(
+            return self.signal_adapter.post_coalescence_duration(
                 parameters,
                 sampling_frequency=float(self.sampling_frequency.value),
                 minimum_frequency=self.minimum_frequency,
@@ -830,12 +835,19 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             return None
 
     def _events_for_this_segment(self) -> tuple[list[int], list[dict[str, Any]]]:
-        """Return the population events belonging to the current segment, without consuming them.
+        """Return the population events to generate for the current segment.
 
         Stops on :meth:`_event_starts_before_segment_end`, the same boundary the per-event loop
         applies. That matters for resume: ``population_index`` is checkpointed state, so a run
-        switched between modes must not skip or repeat events. The index advances only in
-        :meth:`_commit_consumed_events`, once generation has succeeded.
+        switched between modes must not skip or repeat events.
+
+        Events the walk *steps over* -- those :meth:`_event_ended_before_segment_start` reports as
+        finished -- are consumed without being returned, so the count of events generated is not
+        the distance the index must advance. The walk records that distance in
+        ``_traversed_this_batch`` for :meth:`_commit_consumed_events`, which still does the
+        advancing once generation has succeeded. The single exception is a batch in which
+        *everything* was skipped: it advances here, because the caller returns early on an empty
+        batch and never reaches the commit.
 
         One difference, stated rather than glossed: the per-event loop also breaks when a *generated*
         strain starts at or after ``end_time``, a condition that cannot be evaluated before
@@ -872,20 +884,30 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             events.append(parameters)
             position += 1
 
-        # Skipped events are advanced past here rather than in `_commit_consumed_events`, and this
-        # is the one exception to the read-without-advancing rule above. It is safe because nothing
-        # further can fail for them: a skipped event is not generated, so there is no later step
-        # whose failure would need the index rolled back. Deferring them to the commit would lose
-        # them outright -- `_simulate_batched_segment` returns early when the batch is empty, which
-        # is exactly the case where every event in front of the index was skipped, so the commit
-        # never runs and the next segment reconsiders the same events.
         if skipped:
-            self.population_index = cast(int, self.population_index) + skipped
             logger.info(
                 "Skipped %d event(s) whose waveform ends before this segment starts; they belong "
                 "to no segment this run writes.",
                 skipped,
             )
+
+        # How far the walk got, which is what consumption has to advance by -- not the number of
+        # events generated. Skipped and claimed events interleave: consumption is ordered by
+        # waveform *start* while skipping is decided by waveform *end*, so a long event starting
+        # early and overlapping the segment can be followed by a short one that starts later and
+        # already finished. Advancing by the skip count alone would leave the index pointing past a
+        # claimed event that had not been generated yet, and a direct caller retrying after a
+        # generation failure would never generate it -- silently dropping a real event, which is
+        # worse than the wasted work this change removes.
+        self._traversed_this_batch = position - int(self.population_index)
+
+        # The all-skipped batch is the one case that must advance here. Nothing can fail for events
+        # that are never generated, and `_simulate_batched_segment` returns early on an empty
+        # batch, so the commit never runs -- the next segment would reconsider the same events, and
+        # every segment after it too.
+        if not event_ids and skipped:
+            self.population_index = cast(int, self.population_index) + skipped
+            self._traversed_this_batch = 0
         return event_ids, events
 
     def _commit_consumed_events(self, event_ids: list[int]) -> None:
@@ -894,11 +916,21 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         Advances by *count*, not to ``max(event_ids) + 1``: the ids are catalogue positions and
         consumption follows :meth:`_placement_order`, so they need not be contiguous or ascending.
 
+        The count is how far the walk *traversed*, not how many events it generated. Those differ
+        once events can be skipped: a skipped event sitting between two claimed ones is consumed
+        without being generated, and advancing by the generated count alone would leave the index
+        short, so the next segment would re-walk -- and re-generate -- events already written.
+        ``_traversed_this_batch`` is set by :meth:`_events_for_this_segment` and falls back to the
+        generated count for any caller that commits without having walked.
+
         Args:
             event_ids: Catalogue positions of the events this batch generated.
         """
         if event_ids:
-            self.population_index = cast(int, self.population_index) + len(event_ids)
+            traversed = self._traversed_this_batch
+            advance = len(event_ids) if traversed is None else traversed
+            self.population_index = cast(int, self.population_index) + advance
+        self._traversed_this_batch = None
 
     def _segment_injections(self) -> list[dict[str, Any]]:
         """Return one record per signal present in the segment just built.
