@@ -15,8 +15,8 @@ import shutil
 import signal
 import stat
 import subprocess
-import tempfile
 import time
+import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import cache
@@ -670,40 +670,44 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
         OSError: If the file cannot be written or renamed.
         yaml.YAMLError: If the index cannot be serialised.
     """
-    descriptor, name = tempfile.mkstemp(dir=index_file.parent, prefix=index_file.name + ".", suffix=".tmp")
-    temporary = Path(name)
+    # `os.replace` carries the temporary's mode to the destination, so the temporary must be
+    # created the way the destination should end up. `tempfile.mkstemp` is wrong here: it forces
+    # 0600 and ignores the umask, which would quietly tighten a 0644 index and lock a second
+    # account out of `find-signal` on the shared metadata directory this locking exists for.
+    # Opening with an explicit 0o666 lets the kernel apply the umask and any default ACLs exactly
+    # as a plain `open(..., "w")` would have -- no process-global umask read, which would race
+    # with any other thread creating a file (gwmock runs a resource monitor thread).
+    existing_mode = _existing_index_mode(index_file)
+    temporary = index_file.with_name(f"{index_file.name}.{uuid.uuid4().hex}.tmp")
+    descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
     try:
+        if existing_mode is not None:
+            # An index that already exists keeps whatever mode it was given, so a deliberately
+            # group-writable index survives an update.
+            os.fchmod(descriptor, existing_mode)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             yaml.safe_dump(index, handle, default_flow_style=False, sort_keys=True)
             handle.flush()
             os.fsync(handle.fileno())
-        # `mkstemp` creates 0600 and ignores the umask, and `os.replace` keeps the temporary's
-        # mode -- so replacing without this would quietly tighten a 0644 index to 0600 and lock a
-        # second account out of `find-signal` on exactly the shared metadata directory this
-        # locking exists for. Carry the existing index's mode over; for a first write, fall back
-        # to what a plain `open(..., "w")` would have produced under the caller's umask.
-        os.chmod(temporary, _mode_for_index(index_file))
         os.replace(temporary, index_file)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
 
 
-def _mode_for_index(index_file: Path) -> int:
-    """Return the mode the replaced index should carry.
+def _existing_index_mode(index_file: Path) -> int | None:
+    """Return the index's current permission bits, or ``None`` when it does not exist yet.
 
     Args:
-        index_file: The index being replaced; may not exist yet.
+        index_file: The index being replaced.
 
     Returns:
-        The existing file's permission bits, or the umask-respecting default for a new file.
+        Permission bits to preserve, or ``None`` to let the umask decide.
     """
     try:
         return stat.S_IMODE(index_file.stat().st_mode)
     except FileNotFoundError:
-        umask = os.umask(0)
-        os.umask(umask)
-        return 0o666 & ~umask
+        return None
 
 
 def update_signal_index(

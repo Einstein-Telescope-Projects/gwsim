@@ -66,12 +66,18 @@ def _metadata(event_id: int, batch: int) -> dict:
     }
 
 
-def _writer(directory: str, event_id: int, batch: int, barrier: Barrier) -> None:
+def _writer(directory: str, event_id: int, batch: int, ready: Barrier, barrier: Barrier) -> None:
     """Update the index with the barrier armed inside the read-modify-write.
 
     ``_withdraw_batch`` is the first call after the index is read and before it is written, so
     patching it here puts the rendezvous exactly in the window the lock is supposed to close.
     Patching happens in the forked child, so the parent and the other child are unaffected.
+
+    Two barriers, not one. ``ready`` is untimed and makes both children enter
+    ``update_signal_index`` together; without it a slow child can arrive after the other has
+    already finished, read the completed index, and merge cleanly -- the assertion then passes
+    on unfixed code without the two stale reads ever overlapping. ``barrier`` is the timed
+    in-critical-section rendezvous.
     """
     import gwmock.cli.simulate_utils as module
 
@@ -85,6 +91,7 @@ def _writer(directory: str, event_id: int, batch: int, barrier: Barrier) -> None
         return original(index, metadata_file_name)
 
     module._withdraw_batch = _rendezvous_then_withdraw
+    ready.wait(timeout=30)
     update_signal_index(Path(directory), _metadata(event_id, batch), f"orchestration-{batch}.metadata.json")
 
 
@@ -96,9 +103,10 @@ def test_two_processes_updating_the_index_keep_both_events(tmp_path: Path) -> No
     contribution with an index built from its own pre-race read.
     """
     context = mp.get_context("fork")
+    ready = context.Barrier(2)
     barrier = context.Barrier(2)
     processes = [
-        context.Process(target=_writer, args=(str(tmp_path), event_id, batch, barrier))
+        context.Process(target=_writer, args=(str(tmp_path), event_id, batch, ready, barrier))
         for batch, event_id in enumerate((11, 22))
     ]
     for process in processes:
