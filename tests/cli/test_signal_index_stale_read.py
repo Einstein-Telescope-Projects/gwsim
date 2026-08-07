@@ -62,9 +62,17 @@ def test_a_stale_index_read_is_refused_not_believed(tmp_path: Path, monkeypatch:
     index_file = tmp_path / "signal_index.yaml"
     assert set(yaml.safe_load(index_file.read_text())) == {"1", "2"}
 
-    # Simulate the stale client: the reader sees the index as it was one update ago.
-    one_update_ago = yaml.safe_dump({"1": {"batches": [], "coa_time": 101.0}})
-    monkeypatch.setattr(Path, "read_text", lambda self, *a, **k: one_update_ago if self == index_file else "")
+    # Simulate the stale client: this process reads the index as it was one update ago. Patch
+    # ONLY the index's bytes -- an earlier version of this test patched Path.read_text globally
+    # and so blanked the sidecar too, which sent the guard down its "no digest recorded" branch
+    # and made the test pass for the wrong reason.
+    one_update_ago = yaml.safe_dump({"1": {"batches": [], "coa_time": 101.0}}).encode()
+    real_read_bytes = Path.read_bytes
+
+    def _stale_index_bytes(self: Path) -> bytes:
+        return one_update_ago if self == index_file else real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", _stale_index_bytes)
 
     with pytest.raises(StaleIndexReadError, match="stale"):
         update_signal_index(tmp_path, _metadata(3, 2), "orchestration-2.metadata.json")
