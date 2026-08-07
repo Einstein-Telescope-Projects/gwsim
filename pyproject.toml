@@ -28,8 +28,8 @@ dependencies = [
   # to `coa_time`, and the start of any waveform landing near a boundary is cropped -- so this is a
   # floor the behaviour depends on, not a convenience.
   "gwmock-signal>=0.15.0",
-  "gwmock-noise>=0.10.0",
-  "gwmock-pop>=0.11.4",
+  "gwmock-noise>=0.10.1",
+  "gwmock-pop>=0.11.5",
   "typer>=0.19.0",         # Literal-type CLI options; the SPEC 0 floor (0.13) predates them
   "tqdm>=4.67.0",
   "h5py>=3.12.1",
@@ -41,7 +41,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sgwb = ["gwmock-signal[sgwb]>=0.13.0"]
+sgwb = ["gwmock-signal[sgwb]>=0.14.0"]
 # The batched signal path. Without this extra `SignalAdapter.simulate_segments` and
 # `execution: batched` raise, because gwmock-signal's batched entry points need JAX and ripple,
 # which the base install omits.
