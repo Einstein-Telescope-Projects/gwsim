@@ -62,6 +62,9 @@ _BARRIER_TIMEOUT_SECONDS = 2.0
 # under the barrier timeout that produces it, and far above scheduler noise.
 _LOCK_WAIT_EVIDENCE_SECONDS = 0.5
 
+# How many times to re-run the two writers when scheduling, not the lock, serialised them.
+_SCENARIO_ATTEMPTS = 3
+
 
 def _metadata(event_id: int, batch: int) -> dict:
     """One batch's metadata injecting a single distinct event."""
@@ -141,34 +144,45 @@ def test_two_processes_updating_the_index_keep_both_events(tmp_path: Path) -> No
     contribution with an index built from its own pre-race read.
     """
     context = mp.get_context("fork")
-    ready = context.Barrier(2)
-    barrier = context.Barrier(2)
     manager = context.Manager()
-    evidence = [manager.dict(rendezvous=False, lock_wait=0.0) for _ in range(2)]
-    processes = [
-        context.Process(target=_writer, args=(str(tmp_path), event_id, batch, ready, barrier, evidence[batch]))
-        for batch, event_id in enumerate((11, 22))
-    ]
-    for process in processes:
-        process.start()
-    for process in processes:
-        process.join(timeout=60)
 
-    assert all(process.exitcode == 0 for process in processes), [p.exitcode for p in processes]
+    # Retry, bounded, on a fresh directory each time. The validity check below refuses to pass a
+    # run the scheduler serialised, and on a loaded machine that can happen by luck -- retrying
+    # keeps a busy CI runner from going red over timing while never letting a non-run count as a
+    # pass. Failing only after every attempt missed keeps both directions honest.
+    for attempt in range(_SCENARIO_ATTEMPTS):
+        directory = tmp_path / f"attempt-{attempt}"
+        directory.mkdir()
+        ready = context.Barrier(2)
+        barrier = context.Barrier(2)
+        evidence = [manager.dict(rendezvous=False, lock_wait=0.0) for _ in range(2)]
+        processes = [
+            context.Process(target=_writer, args=(str(directory), event_id, batch, ready, barrier, evidence[batch]))
+            for batch, event_id in enumerate((11, 22))
+        ]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=60)
 
-    # Did the scenario actually happen? Either the two children met inside the critical section
-    # (they can only do that when nothing serialises them) or one of them waited on the lock while
-    # the other held it. Neither means the writes never overlapped, so a passing assertion below
-    # would prove nothing -- fail here instead of reporting a green that was never earned.
-    met = any(record["rendezvous"] for record in evidence)
-    waited = max(record["lock_wait"] for record in evidence)
-    assert met or waited > _LOCK_WAIT_EVIDENCE_SECONDS, (
-        f"scenario did not run: rendezvous={met}, longest lock wait={waited:.3f}s. "
-        "The two updates were serialised by scheduling rather than by the lock, so this run "
-        "neither exercised the race nor demonstrated the fix."
-    )
+        assert all(process.exitcode == 0 for process in processes), [p.exitcode for p in processes]
 
-    index = yaml.safe_load((tmp_path / "signal_index.yaml").read_text())
+        # Did the scenario actually happen? Either the two children met inside the critical
+        # section (they can only do that when nothing serialises them) or one waited on the lock
+        # while the other held it. Neither means the writes never overlapped, so the assertions
+        # below would prove nothing.
+        met = any(record["rendezvous"] for record in evidence)
+        waited = max(record["lock_wait"] for record in evidence)
+        if met or waited > _LOCK_WAIT_EVIDENCE_SECONDS:
+            break
+    else:
+        pytest.fail(
+            f"scenario did not run in {_SCENARIO_ATTEMPTS} attempts: rendezvous={met}, "
+            f"longest lock wait={waited:.3f}s. The two updates were serialised by scheduling "
+            "rather than by the lock, so no attempt exercised the race or demonstrated the fix."
+        )
+
+    index = yaml.safe_load((directory / "signal_index.yaml").read_text())
     # The whole point: both survive. Asserting only on the count would pass an index holding one
     # event twice, which a broken merge could produce.
     assert set(index) == {"11", "22"}, index
