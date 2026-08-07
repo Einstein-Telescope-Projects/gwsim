@@ -472,6 +472,28 @@ def _build_output_records(
     return output_records
 
 
+class StaleIndexReadError(RuntimeError):
+    """The index this process read is not the one the sidecar says is current.
+
+    Raised instead of writing, because writing is what discards the entries this process cannot
+    see. The usual cause is a client cache on a shared filesystem: the lock is held correctly and
+    the index is still read from a stale view, since acquiring the lock revalidates the sidecar
+    rather than the index.
+    """
+
+
+class IndexDigestNotRecordedError(RuntimeError):
+    """The index was committed but its digest could not be recorded.
+
+    Distinct from :class:`StaleIndexReadError`: nothing is stale and no data is lost, but the
+    sidecar is now behind the index, and every later write refuses until it is re-baselined.
+    """
+
+
+#: Failures a backoff cannot help. Raised past the retry loop rather than attempted again.
+_NOT_WORTH_RETRYING = (StaleIndexReadError, IndexDigestNotRecordedError)
+
+
 def retry_with_backoff(
     func: Callable[..., Any],
     max_retries: int = 3,
@@ -501,6 +523,15 @@ def retry_with_backoff(
     for attempt in range(max_retries + 1):
         try:
             return func()
+        except _NOT_WORTH_RETRYING:
+            # Waiting changes nothing for these: a stale index read is a cache state, not a
+            # transient fault, and an unrecorded digest needs an operator. Retrying would also
+            # re-simulate the whole batch each time -- these are raised after the frames and
+            # metadata are already written -- so three attempts cost three full simulations and
+            # then fail anyway, with the second onwards tripping over the first attempt's own
+            # outputs. Fail now, loudly; a resumed run re-runs the batch because its checkpoint
+            # was never saved.
+            raise
         except Exception as e:  # pylint: disable=broad-exception-caught
             last_exception = e
             if attempt < max_retries:
@@ -619,16 +650,6 @@ def _warn_unlocked_once() -> None:
     by a global nobody re-checks.
     """
     logger.warning("fcntl unavailable: the signal index is updated without a lock, so concurrent runs can race.")
-
-
-class StaleIndexReadError(RuntimeError):
-    """The index this process read is not the one the sidecar says is current.
-
-    Raised instead of writing, because writing is what discards the entries this process cannot
-    see. The usual cause is a client cache on a shared filesystem: the lock is held correctly and
-    the index is still read from a stale view, since acquiring the lock revalidates the sidecar
-    rather than the index.
-    """
 
 
 @contextmanager
@@ -776,9 +797,14 @@ def _record_digest(lock_file: Path, digest: str) -> None:
     on the file the lock made the filesystem revalidate. Replacing it by rename -- as the index
     is -- would reintroduce the cached-dentry problem this exists to detect.
 
-    Written *after* the index, so a crash in between leaves the sidecar behind the index rather
-    than ahead of it. Behind is recoverable (the reader sees a digest for an older index and
-    refuses, which is loud); ahead would mean promising an index that was never committed.
+    Written *after* the index, so a failure in between leaves the sidecar behind rather than
+    ahead: ahead would promise an index that was never committed, which is silent. Behind is
+    loud — but **not self-correcting**, and an earlier version of this docstring wrongly called
+    it "recoverable". Nothing advances the recorded digest except this function, which runs only
+    after a successful update, which the guard is by then refusing; the directory wedges until
+    the sidecar is removed. That is why a failure here is raised rather than logged and dropped:
+    the operator learns at the point of the fault, with the index intact, instead of meeting a
+    permanent refusal on the next batch.
 
     Args:
         lock_file: The sidecar beside the index.
@@ -790,8 +816,18 @@ def _record_digest(lock_file: Path, digest: str) -> None:
             handle.truncate()
             handle.flush()
             os.fsync(handle.fileno())
-    except OSError as error:  # pragma: no cover - the lock path already proved it is writable
-        logger.warning("Could not record the index digest in %s: %s", lock_file, error)
+    except OSError as error:
+        # Being able to take the lock does not mean the write will land: fsync can still fail
+        # with EIO or ENOSPC. Swallowing it would leave the index committed and the sidecar
+        # behind, which is the permanent wedge described above -- discovered by whoever runs the
+        # next batch, with a message blaming a cache that is not the cause.
+        logger.error("Could not record the index digest in %s: %s", lock_file, error)
+        raise IndexDigestNotRecordedError(
+            f"The signal index was committed, but its digest could not be recorded in "
+            f"{lock_file.name} ({error}). The index itself is intact and correct. Until the "
+            f"digest is re-synced every later write will refuse as stale, so delete {lock_file.name} "
+            "to re-baseline it -- the sidecar holds only the digest and the lock, no data."
+        ) from error
 
 
 def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> str:
@@ -963,8 +999,11 @@ def _require_fresh_index_read(index_file: Path, lock_file: Path) -> None:
     filesystem revalidate, and it is written in place so it keeps its inode.
 
     A sidecar with no digest predates this guard and is accepted with a warning: refusing would
-    break every in-flight run on upgrade, a certain cost against an uncertain one. That
-    acceptance should become a refusal once no index predates the release carrying this.
+    break every in-flight run on upgrade, a certain cost against an uncertain one. The window is
+    one unprotected write *per writer that has not yet recorded a digest* -- so on a directory
+    shared by several hosts, each gets one pass before any of them records, and the original bug
+    is reachable for exactly those writes. That acceptance should become a refusal once no index
+    predates the release carrying this.
 
     Args:
         index_file: Path to ``signal_index.yaml``.
@@ -977,7 +1016,9 @@ def _require_fresh_index_read(index_file: Path, lock_file: Path) -> None:
     if recorded is None:
         logger.warning(
             "The signal index at %s has no digest recorded in %s, so this write cannot verify it "
-            "is reading the current index. Predates the staleness guard; accepted once.",
+            "is reading the current index. Predates the staleness guard; accepted until a digest "
+            "is recorded -- on a directory shared by several hosts each unprotected writer gets "
+            "one such pass, so the first post-upgrade write is the one to run from a single host.",
             index_file,
             lock_file.name,
         )
@@ -988,10 +1029,14 @@ def _require_fresh_index_read(index_file: Path, lock_file: Path) -> None:
     raise StaleIndexReadError(
         f"This process reads {index_file} as {seen}, but {lock_file.name} records the last "
         f"committed index as {recorded}, so the read is stale and writing would discard entries "
-        "this process cannot see. The usual cause is a filesystem cache on a shared mount: the "
-        "lock is held correctly, and the index is still read from an out-of-date view. Retry the "
-        "batch; if it persists, the writers are on different hosts and must be serialised "
-        "outside gwmock until they share a client cache."
+        "this process cannot see. Causes, in the order worth checking: (1) a filesystem cache on "
+        "a shared mount, where the lock is held correctly and the index is still read from an "
+        "out-of-date view -- retry, and if it persists the writers are on different hosts and "
+        "must be serialised outside gwmock; (2) the index was deleted or rebuilt by hand, which "
+        "is legitimate -- it is a rebuildable cache -- but leaves the sidecar describing an index "
+        f"that no longer exists; (3) a previous run could not record its digest. For (2) and (3) "
+        f"the recovery is to delete {lock_file.name}, which re-baselines the digest on the next "
+        "write and discards nothing: the sidecar holds only the digest and the lock."
     )
 
 
@@ -1759,27 +1804,14 @@ def execute_plan(  # noqa: PLR0915
                         list(pre_batch_state.keys()),
                     )
 
-                    # A retry meets whatever the failed attempt already wrote. Those outputs are
-                    # this batch's own uncheckpointed leftovers, not user data, so a retry must be
-                    # allowed to replace them -- exactly as `resuming` does for an interrupted
-                    # run. Without this the second attempt raises FileExistsError on its own
-                    # orphan and a transient failure becomes a hard one. Reachable in particular
-                    # since `update_signal_index` can now refuse a stale read, which happens
-                    # *after* the outputs are on disk.
-                    attempted = {"once": False}
-
                     def execute_batch(
                         _simulator=simulator,
                         _batch=batch,
                         _output_directory=output_directory,
                         _pre_batch_state=pre_batch_state,
                         _overwrite=batch_overwrite,
-                        _attempted=attempted,
                     ):
                         """Execute a single batch with state management."""
-                        if _attempted["once"]:
-                            _overwrite = True
-                        _attempted["once"] = True
                         set_batch_context = getattr(_simulator, "set_batch_context", None)
                         if callable(set_batch_context):
                             set_batch_context(

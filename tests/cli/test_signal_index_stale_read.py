@@ -39,7 +39,7 @@ from typing import Any
 import pytest
 import yaml
 
-from gwmock.cli.simulate_utils import StaleIndexReadError, update_signal_index
+from gwmock.cli.simulate_utils import StaleIndexReadError, retry_with_backoff, update_signal_index
 
 pytestmark = pytest.mark.unit
 
@@ -182,3 +182,36 @@ def test_a_withdrawing_batch_is_not_skipped_by_a_stale_existence_check(
     # previous row is withdrawn. Asserting a raise here would be wrong -- this client can read the
     # index perfectly well, only `exists()` was made to lie, so the guard is right not to fire.
     assert yaml.safe_load(index_file.read_text()) == {}, "the withdrawing batch was skipped"
+
+
+def test_a_stale_read_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`retry_with_backoff` must let a stale read straight through.
+
+    Waiting changes nothing: a stale index read is a cache state, not a transient fault. Worse,
+    it is raised *after* the batch's frames and metadata are written, so each retry re-simulates
+    the whole batch and the second attempt trips over the first's outputs. Three attempts, three
+    full simulations, same failure.
+    """
+    calls = {"n": 0}
+
+    def _always_stale() -> None:
+        calls["n"] += 1
+        raise StaleIndexReadError("stale")
+
+    with pytest.raises(StaleIndexReadError):
+        retry_with_backoff(_always_stale, max_retries=3, initial_delay=0.0)
+    assert calls["n"] == 1, f"the stale read was attempted {calls['n']} times; it must not be retried"
+
+
+def test_an_ordinary_failure_is_still_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The no-retry rule must be narrow, or it silently disables the retry loop."""
+    calls = {"n": 0}
+
+    def _transient() -> str:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise OSError("transient")
+        return "ok"
+
+    assert retry_with_backoff(_transient, max_retries=3, initial_delay=0.0) == "ok"
+    assert calls["n"] == 3, calls["n"]
