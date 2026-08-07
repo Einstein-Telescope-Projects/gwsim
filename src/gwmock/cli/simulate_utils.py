@@ -847,12 +847,18 @@ def _record_digest(lock_file: Path, digest: str) -> None:
         digest: Digest of the index as committed.
     """
     try:
-        # "a+", not "r+": the sidecar is normally created when the lock is taken, but the
-        # `fcntl is None` branch yields without creating it. With "r+" the index would commit and
-        # this would raise FileNotFoundError on every update, telling the operator to delete a
-        # file that does not exist -- breaking the platform the lock deliberately degrades for.
-        with lock_file.open("a+", encoding="utf-8") as handle:
-            handle.seek(0)
+        # "r+" with a create fallback. The sidecar is normally created when the lock is taken,
+        # but the `fcntl is None` branch yields without creating it, and plain "r+" would then
+        # raise FileNotFoundError on every update -- telling the operator to delete a file that
+        # does not exist, on the platform the lock deliberately degrades for.
+        #
+        # Not "a+": that sets O_APPEND, so writes go to the end whatever the seek position, and
+        # the digest would accumulate rather than replace. Caught by the digest tests.
+        try:
+            handle = lock_file.open("r+", encoding="utf-8")
+        except FileNotFoundError:
+            handle = lock_file.open("w", encoding="utf-8")
+        with handle:
             handle.write(digest)
             handle.truncate()
             handle.flush()
