@@ -41,7 +41,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sgwb = ["gwmock-signal[sgwb]>=0.14.0"]
+sgwb = ["gwmock-signal[sgwb]>=0.15.0"]
 # The batched signal path. Without this extra `SignalAdapter.simulate_segments` and
 # `execution: batched` raise, because gwmock-signal's batched entry points need JAX and ripple,
 # which the base install omits.
