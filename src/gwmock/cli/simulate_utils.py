@@ -716,7 +716,13 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
         if existing_mode is not None:
             # An index that already exists keeps whatever mode it was given, so a deliberately
             # group-writable index survives an update.
-            os.fchmod(descriptor, existing_mode)
+            #
+            # `os.chmod` on the path, not `os.fchmod` on the descriptor: `fchmod` does not exist
+            # on Windows, and this line runs on every update once an index exists -- it would
+            # break the second write on exactly the platform the lock is written to degrade
+            # gracefully for. The path is a uuid4 name we just created in a directory we hold,
+            # so there is no meaningful window for it to be swapped.
+            os.chmod(temporary, existing_mode)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             yaml.safe_dump(index, handle, default_flow_style=False, sort_keys=True)
             handle.flush()
