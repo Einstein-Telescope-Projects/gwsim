@@ -497,9 +497,12 @@ _NOT_WORTH_RETRYING = (StaleIndexReadError, IndexDigestNotRecordedError)
 def _is_not_worth_retrying(error: BaseException) -> bool:
     """Return whether this failure, or anything it was raised from, is futile to retry.
 
-    The chain is walked because matching the outer type alone is fragile: wrapping one of these
-    in anything else -- ``raise RuntimeError(...) from StaleIndexReadError`` -- would restore the
-    retries, and a stale index read is no more fixable by waiting for having been re-raised.
+    Only ``__cause__`` is followed, never ``__context__``. Explicit chaining --
+    ``raise RuntimeError(...) from StaleIndexReadError`` -- says the original failure is the
+    reason for this one, so it is still futile to retry. ``__context__`` is set implicitly by
+    *any* exception raised while another is being handled, including a cleanup or logging failure
+    that is itself the real problem: following it made an ``OSError`` raised while handling a
+    stale read non-retryable, which is a different bug from the one this prevents.
 
     Args:
         error: The exception that ended the attempt.
@@ -513,7 +516,7 @@ def _is_not_worth_retrying(error: BaseException) -> bool:
         if isinstance(current, _NOT_WORTH_RETRYING):
             return True
         seen.add(id(current))
-        current = current.__cause__ or current.__context__
+        current = current.__cause__
     return False
 
 
@@ -1075,8 +1078,11 @@ def _require_fresh_index_read(index_file: Path, lock_file: Path) -> None:
         "must be serialised outside gwmock; (2) the index was deleted or rebuilt by hand, which "
         "is legitimate -- it is a rebuildable cache -- but leaves the sidecar describing an index "
         f"that no longer exists; (3) a previous run could not record its digest. For (2) and (3) "
-        f"the recovery is to delete {lock_file.name}, which re-baselines the digest on the next "
-        "write and discards nothing: the sidecar holds only the digest and the lock."
+        f"the recovery is to stop every writer against this directory and then delete "
+        f"{lock_file.name}, which re-baselines the digest on the next write and discards nothing: "
+        "the sidecar holds only the digest and the lock. **Stop the writers first** -- removing "
+        "it while another process holds the old inode lets a third create and lock a new one, so "
+        "two writers hold different locks and are no longer serialised."
     )
 
 

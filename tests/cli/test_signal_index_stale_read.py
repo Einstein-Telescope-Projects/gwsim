@@ -356,3 +356,27 @@ def test_a_withdrawing_batch_survives_both_dentries_being_stale(
     monkeypatch.undo()
 
     assert yaml.safe_load(index_file.read_text()) == {}, "the withdrawal was skipped on a stale sidecar read"
+
+
+def test_an_unrelated_failure_during_handling_is_still_retried() -> None:
+    """Implicit context must not suppress retries.
+
+    ``__context__`` is set by any exception raised while another is being handled -- a cleanup or
+    logging failure, where the *new* exception is the real problem. Following it made an OSError
+    raised during handling of a stale read non-retryable, which is a different bug from the one
+    the chain walk prevents.
+    """
+    calls = {"n": 0}
+
+    def _fails_during_handling() -> str:
+        calls["n"] += 1
+        try:
+            raise StaleIndexReadError("stale")
+        except StaleIndexReadError:
+            if calls["n"] < 3:
+                raise OSError("transient cleanup failure") from None
+            return "ok"
+
+    # `from None` severs the cause but pytest still records context; the retry must proceed.
+    assert retry_with_backoff(_fails_during_handling, max_retries=3, initial_delay=0.0) == "ok"
+    assert calls["n"] == 3, calls["n"]
