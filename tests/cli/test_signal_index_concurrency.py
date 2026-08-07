@@ -178,8 +178,10 @@ def test_two_processes_updating_the_index_keep_both_events(tmp_path: Path) -> No
     else:
         pytest.fail(
             f"scenario did not run in {_SCENARIO_ATTEMPTS} attempts: rendezvous={met}, "
-            f"longest lock wait={waited:.3f}s. The two updates were serialised by scheduling "
-            "rather than by the lock, so no attempt exercised the race or demonstrated the fix."
+            f"longest lock wait={waited:.3f}s -- neither a rendezvous nor lock contention was "
+            "observed, so no attempt exercised the race or demonstrated the fix. Two causes look "
+            "identical here: the scheduler serialised the writers, or the patched hook no longer "
+            "sits between the read and the write in update_signal_index."
         )
 
     index = yaml.safe_load((directory / "signal_index.yaml").read_text())
@@ -238,6 +240,34 @@ def test_lock_sidecar_is_writable_by_whoever_may_write_the_index(tmp_path: Path)
         lock_mode = stat.S_IMODE(lock_file.stat().st_mode)
         assert index_mode == 0o664, oct(index_mode)
         assert lock_mode == index_mode, f"index {oct(index_mode)} but sidecar {oct(lock_mode)}"
+    finally:
+        os.umask(previous)
+
+
+def test_a_deliberately_open_sidecar_is_not_narrowed(tmp_path: Path) -> None:
+    """Alignment widens a too-tight sidecar; it must not undo an operator's decision.
+
+    A sidecar is a permission surface in its own right: an operator may open it to an account
+    that takes locks without writing the index. Matching the index exactly would silently pull
+    that back on the owner's next run, removing a capability nobody asked to remove.
+    """
+    previous = os.umask(0o022)
+    try:
+        update_signal_index(tmp_path, _metadata(5, 0), "orchestration-0.metadata.json")
+        lock_file = tmp_path / "signal_index.yaml.lock"
+        index_file = tmp_path / "signal_index.yaml"
+        assert stat.S_IMODE(index_file.stat().st_mode) == 0o644
+
+        lock_file.chmod(0o666)
+        update_signal_index(tmp_path, _metadata(6, 1), "orchestration-1.metadata.json")
+        assert stat.S_IMODE(lock_file.stat().st_mode) == 0o666, oct(stat.S_IMODE(lock_file.stat().st_mode))
+
+        # ...and the widening direction still works from the same starting point.
+        lock_file.chmod(0o600)
+        index_file.chmod(0o664)
+        update_signal_index(tmp_path, _metadata(7, 2), "orchestration-2.metadata.json")
+        widened = stat.S_IMODE(lock_file.stat().st_mode)
+        assert widened & 0o060 == 0o060, oct(widened)
     finally:
         os.umask(previous)
 

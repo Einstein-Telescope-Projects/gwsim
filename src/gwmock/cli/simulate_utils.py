@@ -625,12 +625,12 @@ def _exclusive_index_lock(index_file: Path) -> Iterator[None]:
     second process hold a lock on an unlinked inode while a third creates a fresh one and takes a
     lock nobody else can see -- the classic unlink race. An empty stray file is the cheaper cost.
 
-    **The sidecar carries the index's own mode**, which is not cosmetic: ``flock`` needs a
+    **The sidecar is never tighter than the index**, which is not cosmetic: ``flock`` needs a
     writable descriptor, so whoever may write the index must be able to open the sidecar for
     append. Leaving the sidecar at the umask default while the index is group-writable gives a
     second account read access to the index and a ``PermissionError`` at the lock -- the
-    multi-account case this locking exists to serve, broken at the gate. The two modes are kept
-    equal so the set of accounts that can take the lock is the set that can write the index.
+    multi-account case this locking exists to serve, broken at the gate. Alignment only ever
+    widens; see :func:`_align_lock_mode`.
 
     Where ``fcntl`` is unavailable (Windows, which this project does not test) the body runs
     unlocked and says so once, rather than failing at import: an unsynchronised index is what the
@@ -649,7 +649,19 @@ def _exclusive_index_lock(index_file: Path) -> Iterator[None]:
 
     lock_file = index_file.with_name(index_file.name + ".lock")
     lock_file.parent.mkdir(parents=True, exist_ok=True)
-    with lock_file.open("a+") as handle:
+    try:
+        handle = lock_file.open("a+")
+    except PermissionError as error:
+        # This, not the chmod below, is where a second account actually fails: `flock` needs a
+        # writable descriptor, so a sidecar tighter than the index stops a writer at the gate with
+        # a bare Errno 13 that says nothing about locks. Name the cause and the repair.
+        raise PermissionError(
+            f"Cannot open the signal-index lock at {lock_file} for writing, so this run cannot "
+            f"safely update {index_file.name}. Taking the lock needs write access to the sidecar; "
+            "have its owner widen it to match the index (the owner's next gwmock run does this "
+            "automatically)."
+        ) from error
+    with handle:
         # After the open, so the very first run aligns its own sidecar rather than leaving it at
         # the umask default for the next one to repair.
         _align_lock_mode(lock_file, index_file)
@@ -661,25 +673,33 @@ def _exclusive_index_lock(index_file: Path) -> Iterator[None]:
 
 
 def _align_lock_mode(lock_file: Path, index_file: Path) -> None:
-    """Give the sidecar the same permissions as the index, best effort.
+    """Widen the sidecar so everyone who may write the index can take the lock. Best effort.
 
-    Only the file's owner may ``chmod`` it, so this cannot be an invariant every caller can
-    restore: a second account finding a too-tight sidecar can do nothing about it, and should get
-    the eventual ``PermissionError`` rather than a confusing failure here. The owner's next run
-    repairs it, which also upgrades sidecars written before this behaviour existed.
+    **Widen only.** Matching the index exactly would also *narrow*, and a sidecar is a permission
+    surface in its own right: an operator may deliberately open it to an account that takes locks
+    without writing the index. Silently pulling that back on the owner's next run would remove a
+    capability with no signal and no opt-out, to fix a problem nobody had. Too-tight sidecars are
+    the failure this repairs; too-loose ones are somebody's decision.
+
+    Only the file's owner may ``chmod``, so this cannot be an invariant every caller restores.
+    The owner's next run repairs a sidecar written before this behaviour existed.
 
     Args:
         lock_file: The sidecar; may not exist yet.
-        index_file: The index whose mode the sidecar should match; may not exist yet either.
+        index_file: The index whose access the sidecar must not be tighter than.
     """
     desired = _existing_index_mode(index_file)
-    if desired is None:
+    current = _existing_index_mode(lock_file)
+    if desired is None or current is None:
+        return
+    widened = current | desired
+    if widened == current:
         return
     try:
-        if _existing_index_mode(lock_file) != desired:
-            os.chmod(lock_file, desired)
+        os.chmod(lock_file, widened)
     except (FileNotFoundError, PermissionError):
         return
+    logger.debug("Widened %s from %s to %s to match the index.", lock_file, oct(current), oct(widened))
 
 
 def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
