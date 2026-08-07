@@ -32,6 +32,7 @@ pinned here is that a stale read is *detected* rather than silently believed.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -122,3 +123,62 @@ def test_the_digest_survives_a_missing_index(tmp_path: Path) -> None:
 
     with pytest.raises(StaleIndexReadError, match="stale"):
         update_signal_index(tmp_path, _metadata(31, 1), "orchestration-1.metadata.json")
+
+
+def test_the_recorded_digest_is_of_the_bytes_written_not_of_a_re_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sidecar must record what was committed, not what this client can read back.
+
+    Re-reading the index to digest it runs through the very path that can be stale, so a client
+    with a stale view would record a digest *of that stale view* -- and the next client with the
+    same view would match it and overwrite silently. The guard would then certify the bug.
+    """
+    update_signal_index(tmp_path, _metadata(40, 0), "orchestration-0.metadata.json")
+    index_file = tmp_path / "signal_index.yaml"
+    sidecar = tmp_path / "signal_index.yaml.lock"
+    committed = index_file.read_bytes()
+
+    # From here this client reads the index stale -- as it was before the next update lands.
+    real_read_bytes = Path.read_bytes
+
+    def _stale_after_write(self: Path) -> bytes:
+        return committed if self == index_file else real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", _stale_after_write)
+    update_signal_index(tmp_path, _metadata(41, 1), "orchestration-1.metadata.json")
+    monkeypatch.undo()
+
+    truth = hashlib.sha256(index_file.read_bytes()).hexdigest()
+    stale = hashlib.sha256(committed).hexdigest()
+    recorded = sidecar.read_text().strip()
+    assert recorded != stale, "the sidecar recorded the digest of a stale re-read"
+    assert recorded == truth, f"recorded {recorded[:12]} but the committed index is {truth[:12]}"
+
+
+def test_a_withdrawing_batch_is_not_skipped_by_a_stale_existence_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch with no injections must still reach the guard when an index exists.
+
+    The early return asked ``index_file.exists()``, which a stale negative dentry answers without
+    contacting the server -- so a rerun that must *withdraw* its previous entries returned having
+    withdrawn nothing, leaving rows ``find-signal --id`` still trusts.
+    """
+    update_signal_index(tmp_path, _metadata(50, 0), "orchestration-0.metadata.json")
+    index_file = tmp_path / "signal_index.yaml"
+
+    real_exists = Path.exists
+
+    def _index_looks_absent(self: Path, **kwargs: Any) -> bool:
+        return False if self == index_file else real_exists(self, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", _index_looks_absent)
+    empty = {"signal": {"injections": []}, "outputs": []}
+    with pytest.raises(StaleIndexReadError, match="stale"):
+        update_signal_index(tmp_path, empty, "orchestration-0.metadata.json")
+    monkeypatch.undo()
+
+    # Refused, so the entry it should have withdrawn is still there -- and still accurate,
+    # because nothing was written on a view that could not see it.
+    assert set(yaml.safe_load(index_file.read_text())) == {"50"}

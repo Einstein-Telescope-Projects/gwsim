@@ -794,7 +794,7 @@ def _record_digest(lock_file: Path, digest: str) -> None:
         logger.warning("Could not record the index digest in %s: %s", lock_file, error)
 
 
-def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
+def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> str:
     """Write the index so a reader sees either the old file or the new one, never a fragment.
 
     ``open(path, "w")`` truncates in place, so a crash or a full disk part-way through the dump
@@ -809,6 +809,13 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
     Args:
         index_file: Destination path.
         index: The index mapping to serialise.
+
+    Returns:
+        The sha256 of the bytes committed. Returned rather than re-read afterwards: the whole
+        defect this guards is that reading ``index_file`` can be served from a stale client
+        cache, so digesting a re-read could record the digest of this client's *stale view* — and
+        a later client with the same stale view would then match it and overwrite silently, which
+        is the bug rather than the fix.
 
     Raises:
         OSError: If the file cannot be written or renamed.
@@ -833,6 +840,8 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
         os.close(descriptor)
         temporary.unlink(missing_ok=True)
         raise
+    payload = yaml.safe_dump(index, default_flow_style=False, sort_keys=True).encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()
     try:
         if existing_mode is not None:
             # An index that already exists keeps whatever mode it was given, so a deliberately
@@ -845,13 +854,14 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
             # so there is no meaningful window for it to be swapped.
             os.chmod(temporary, existing_mode)
         with handle:
-            yaml.safe_dump(index, handle, default_flow_style=False, sort_keys=True)
+            handle.write(payload.decode("utf-8"))
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, index_file)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
+    return digest
 
 
 def _existing_index_mode(index_file: Path) -> int | None:
@@ -925,14 +935,18 @@ def update_signal_index(
     """
     injections = (metadata.get("signal") or {}).get("injections") or []
     index_file = metadata_directory / "signal_index.yaml"
-    if not injections and not index_file.exists():
-        return
-
     lock_file = index_file.with_name(index_file.name + ".lock")
+    # `exists()` alone cannot decide this. A stale negative dentry -- the very fault the guard
+    # below exists for -- answers "no index" without contacting the server, and a batch that must
+    # *withdraw* its previous entries would then return having withdrawn nothing, leaving rows
+    # `find-signal --id` still trusts. If the sidecar records a digest, an index exists whether or
+    # not this client can currently see it, so take the lock and let the guard decide.
+    if not injections and not index_file.exists() and _recorded_digest(lock_file) is None:
+        return
     with _exclusive_index_lock(index_file):
         _require_fresh_index_read(index_file, lock_file)
-        _update_signal_index_locked(index_file, injections, metadata, metadata_file_name, encoding)
-        _record_digest(lock_file, _index_digest(index_file))
+        committed = _update_signal_index_locked(index_file, injections, metadata, metadata_file_name, encoding)
+        _record_digest(lock_file, committed)
 
 
 def _require_fresh_index_read(index_file: Path, lock_file: Path) -> None:
@@ -985,7 +999,7 @@ def _update_signal_index_locked(
     metadata: dict[str, Any],
     metadata_file_name: str,
     encoding: str,
-) -> None:
+) -> str:
     """Do the read-modify-write, with the caller holding the index lock.
 
     Split out so the critical section is a single named span: the read, the withdrawal and the
@@ -1034,7 +1048,7 @@ def _update_signal_index_locked(
         entry["batches"].append({"metadata": metadata_file_name, "frames": signal_frames})
 
     try:
-        _atomically_write_index(index_file, index)
+        return _atomically_write_index(index_file, index)
     except (OSError, yaml.YAMLError) as e:
         logger.error("Failed to save signal index: %s", e)
         raise
@@ -1743,14 +1757,27 @@ def execute_plan(  # noqa: PLR0915
                         list(pre_batch_state.keys()),
                     )
 
+                    # A retry meets whatever the failed attempt already wrote. Those outputs are
+                    # this batch's own uncheckpointed leftovers, not user data, so a retry must be
+                    # allowed to replace them -- exactly as `resuming` does for an interrupted
+                    # run. Without this the second attempt raises FileExistsError on its own
+                    # orphan and a transient failure becomes a hard one. Reachable in particular
+                    # since `update_signal_index` can now refuse a stale read, which happens
+                    # *after* the outputs are on disk.
+                    attempted = {"once": False}
+
                     def execute_batch(
                         _simulator=simulator,
                         _batch=batch,
                         _output_directory=output_directory,
                         _pre_batch_state=pre_batch_state,
                         _overwrite=batch_overwrite,
+                        _attempted=attempted,
                     ):
                         """Execute a single batch with state management."""
+                        if _attempted["once"]:
+                            _overwrite = True
+                        _attempted["once"] = True
                         set_batch_context = getattr(_simulator, "set_batch_context", None)
                         if callable(set_batch_context):
                             set_batch_context(
