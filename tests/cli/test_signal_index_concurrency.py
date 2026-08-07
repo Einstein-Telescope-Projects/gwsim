@@ -346,15 +346,15 @@ def test_index_survives_a_write_that_fails_partway(tmp_path: Path, monkeypatch: 
     before = index_file.read_text()
     assert "7" in yaml.safe_load(before)
 
-    real_safe_dump = yaml.safe_dump
+    # Fail at the last possible moment -- the rename that publishes the new index. Anything that
+    # fails before it must leave the previous index untouched, which is the property being pinned.
+    # (An earlier version simulated this by making `yaml.safe_dump` fail while writing to a
+    # stream; the writer now serialises to bytes first, so that mock no longer intercepts
+    # anything and the test passed vacuously.)
+    def _fail_to_publish(source, destination):  # type: ignore[no-untyped-def]
+        raise OSError("no space left on device")
 
-    def _fail_after_writing_some(data, stream=None, **kwargs):  # type: ignore[no-untyped-def]
-        if stream is not None:
-            stream.write("partial: [")  # a prefix that is not valid YAML on its own
-            raise OSError("no space left on device")
-        return real_safe_dump(data, stream, **kwargs)
-
-    monkeypatch.setattr("gwmock.cli.simulate_utils.yaml.safe_dump", _fail_after_writing_some)
+    monkeypatch.setattr("gwmock.cli.simulate_utils.os.replace", _fail_to_publish)
     with pytest.raises(OSError, match="no space left on device"):
         update_signal_index(tmp_path, _metadata(8, 1), "orchestration-1.metadata.json")
     monkeypatch.undo()
