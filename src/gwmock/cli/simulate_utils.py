@@ -808,20 +808,34 @@ def update_signal_index(
     frame file(s) that contain it plus the batch metadata file, enabling O(1)
     signal->frame lookup by id.
 
-    **Safe against concurrent writers**, which it was not before: the read-modify-write was
-    unlocked, so two runs sharing a metadata directory lost one side's events -- reproduced
-    deterministically with two processes and a barrier, where the loser's signals stayed in the
-    frames while vanishing from the id lookup. The whole cycle now runs under an exclusive
-    ``flock`` on a sidecar file, and the result is renamed into place rather than written over
-    the live index, so a failed or interrupted write leaves the previous index intact instead of
-    truncating it -- which mattered because the loader below treats an unparsable index as
-    "create a new one", turning one bad write into the loss of every entry.
+    **Safe against concurrent writers on one host**, which it was not before: the
+    read-modify-write was unlocked, so two runs sharing a metadata directory lost one side's
+    events -- reproduced deterministically with two processes and a barrier, where the loser's
+    signals stayed in the frames while vanishing from the id lookup. The whole cycle now runs
+    under an exclusive ``flock`` on a sidecar file, and the result is renamed into place rather
+    than written over the live index, so a failed or interrupted write leaves the previous index
+    intact instead of truncating it -- which mattered because the loader below treats an
+    unparsable index as "create a new one", turning one bad write into the loss of every entry.
 
-    The guarantee is exactly as strong as the filesystem's ``flock``: it holds for a local
-    filesystem and for any shared one that honours POSIX advisory locks across the participating
-    hosts, and it does **not** hold where it silently does not -- some NFS configurations and
-    cluster filesystems -- in which case this reverts to the unlocked race it closes. Settling
-    that for a given deployment is a two-host stress test, not a code question.
+    .. warning::
+
+        **Writers on different hosts can still lose each other's entries, even where the lock
+        works.** Measured on an NFS home shared by two machines (2026-08-07): the lock excluded
+        correctly -- the second writer blocked 26.7 s waiting for the first -- and the update was
+        lost anyway. Acquiring the lock revalidates the *sidecar*, not ``signal_index.yaml``, so
+        the second writer read its client's cached view of the index, found nothing, started from
+        an empty mapping and wrote a file holding only its own event. The first writer's data was
+        on the server throughout.
+
+        The cause is not the lock. It is that ``_atomically_write_index`` replaces the index by
+        rename, giving it a new inode, which a client holding a cached entry for the old path
+        does not resolve to. Atomic replacement and cache coherence pull in opposite directions
+        here, and the sidecar -- chosen so the lock survives the rename -- is the thing the
+        filesystem revalidates instead of the index.
+
+        **Until this is repaired, do not run concurrent writers against one metadata directory
+        from more than one host.** Concurrent writers on a single host are safe: one host has one
+        cache.
 
     Parameter-based lookup reads the injections recorded in the batch metadata files (their
     source of truth); this index is only the id shortcut. A batch with no injected signals
