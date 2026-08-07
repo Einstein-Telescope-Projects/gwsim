@@ -276,10 +276,16 @@ def test_a_failure_to_record_the_digest_is_raised_not_swallowed(
 
     real_open = Path.open
     sidecar = tmp_path / "signal_index.yaml.lock"
+    # The lock and the digest write both open the sidecar "a+", so the mode cannot tell them
+    # apart -- failing on the mode alone breaks the lock itself and every test in the file. The
+    # lock takes the first such open of each update; the digest write is the second.
+    writes = {"n": 0}
 
     def _sidecar_write_fails(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
-        if self == sidecar and ("r+" in mode or "a+" in mode):
-            raise OSError("input/output error")
+        if self == sidecar and "a+" in mode:
+            writes["n"] += 1
+            if writes["n"] >= 2:
+                raise OSError("input/output error")
         return real_open(self, mode, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", _sidecar_write_fails)
