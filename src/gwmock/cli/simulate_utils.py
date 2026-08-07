@@ -598,6 +598,20 @@ def update_metadata_index(
     The index maps data file names to their corresponding metadata files,
     enabling O(1) lookup to find metadata for a given data file.
 
+    Serialised and written atomically, for the reasons its sibling
+    :func:`update_signal_index` was: an unlocked read-modify-write let two runs sharing a
+    metadata directory lose one side's entries (measured at 4 losses in 20 concurrent trials),
+    and the in-place truncating write turned one interrupted dump into the loss of *every* entry,
+    because the loader above treats an unparsable index as "create a new index".
+
+    **Deliberately weaker than :func:`update_signal_index`: there is no staleness digest here.**
+    That guard's job is to refuse a write, and on a shared filesystem a client can hold a stale
+    view of this file just as it can of the signal index. Nothing in production reads
+    ``index.yaml`` today, so aborting a run over it would cost more than the entry it protects.
+    The residue is that a cross-host stale read can still drop an entry here silently. **Revisit
+    when something starts reading it** -- the guarantee this file offers is then the guarantee
+    that consumer inherits.
+
     Args:
         metadata_directory: Directory where metadata files are stored
         output_files: List of output data file Paths
@@ -605,31 +619,30 @@ def update_metadata_index(
         encoding: File encoding for reading/writing the index file
     """
     index_file = metadata_directory / "index.yaml"
-
-    # Load existing index or create new
-    if index_file.exists():
-        try:
-            with index_file.open(encoding=encoding) as f:
-                index = yaml.safe_load(f) or {}
-        except (OSError, yaml.YAMLError) as e:
-            logger.warning("Failed to load metadata index: %s. Creating new index.", e)
+    with _exclusive_index_lock(index_file):
+        # Load existing index or create new
+        if index_file.exists():
+            try:
+                with index_file.open(encoding=encoding) as f:
+                    index = yaml.safe_load(f) or {}
+            except (OSError, yaml.YAMLError) as e:
+                logger.warning("Failed to load metadata index: %s. Creating new index.", e)
+                index = {}
+        else:
             index = {}
-    else:
-        index = {}
 
-    # Add entries for all output files
-    for output_file in output_files:
-        index[output_file.name] = metadata_file_name
-        logger.debug("Index entry: %s -> %s", output_file.name, metadata_file_name)
+        # Add entries for all output files
+        for output_file in output_files:
+            index[output_file.name] = metadata_file_name
+            logger.debug("Index entry: %s -> %s", output_file.name, metadata_file_name)
 
-    # Save updated index
-    try:
-        with index_file.open("w") as f:
-            yaml.safe_dump(index, f, default_flow_style=False, sort_keys=True)
-        logger.debug("Updated metadata index: %s", index_file)
-    except (OSError, yaml.YAMLError) as e:
-        logger.error("Failed to save metadata index: %s", e)
-        raise
+        # Save updated index
+        try:
+            _atomically_write_index(index_file, index)
+            logger.debug("Updated metadata index: %s", index_file)
+        except (OSError, yaml.YAMLError) as e:
+            logger.error("Failed to save metadata index: %s", e)
+            raise
 
 
 def _withdraw_batch(index: dict[str, Any], metadata_file_name: str) -> dict[str, Any]:
