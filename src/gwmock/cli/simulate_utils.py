@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import atexit
 import copy
+import errno
 import json
 import logging
 import os
@@ -602,6 +603,13 @@ except ImportError:  # pragma: no cover - Windows, which the CI matrix does not 
     fcntl = None  # type: ignore[assignment]
 
 
+# `flock` errnos meaning "this filesystem cannot do advisory locks", as opposed to "you may not".
+# Only these fall back to an unlocked write; a refusal such as EACCES still raises.
+_LOCKING_UNSUPPORTED = frozenset(
+    getattr(errno, name) for name in ("EOPNOTSUPP", "ENOLCK", "ENOSYS", "ENOTSUP") if hasattr(errno, name)
+)
+
+
 @cache
 def _warn_unlocked_once() -> None:
     """Say once per process that the index is being updated without a lock.
@@ -665,7 +673,18 @@ def _exclusive_index_lock(index_file: Path) -> Iterator[None]:
         # After the open, so the very first run aligns its own sidecar rather than leaving it at
         # the umask default for the next one to repair.
         _align_lock_mode(lock_file, index_file)
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except OSError as error:
+            if error.errno not in _LOCKING_UNSUPPORTED:
+                raise
+            # The filesystem does not implement advisory locks. Failing here would break a write
+            # that succeeds -- and did succeed before locking existed -- on exactly the shared
+            # filesystems this feature is aimed at. Degrade to the previous unsynchronised
+            # behaviour and say so, the same trade as a missing `fcntl` module.
+            _warn_unlocked_once()
+            yield
+            return
         try:
             yield
         finally:
@@ -733,6 +752,15 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
     temporary = index_file.with_name(f"{index_file.name}.{uuid.uuid4().hex}.tmp")
     descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
     try:
+        # Adopt the raw descriptor immediately. Anything that raises between `os.open` and
+        # `os.fdopen` -- the chmod below used to sit there -- leaves a descriptor that the
+        # cleanup path unlinks the file for but never closes, and this runs once per batch.
+        handle = os.fdopen(descriptor, "w", encoding="utf-8")
+    except BaseException:
+        os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+        raise
+    try:
         if existing_mode is not None:
             # An index that already exists keeps whatever mode it was given, so a deliberately
             # group-writable index survives an update.
@@ -743,7 +771,7 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> None:
             # gracefully for. The path is a uuid4 name we just created in a directory we hold,
             # so there is no meaningful window for it to be swapped.
             os.chmod(temporary, existing_mode)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        with handle:
             yaml.safe_dump(index, handle, default_flow_style=False, sort_keys=True)
             handle.flush()
             os.fsync(handle.fileno())

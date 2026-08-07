@@ -38,6 +38,7 @@ the cost of one timeout per process.
 
 from __future__ import annotations
 
+import errno
 import multiprocessing as mp
 import os
 import stat
@@ -270,6 +271,66 @@ def test_a_deliberately_open_sidecar_is_not_narrowed(tmp_path: Path) -> None:
         assert widened & 0o060 == 0o060, oct(widened)
     finally:
         os.umask(previous)
+
+
+def test_a_filesystem_without_advisory_locks_still_writes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A filesystem that cannot do ``flock`` must degrade, not fail the run.
+
+    Some network and cluster filesystems reject ``flock`` outright. Propagating that would break
+    a write that succeeds -- and succeeded before locking existed -- on exactly the shared
+    storage this feature targets. The guarantee is lost there, which the docstring says; the run
+    is not.
+    """
+    import gwmock.cli.simulate_utils as module
+
+    def _unsupported(descriptor: int, operation: int) -> None:
+        raise OSError(errno.ENOLCK, "no locks available")
+
+    monkeypatch.setattr(module.fcntl, "flock", _unsupported)
+    update_signal_index(tmp_path, _metadata(9, 0), "orchestration-0.metadata.json")
+    index = yaml.safe_load((tmp_path / "signal_index.yaml").read_text())
+    assert "9" in index, index
+
+
+def test_a_refused_lock_is_not_swallowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only *unsupported* is tolerated; a refused lock must still fail.
+
+    The escape hatch above must not become a blanket ``except OSError``, or a genuine permission
+    problem would silently drop the serialisation it is meant to enforce.
+    """
+    import gwmock.cli.simulate_utils as module
+
+    def _refused(descriptor: int, operation: int) -> None:
+        raise OSError(errno.EACCES, "permission denied")
+
+    monkeypatch.setattr(module.fcntl, "flock", _refused)
+    with pytest.raises(OSError, match="permission denied"):
+        update_signal_index(tmp_path, _metadata(10, 0), "orchestration-0.metadata.json")
+
+
+def test_a_failed_write_leaks_no_descriptor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The temporary's descriptor must be closed on every failure path.
+
+    ``update_signal_index`` runs once per batch, so a descriptor leaked when the write fails
+    accumulates for the life of the process.
+    """
+    update_signal_index(tmp_path, _metadata(11, 0), "orchestration-0.metadata.json")
+
+    def _boom(*args: Any, **kwargs: Any) -> None:
+        raise OSError("disk on fire")
+
+    before = len(os.listdir(f"/proc/{os.getpid()}/fd")) if Path("/proc/self/fd").exists() else None
+    monkeypatch.setattr("gwmock.cli.simulate_utils.yaml.safe_dump", _boom)
+    for batch in range(1, 6):
+        with pytest.raises(OSError, match="disk on fire"):
+            update_signal_index(tmp_path, _metadata(11 + batch, batch), f"orchestration-{batch}.metadata.json")
+    monkeypatch.undo()
+
+    if before is not None:
+        after = len(os.listdir(f"/proc/{os.getpid()}/fd"))
+        assert after <= before + 1, f"descriptors grew from {before} to {after} over five failed writes"
+    # Whatever the platform, no temporary may be left behind.
+    assert not list(tmp_path.glob("*.tmp")), list(tmp_path.glob("*.tmp"))
 
 
 def test_index_survives_a_write_that_fails_partway(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
