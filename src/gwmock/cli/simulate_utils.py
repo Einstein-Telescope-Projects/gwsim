@@ -847,7 +847,12 @@ def _record_digest(lock_file: Path, digest: str) -> None:
         digest: Digest of the index as committed.
     """
     try:
-        with lock_file.open("r+", encoding="utf-8") as handle:
+        # "a+", not "r+": the sidecar is normally created when the lock is taken, but the
+        # `fcntl is None` branch yields without creating it. With "r+" the index would commit and
+        # this would raise FileNotFoundError on every update, telling the operator to delete a
+        # file that does not exist -- breaking the platform the lock deliberately degrades for.
+        with lock_file.open("a+", encoding="utf-8") as handle:
+            handle.seek(0)
             handle.write(digest)
             handle.truncate()
             handle.flush()
@@ -1063,6 +1068,12 @@ def _require_fresh_index_read(index_file: Path, lock_file: Path) -> None:
     """
     recorded = _recorded_digest(lock_file)
     if recorded is None:
+        if not index_file.exists():
+            # A fresh directory, not a legacy one: the lock creates the sidecar empty, so the
+            # first write into any new directory would otherwise warn that an index which does
+            # not exist "predates the staleness guard". Warning on every clean run is how the
+            # message that matters gets ignored.
+            return
         logger.warning(
             "The signal index at %s has no digest recorded in %s, so this write cannot verify it "
             "is reading the current index. Predates the staleness guard; accepted until a digest "

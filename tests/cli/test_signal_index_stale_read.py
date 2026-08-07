@@ -278,7 +278,7 @@ def test_a_failure_to_record_the_digest_is_raised_not_swallowed(
     sidecar = tmp_path / "signal_index.yaml.lock"
 
     def _sidecar_write_fails(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
-        if self == sidecar and "r+" in mode:
+        if self == sidecar and ("r+" in mode or "a+" in mode):
             raise OSError("input/output error")
         return real_open(self, mode, *args, **kwargs)
 
@@ -380,3 +380,19 @@ def test_an_unrelated_failure_during_handling_is_still_retried() -> None:
     # `from None` severs the cause but pytest still records context; the retry must proceed.
     assert retry_with_backoff(_fails_during_handling, max_retries=3, initial_delay=0.0) == "ok"
     assert calls["n"] == 3, calls["n"]
+
+
+def test_a_fresh_directory_does_not_warn_about_predating_the_guard(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The legacy warning must not fire where there is no legacy.
+
+    The lock creates the sidecar empty, and empty means "no digest recorded" -- so without this
+    the first write into every new metadata directory warns that an index which does not exist
+    predates the guard. A warning on every clean run is how the one that matters gets ignored.
+    """
+    with caplog.at_level("WARNING"):
+        update_signal_index(tmp_path, _metadata(100, 0), "orchestration-0.metadata.json")
+    assert not [r for r in caplog.records if "predates" in r.message.lower()], [r.message for r in caplog.records]
+    # ...and the digest is still recorded, so the guard is armed from the second write on.
+    assert (tmp_path / "signal_index.yaml.lock").read_text().strip()
