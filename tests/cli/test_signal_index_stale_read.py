@@ -32,6 +32,7 @@ pinned here is that a stale read is *detected* rather than silently believed.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,13 @@ from typing import Any
 import pytest
 import yaml
 
-from gwmock.cli.simulate_utils import StaleIndexReadError, retry_with_backoff, update_signal_index
+from gwmock.cli import simulate_utils
+from gwmock.cli.simulate_utils import (
+    IndexDigestNotRecordedError,
+    StaleIndexReadError,
+    retry_with_backoff,
+    update_signal_index,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -251,3 +258,101 @@ def test_an_unreadable_sidecar_does_not_disable_the_guard(tmp_path: Path, monkey
     monkeypatch.setattr(Path, "read_text", _unreadable)
     with pytest.raises(StaleIndexReadError, match="could not be read"):
         update_signal_index(tmp_path, _metadata(71, 1), "orchestration-1.metadata.json")
+
+
+def test_a_failure_to_record_the_digest_is_raised_not_swallowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The blocker fix needs its own test: swallowing here wedges the directory silently.
+
+    Being able to take the lock does not mean the write lands -- fsync can still fail with EIO or
+    ENOSPC. Dropping that leaves the index committed and the sidecar behind, and every later
+    write refuses as stale with a message blaming a cache. Reverting to the old swallow passed
+    every other test in this file, which is why this one exists.
+    """
+    update_signal_index(tmp_path, _metadata(80, 0), "orchestration-0.metadata.json")
+    index_file = tmp_path / "signal_index.yaml"
+    committed = index_file.read_bytes()
+
+    real_open = Path.open
+    sidecar = tmp_path / "signal_index.yaml.lock"
+
+    def _sidecar_write_fails(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        if self == sidecar and "r+" in mode:
+            raise OSError("input/output error")
+        return real_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", _sidecar_write_fails)
+    with pytest.raises(IndexDigestNotRecordedError, match="could not be recorded"):
+        update_signal_index(tmp_path, _metadata(81, 1), "orchestration-1.metadata.json")
+    monkeypatch.undo()
+
+    # The index itself is committed and correct -- that is what makes the silent version so bad.
+    assert index_file.read_bytes() != committed
+    assert set(yaml.safe_load(index_file.read_text())) == {"80", "81"}
+
+
+def test_neither_guard_error_is_retried_even_when_wrapped() -> None:
+    """The no-retry rule must survive being re-raised from something else."""
+
+    def _attempts_before_giving_up(error: Exception) -> int:
+        calls = {"n": 0}
+
+        def _wrapped() -> None:
+            calls["n"] += 1
+            raise RuntimeError("wrapped") from error
+
+        with pytest.raises(RuntimeError):
+            retry_with_backoff(_wrapped, max_retries=3, initial_delay=0.0)
+        return calls["n"]
+
+    for error in (StaleIndexReadError("stale"), IndexDigestNotRecordedError("unrecorded")):
+        attempts = _attempts_before_giving_up(error)
+        assert attempts == 1, f"{type(error).__name__} wrapped was attempted {attempts} times"
+
+
+def test_a_withdrawing_batch_survives_both_dentries_being_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The no-op decision must not trust a sidecar read taken before the lock.
+
+    The sidecar is created by the same first write as the index, so a client that probed the
+    directory early caches a negative entry for *both*. Deciding to return early on that reading
+    skipped the withdrawal exactly as the original bug did -- reached through the sidecar instead
+    of the index.
+    """
+    update_signal_index(tmp_path, _metadata(90, 0), "orchestration-0.metadata.json")
+    index_file = tmp_path / "signal_index.yaml"
+    sidecar = tmp_path / "signal_index.yaml.lock"
+
+    real_exists = Path.exists
+    real_read_text = Path.read_text
+    unlocked = {"active": True}
+
+    def _both_look_absent(self: Path, **kwargs: Any) -> bool:
+        return False if (unlocked["active"] and self == index_file) else real_exists(self, **kwargs)
+
+    def _sidecar_looks_absent(self: Path, *args: Any, **kwargs: Any) -> str:
+        if unlocked["active"] and self == sidecar:
+            raise FileNotFoundError(sidecar)
+        return real_read_text(self, *args, **kwargs)
+
+    # The lock's own open("a+") revalidates the sidecar, so the staleness ends there -- which is
+    # precisely why the decision has to be made after it, not before.
+    real_lock = simulate_utils._exclusive_index_lock
+
+    @contextlib.contextmanager
+    def _lock_then_revalidate(path: Path):  # type: ignore[no-untyped-def]
+        with real_lock(path) as value:
+            unlocked["active"] = False
+            yield value
+
+    monkeypatch.setattr(Path, "exists", _both_look_absent)
+    monkeypatch.setattr(Path, "read_text", _sidecar_looks_absent)
+    monkeypatch.setattr(simulate_utils, "_exclusive_index_lock", _lock_then_revalidate)
+
+    empty = {"signal": {"injections": []}, "outputs": []}
+    update_signal_index(tmp_path, empty, "orchestration-0.metadata.json")
+    monkeypatch.undo()
+
+    assert yaml.safe_load(index_file.read_text()) == {}, "the withdrawal was skipped on a stale sidecar read"

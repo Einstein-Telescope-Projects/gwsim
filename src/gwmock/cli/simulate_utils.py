@@ -494,6 +494,29 @@ class IndexDigestNotRecordedError(RuntimeError):
 _NOT_WORTH_RETRYING = (StaleIndexReadError, IndexDigestNotRecordedError)
 
 
+def _is_not_worth_retrying(error: BaseException) -> bool:
+    """Return whether this failure, or anything it was raised from, is futile to retry.
+
+    The chain is walked because matching the outer type alone is fragile: wrapping one of these
+    in anything else -- ``raise RuntimeError(...) from StaleIndexReadError`` -- would restore the
+    retries, and a stale index read is no more fixable by waiting for having been re-raised.
+
+    Args:
+        error: The exception that ended the attempt.
+
+    Returns:
+        Whether to give up immediately.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        if isinstance(current, _NOT_WORTH_RETRYING):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def retry_with_backoff(
     func: Callable[..., Any],
     max_retries: int = 3,
@@ -523,16 +546,15 @@ def retry_with_backoff(
     for attempt in range(max_retries + 1):
         try:
             return func()
-        except _NOT_WORTH_RETRYING:
-            # Waiting changes nothing for these: a stale index read is a cache state, not a
-            # transient fault, and an unrecorded digest needs an operator. Retrying would also
-            # re-simulate the whole batch each time -- these are raised after the frames and
-            # metadata are already written -- so three attempts cost three full simulations and
-            # then fail anyway, with the second onwards tripping over the first attempt's own
-            # outputs. Fail now, loudly; a resumed run re-runs the batch because its checkpoint
-            # was never saved.
-            raise
         except Exception as e:  # pylint: disable=broad-exception-caught
+            if _is_not_worth_retrying(e):
+                # Waiting changes nothing for these: a stale index read is a cache state, not a
+                # transient fault, and an unrecorded digest needs an operator. Retrying also
+                # re-simulates the whole batch each time -- they are raised after the frames and
+                # metadata are already written -- so the attempts cost full simulations and fail
+                # anyway, with the second onwards tripping over the first's own outputs. Fail
+                # now; a resumed run re-runs the batch because its checkpoint was never saved.
+                raise
             last_exception = e
             if attempt < max_retries:
                 logger.warning(
@@ -990,14 +1012,16 @@ def update_signal_index(
     injections = (metadata.get("signal") or {}).get("injections") or []
     index_file = metadata_directory / "signal_index.yaml"
     lock_file = index_file.with_name(index_file.name + ".lock")
-    # `exists()` alone cannot decide this. A stale negative dentry -- the very fault the guard
-    # below exists for -- answers "no index" without contacting the server, and a batch that must
-    # *withdraw* its previous entries would then return having withdrawn nothing, leaving rows
-    # `find-signal --id` still trusts. If the sidecar records a digest, an index exists whether or
-    # not this client can currently see it, so take the lock and let the guard decide.
-    if not injections and not index_file.exists() and _recorded_digest(lock_file) is None:
-        return
     with _exclusive_index_lock(index_file):
+        # Decided inside the lock, deliberately. Nothing read before it can be trusted: a stale
+        # negative dentry -- the very fault this guards -- answers `exists()` for the index
+        # without contacting the server, and the sidecar is created by the same first write, so a
+        # client that probed the directory early caches a negative entry for *both*. An earlier
+        # version returned here on an un-revalidated sidecar read, and a withdraw-only batch then
+        # skipped its withdrawal exactly as before the fix. Taking the lock revalidates the
+        # sidecar, which is the only one of the two whose reading can be believed.
+        if not injections and not index_file.exists() and _recorded_digest(lock_file) is None:
+            return
         _require_fresh_index_read(index_file, lock_file)
         committed = _update_signal_index_locked(index_file, injections, metadata, metadata_file_name, encoding)
         _record_digest(lock_file, committed)
@@ -1903,10 +1927,13 @@ def execute_plan(  # noqa: PLR0915
 
                 except Exception as e:
                     logger.error(
-                        "Failed to execute batch %d for simulator %s after %d retries: %s",
+                        "Failed to execute batch %d for simulator %s after %s: %s",
                         batch.batch_index,
                         simulator_name,
-                        max_retries,
+                        # Not every failure is retried -- a stale index read and an unrecorded
+                        # digest are raised straight past the loop -- and claiming retries that
+                        # never happened misleads exactly when someone is reading logs in anger.
+                        "no retries (not retryable)" if _is_not_worth_retrying(e) else f"{max_retries} retries",
                         e,
                     )
                     raise
