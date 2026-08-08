@@ -24,6 +24,7 @@ from .reference_values import (
     build_reference,
     describe_difference,
     load_reference,
+    same_environment,
     statistic_differences,
     write_reference,
     writing_references,
@@ -99,7 +100,9 @@ def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_r
         for name in stored_outputs
         if stored_outputs[name]["content_hash"] == produced_outputs[name]["content_hash"]
     ]
-    if len(identical) != len(stored_outputs) and produced.get("fingerprint") == stored.get("fingerprint"):
+    if len(identical) != len(stored_outputs) and same_environment(
+        stored.get("fingerprint"), produced.get("fingerprint")
+    ):
         # Same environment, statistics agree, bits do not. Worth saying rather than passing in
         # silence: it is the signal that the references were written somewhere subtly different.
         print(

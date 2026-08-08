@@ -187,7 +187,53 @@ def fingerprint() -> dict[str, str]:
         "system": platform.system(),
         "machine": platform.machine(),
         "python": ".".join(str(part) for part in sys.version_info[:2]),
+        # The compute device, because two runs on one machine can differ by it alone. `execution:
+        # batched` generates through JAX, so the same host produces different last bits on its CPU and
+        # its GPU -- measured end to end at 3.16e-13 relative, a global time shift of 2.3e-16 s, which is
+        # benign and far inside `STATISTIC_TOLERANCE`. Without this the two runs fingerprint identically
+        # and the bit-mismatch note below blames "references written somewhere subtly different" for what
+        # is simply the other device.
+        "device": _jax_device(),
     }
+
+
+def _jax_device() -> str:
+    """Return the JAX backend this run will generate on, or why there is none.
+
+    ``"none"`` when JAX is absent, which is a real configuration here: the matrix entries that do not
+    need `ripplegw` run without it, and CI has a cell with no `jax` extra at all.
+    """
+    try:
+        import jax
+    except ImportError:
+        return "none"
+    try:
+        return str(jax.default_backend())
+    except Exception:  # pragma: no cover - a broken backend must not fail the comparison
+        # A CUDA plugin that cannot see a supported GPU raises rather than falling back, and that is
+        # worth recording as its own state instead of crashing a test run that would otherwise pass.
+        return "unavailable"
+
+
+def same_environment(stored: dict[str, str] | None, produced: dict[str, str] | None) -> bool:
+    """Whether two fingerprints describe the same numerical environment.
+
+    Compared over the keys the *stored* record carries, not over both. References written before a
+    fingerprint key existed would otherwise all read as "different environment" the moment one is added,
+    silencing the bit-mismatch note for every one of them until they are regenerated -- and regenerating
+    eight references to teach them a key they will get anyway on their next legitimate update is the
+    wrong trade. A reference that does record `device` is held to it.
+
+    Args:
+        stored: The fingerprint recorded with the reference, if any.
+        produced: The fingerprint of this run, if any.
+
+    Returns:
+        Whether every key the reference recorded matches this run.
+    """
+    if not stored or not produced:
+        return False
+    return all(produced.get(key) == value for key, value in stored.items())
 
 
 def _environment() -> dict[str, str]:
