@@ -743,3 +743,40 @@ class TestTheRippleSubstitutionIsHonest:
         assert orchestrator.signal_adapter is not None
         # And it does not then claim a library it failed to load.
         assert orchestrator._effective_waveform_backend() is None
+
+    def test_placement_refuses_rather_than_answering_with_the_wrong_library(self, tmp_path, monkeypatch):
+        """The reproducer a reviewer built against the first version of this fallback.
+
+        Constructing is harmless; *answering* is not. With ripple missing, the LAL-backed adapter
+        reported a 1.4+1.35 event at 5 Hz as finished on its 819.20 s tail, when ripple would have
+        produced 934.17 s and still been contributing to the segment. `_events_for_this_segment`
+        skipped it and advanced `population_index`; `_simulate_batched_segment` then returned early
+        on the empty batch, so generation never ran and the install error never surfaced. The event
+        was consumed, never generated, and nothing was reported -- exactly the outcome my "no ripple
+        means no generation, so nothing acts on a wrong answer" reasoning ruled out.
+        """
+        from gwmock.cli import adapter_orchestration as module
+
+        real = module.instantiate_backend
+
+        def _no_ripple(kind, name, *args, **kwargs):
+            if kind == "waveform" and name == "ripple":
+                raise ImportError("ripple (rippleGW) is not installed.")
+            return real(kind, name, *args, **kwargs)
+
+        monkeypatch.setattr(module, "instantiate_backend", _no_ripple)
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None, **{"minimum-frequency": 5.0})
+        start = float(getattr(orchestrator.start_time, "value", orchestrator.start_time))
+        _install(orchestrator, [start - 850.0])
+        orchestrator._population_events = [
+            {**_SKIP_EVENT, "detector_frame_mass_1": 1.4, "detector_frame_mass_2": 1.35, "coa_time": start - 850.0}
+        ]
+        orchestrator._placement_order_cache = None
+        orchestrator.population_index = 0
+
+        with pytest.raises(ImportError, match="gwmock-signal\\[jax\\]"):
+            orchestrator._simulate()
+
+        assert int(orchestrator.population_index) == 0, (
+            "the event was consumed by a placement answer the run could not stand behind"
+        )

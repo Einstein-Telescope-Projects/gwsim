@@ -33,6 +33,11 @@ from gwmock.simulator.state import StateAttribute
 #: supplying arguments would quietly change which library generates the waveforms.
 _DEFAULT_WAVEFORM_BACKEND = "lal"
 
+#: Sentinel recorded when a batched config needed ripple for its placement queries and could not
+#: have it. Distinct from ``None`` -- which means nothing was substituted and the default genuinely
+#: applies -- because the two must behave differently: one answers, the other must refuse.
+_RIPPLE_UNAVAILABLE = "__ripple_unavailable__"
+
 logger = logging.getLogger("gwmock")
 
 
@@ -419,7 +424,18 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 waveform_backend_name = "ripple"
                 substituted = "ripple"
             except ImportError:
-                logger.debug("ripple is unavailable, so the adapter keeps the default backend.")
+                # Construction still succeeds -- one reviewer showed that raising here breaks config
+                # validation, stubbed placement and every caller that only builds an orchestrator.
+                # But it must not proceed silently either: another reviewer then showed that a
+                # LAL-backed adapter answers placement, skips an event ripple would still be
+                # producing, and advances `population_index` -- and because the batched path returns
+                # early on an empty batch, generation never runs and the install error never
+                # surfaces. The event is consumed, never generated, and nothing is reported.
+                #
+                # So the failure is deferred to the first placement query instead of being dropped:
+                # constructing is harmless, asking a question whose answer would be wrong is not.
+                substituted = _RIPPLE_UNAVAILABLE
+                logger.debug("ripple is unavailable; placement queries will refuse rather than answer.")
 
         if waveform_backend_name is not None or waveform_backend_arguments:
             backend_arguments["waveform_backend"] = instantiate_backend(
@@ -526,6 +542,11 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         configured = self._configured_waveform_backend()
         if configured is not None:
             return configured
+        if self._substituted_waveform_backend == _RIPPLE_UNAVAILABLE:
+            # Nothing was substituted, and nothing generated either -- such a run cannot get past
+            # its first placement query. Reporting the sentinel as a library name would be worse
+            # than reporting the truth, which is that the default applied.
+            return None
         # Recorded by the code that made the substitution rather than recovered from the adapter.
         # The first version of this walked `_backend._waveform_factory` looking for a RippleBackend,
         # guessed the attribute name wrong, and silently returned None for every run -- reporting
@@ -764,6 +785,29 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         start_time_value = float(coa_time) if lead is None else float(coa_time) - float(lead)
         return start_time_value < end_time_value
 
+    def _require_placement_backend(self) -> None:
+        """Refuse to answer a placement question the run cannot answer correctly.
+
+        A batched config with no ``waveform-backend`` needs ripple, because that is what it
+        generates with. When ripple is missing the adapter is left on LAL, and a LAL answer here is
+        not merely unavailable -- it is *wrong in a way that consumes events*: it can report an event
+        finished when ripple would still be producing it, and the batched path then returns early on
+        the empty batch, so generation never runs and the install error never surfaces. The event is
+        skipped, the index advances, and nothing is reported.
+
+        Raises:
+            ImportError: If placement is asked of a batched run whose generating library is absent.
+        """
+        if self._substituted_waveform_backend != _RIPPLE_UNAVAILABLE:
+            return
+        raise ImportError(
+            "execution: batched generates with ripple, so segment placement has to ask ripple where "
+            "each waveform starts and ends -- and ripple is not installed. Answering with the "
+            "default library instead would skip events it reports as finished while ripple would "
+            "still be producing them, without ever reaching the code that raises this at "
+            "generation. Install the extra: pip install 'gwmock-signal[jax]'."
+        )
+
     def _event_ended_before_segment_start(self, parameters: Mapping[str, Any]) -> bool:
         """Return whether this event's waveform has finished before the current segment begins.
 
@@ -828,6 +872,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         """
         if self.signal_adapter is None:
             return None
+        self._require_placement_backend()
         # Called directly, exactly as the pre side calls its own query, and deliberately *not*
         # behind a `getattr` guard. A guard here returns `None` for an adapter without the method
         # and says nothing, which is precisely how this change shipped as a silent no-op: the
@@ -870,6 +915,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         """
         if self.signal_adapter is None:
             return None
+        self._require_placement_backend()
         try:
             return self.signal_adapter.pre_coalescence_duration(
                 parameters,
