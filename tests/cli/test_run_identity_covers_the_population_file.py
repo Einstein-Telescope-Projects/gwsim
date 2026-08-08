@@ -466,13 +466,20 @@ class TestTheNormaliser:
 
         Its carry byte was re-prepended to an empty read on every pass, so the loop never reached its
         break. A classic-Mac line ending, or a truncated CRLF write, is enough to produce it. The alarm
-        makes a regression fail in seconds instead of hanging the suite.
+        makes a regression fail in seconds instead of hanging the suite -- as a reported assertion, via an
+        installed handler, because `SIGALRM`'s default action would kill the session with no report at all.
         """
+
+        def _give_up(signum: int, frame: object) -> None:
+            raise AssertionError("the normaliser did not terminate")
+
+        previous = signal.signal(signal.SIGALRM, _give_up)
         signal.setitimer(signal.ITIMER_REAL, 10)
         try:
             digest = self._digest(b"header\ra,b\r")
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous)
         # Termination is the property under test. What that trailing `\r` *means* is the next assertion's
         # business: it is a terminator, so dropping it agrees with the same file written without it --
         # while the interior one stays content, which is why this is not compared to the all-LF form.
@@ -581,3 +588,19 @@ class TestBinaryCatalogues:
             assert checkpoint_utils._is_text_catalogue(Path(f"pop{suffix}")) is loader_treats_as_text, (
                 f"the identity and the loader disagree about {suffix}"
             )
+
+
+def test_an_unresolvable_home_directory_degrades_instead_of_crashing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`expanduser` raises `RuntimeError`, which is not an `OSError`, and must not escape.
+
+    A container or a stripped service account with no `HOME` and no passwd entry makes `Path.expanduser`
+    raise. It was called outside the guarded block, so instead of degrading to a marker like every other
+    failure here, it took the whole run down. An automated reviewer caught it.
+    """
+
+    def _no_home(self: Path) -> Path:
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(Path, "expanduser", _no_home)
+
+    assert checkpoint_utils._input_digest("~/population.csv") == "<unhashed>"

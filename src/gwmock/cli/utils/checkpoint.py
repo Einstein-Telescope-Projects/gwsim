@@ -137,8 +137,13 @@ def _input_digest(reference: str) -> str:
     """
     if _is_remote(reference):
         return "<remote>"
-    path = Path(reference).expanduser()
+    path = Path(reference)
     try:
+        # Inside the try, and catching `RuntimeError`: `expanduser` raises that -- not `OSError` -- when
+        # the home directory cannot be resolved at all (no `HOME`, no passwd entry), which a container or
+        # a stripped service account can produce. Outside, it escaped and took the run down instead of
+        # degrading to a marker, which is the opposite of what every other failure here does.
+        path = path.expanduser()
         with path.open("rb") as handle:
             # Text normalisation on a binary catalogue is not harmless, it is a false negative: an HDF5
             # dataset holding int8 13 (`\r`) and one holding 10 (`\n`) normalise to the same bytes, so two
@@ -147,7 +152,7 @@ def _input_digest(reference: str) -> str:
             if _is_text_catalogue(path):
                 return _digest_normalised(handle)
             return _digest_raw(handle)
-    except OSError as error:
+    except (OSError, RuntimeError) as error:
         logger.debug("Could not hash the run input %s: %s", path, error)
         return "<unhashed>"
 
