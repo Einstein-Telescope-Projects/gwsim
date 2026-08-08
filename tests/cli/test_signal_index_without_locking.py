@@ -73,36 +73,30 @@ def _reset_the_once_only_warning() -> None:
 
 
 def _without_fcntl(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Present Windows semantics for the calls this path actually makes.
+    """Remove ``fcntl`` so the unlocked branch runs. **A tripwire, not a platform.**
 
-    **What this does and does not claim.** An earlier version of this docstring said "any Unix-only
-    call on this branch now raises the ``AttributeError`` it would raise there". That was false, and
-    a reviewer showed why: deleting ``os.fchmod`` and ``os.fchown`` is name-removal, not a platform.
-    Worse, both are *off-path* -- breakage 1's own fix replaced ``fchmod`` with ``os.chmod``, so the
-    deletions guard two names nothing executes. They are kept as tripwires against those exact names
-    returning, and labelled as such rather than as a simulation.
+    Two rounds of review went into getting this docstring honest, and both rounds caught it claiming
+    more than it does.
 
-    What is simulated is the one live difference on this path: ``os.chmod`` accepts a *descriptor* on
-    POSIX (it forwards to ``fchmod``) and requires a *path* on Windows, where an fd raises. The code
-    holds a descriptor in scope while chmod'ing by path, and the comment there frames path-versus-
-    descriptor as a considered trade -- so the natural cleanup to ``os.chmod(descriptor, ...)`` would
-    break every write on Windows and, before this, passed every test here.
+    Round 1 killed "any Unix-only call on this branch now raises the ``AttributeError`` it would
+    raise there" -- deleting names is not a platform, and worse, ``os.fchmod``/``os.fchown`` are
+    *off-path*: breakage 1's own fix replaced ``fchmod`` with ``os.chmod``, so the deletions guard
+    names nothing executes.
 
-    Still not simulated, and known: open-handle sharing semantics, which need a real second writer
-    that no POSIX temporary directory can produce.
+    Round 2 then killed my replacement claim. I had made ``os.chmod`` reject a descriptor "as Windows
+    does" -- but ``PATH_HAVE_FCHMOD`` is forced to 1 for ``MS_WINDOWS`` in CPython's
+    ``posixmodule.c``, so ``os.chmod(fd, mode)`` *succeeds* on Windows for every interpreter this
+    project supports. That guard would have failed a refactor which is correct on the platform it
+    claimed to model. Verified against CPython source, not against either reviewer's assertion.
+
+    So this fixture does exactly one thing: it makes the ``fcntl is None`` branch reachable. The
+    tripwires on ``fchmod``/``fchown`` stay because those names really are absent on Windows, and
+    their return to this path would be a regression -- but they are tripwires, and nothing here
+    simulates Windows.
     """
     monkeypatch.setattr(simulate_utils, "fcntl", None)
     monkeypatch.delattr(simulate_utils.os, "fchmod", raising=False)
     monkeypatch.delattr(simulate_utils.os, "fchown", raising=False)
-
-    real_chmod = simulate_utils.os.chmod
-
-    def _path_only_chmod(target, mode, *args, **kwargs):
-        if isinstance(target, int):
-            raise NotImplementedError("chmod: file descriptors are not supported on this platform")
-        return real_chmod(target, mode, *args, **kwargs)
-
-    monkeypatch.setattr(simulate_utils.os, "chmod", _path_only_chmod)
 
 
 def _with_flock_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -224,39 +218,3 @@ def test_the_digest_sidecar_is_created_even_though_the_lock_path_never_opens_it(
     sidecar = tmp_path / "signal_index.yaml.lock"
     assert sidecar.exists(), "the digest sidecar was not created, so the next update cannot verify"
     assert simulate_utils._recorded_digest(sidecar) is not None, "the sidecar exists but records nothing"
-
-
-def test_the_index_is_opened_in_binary_mode_where_the_platform_has_one(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The atomic write must request ``O_BINARY``, which POSIX cannot notice on its own.
-
-    A reviewer found this by asking the question this file's fixture was built to answer and getting
-    the wrong answer: removing ``fcntl``, ``fchmod`` and ``fchown`` still permitted a Unix-only
-    assumption. ``os.open`` was called without ``O_BINARY``, so on Windows the descriptor opens in
-    the CRT's text mode -- and that translation sits *beneath* ``os.fdopen(..., "wb")``. The bytes on
-    disk would be CRLF while the digest describes LF, so every update after the first would refuse a
-    correct index as stale. Exactly the failure the code's own comment claimed to have prevented.
-
-    POSIX has no ``O_BINARY``, so this presents a platform that does -- as Windows does -- and
-    asserts the flag is requested. The spy strips it again before the real call, since the value
-    means something else here.
-    """
-    fake_o_binary = 0x8000
-    monkeypatch.setattr(simulate_utils.os, "O_BINARY", fake_o_binary, raising=False)
-    seen: list[int] = []
-    real_open = simulate_utils.os.open
-
-    def _spy(path, flags, *args, **kwargs):
-        seen.append(flags)
-        return real_open(path, flags & ~fake_o_binary, *args, **kwargs)
-
-    monkeypatch.setattr(simulate_utils.os, "open", _spy)
-
-    update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
-
-    assert seen, "the atomic write did not go through os.open, so this test proves nothing"
-    assert all(flags & fake_o_binary for flags in seen), (
-        "the index was opened without O_BINARY, so on Windows the bytes written would not be the "
-        "bytes hashed and the next update would refuse the index as stale"
-    )

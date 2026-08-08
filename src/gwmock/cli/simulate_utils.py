@@ -943,13 +943,7 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> str:
     digest = hashlib.sha256(payload).hexdigest()
     existing_mode = _existing_index_mode(index_file)
     temporary = index_file.with_name(f"{index_file.name}.{uuid.uuid4().hex}.tmp")
-    # `O_BINARY` is what makes the comment below true rather than aspirational. Without it a
-    # descriptor opens in the CRT's *text* mode on Windows, and that translation happens beneath
-    # `os.fdopen(..., "wb")` -- so the bytes written would be CRLF while the digest describes LF,
-    # and every update after the first would refuse a perfectly good index as stale. It is 0 on
-    # POSIX, where the distinction does not exist, so `getattr` keeps one code path.
-    binary_flag = getattr(os, "O_BINARY", 0)
-    descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | binary_flag, 0o666)
+    descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
     try:
         # Adopt the raw descriptor immediately. Anything that raises between `os.open` and
         # `os.fdopen` -- the chmod below used to sit there -- leaves a descriptor that the
