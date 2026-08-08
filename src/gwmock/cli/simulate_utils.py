@@ -973,10 +973,51 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> str:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, index_file)
+        # The rename itself has to reach the disk before the digest describing it does. `os.replace`
+        # is atomic with respect to readers, which is what the comment above is about, but atomicity
+        # is not durability: the directory entry can still be in the page cache when
+        # `_record_digest` writes the sidecar. A crash in that window leaves the *old* index with the
+        # *new* digest, and every later write then refuses as stale against a perfectly good file --
+        # loud and recoverable by deleting the sidecar, never a silent blessing of wrong bytes, but
+        # it needs an operator.
+        _fsync_directory(index_file.parent)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
     return digest
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Flush *directory*'s entries, so a rename inside it survives a crash. Best effort.
+
+    POSIX only, and deliberately not emulated elsewhere. Windows cannot open a directory with
+    ``os.open``, and the equivalent there would be a ``FlushFileBuffers`` call through ``ctypes`` on a
+    handle obtained with ``CreateFileW`` -- code no host in this project can execute. A reviewer
+    proposed exactly that; it is left out, because untested platform code that looks like protection
+    is worse than a documented gap. NTFS journals metadata, so the exposure there is smaller in any
+    case.
+
+    Swallows ``OSError`` rather than failing the write. The index is already committed by the time
+    this runs, so raising here would turn a successful update into an error and leave the caller
+    unable to tell that its data landed. A filesystem that refuses the fsync -- some network mounts do
+    -- gets the previous durability, which is what it had before this existed.
+
+    Args:
+        directory: Directory whose entries should be flushed.
+    """
+    if not hasattr(os, "O_DIRECTORY"):  # pragma: no cover - POSIX-only attribute
+        return
+    try:
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as error:  # pragma: no cover - depends on the filesystem
+        logger.debug("Could not open %s to flush its entries: %s", directory, error)
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError as error:  # pragma: no cover - depends on the filesystem
+        logger.debug("Could not flush the entries of %s: %s", directory, error)
+    finally:
+        os.close(descriptor)
 
 
 def _existing_index_mode(index_file: Path) -> int | None:
