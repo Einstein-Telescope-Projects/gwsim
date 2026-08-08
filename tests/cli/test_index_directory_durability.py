@@ -66,7 +66,7 @@ def _forget_degraded_mounts(monkeypatch: pytest.MonkeyPatch) -> None:
     fixture rather than a call inside the refusal helper: doing it there is what hid the case where a
     mount recovers and degrades again, since every episode looked like the first.
     """
-    monkeypatch.setattr(simulate_utils, "_DEGRADED_MOUNTS", set())
+    monkeypatch.setattr(simulate_utils, "_DEGRADED_TARGETS", set())
 
 
 def _metadata(event_id: int, batch: int) -> dict[str, Any]:
@@ -304,7 +304,7 @@ def test_a_directory_that_cannot_be_opened_for_reading_is_a_refusal(tmp_path: Pa
         else:
             pytest.skip("this user can read a write-only directory, so the refusal cannot be produced")
 
-        assert simulate_utils._fsync_directory(metadata_directory) is simulate_utils._DirectoryFlush.REFUSED
+        assert simulate_utils._fsync_directory(metadata_directory) is simulate_utils._DirectoryFlush.UNREADABLE
     finally:
         metadata_directory.chmod(0o755)
 
@@ -386,9 +386,6 @@ def test_many_directories_on_one_refusing_filesystem_warn_once_between_them(
     assert len(refusals) == 1, (
         f"one refusing filesystem produced {len(refusals)} warnings across {len(directories)} directories"
     )
-    assert len(simulate_utils._DEGRADED_MOUNTS) == 1, (
-        f"the degraded-mount set grew per directory rather than per filesystem: {simulate_utils._DEGRADED_MOUNTS}"
-    )
 
 
 def test_an_unidentifiable_filesystem_still_warns(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -413,10 +410,60 @@ def test_an_unidentifiable_filesystem_still_warns(tmp_path: Path, caplog: pytest
             "signal_index.yaml.lock",
         )
 
+        # Twice, deliberately. One call warns under any suppression at all, so a single warning cannot
+        # tell "keyed as its own scope" from "warns every time"; the second call distinguishes them, and
+        # it does so through the log rather than by reading the private set.
+        simulate_utils._note_flush_outcome(
+            missing,
+            simulate_utils._DirectoryFlush.REFUSED,
+            missing / "signal_index.yaml",
+            "signal_index.yaml.lock",
+        )
+
     refusals = [r for r in caplog.records if "refused to flush the directory" in r.message]
-    assert len(refusals) == 1, f"the warning was lost with the device number: {len(refusals)}"
-    assert {None} == simulate_utils._DEGRADED_MOUNTS, (
-        f"an unidentifiable filesystem was not given a key of its own: {simulate_utils._DEGRADED_MOUNTS}"
+    assert len(refusals) == 1, f"expected one warning across two calls, got {len(refusals)}"
+
+
+@pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
+def test_two_unreadable_directories_on_one_filesystem_each_warn(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A directory that cannot be opened is its own fault, not the filesystem's.
+
+    Both share ``st_dev``, so keying this by device reported the first and silently swallowed the
+    second -- and since the cause is that directory's own permissions, the operator never saw the repair
+    for it. A reviewer supplied the input. The mode is real rather than patched: root ignores it, so the
+    test skips instead of faking a refusal it cannot produce.
+    """
+    directories = [tmp_path / "run-a", tmp_path / "run-b"]
+    for directory in directories:
+        directory.mkdir()
+        directory.chmod(0o333)
+    try:
+        try:
+            os.close(os.open(directories[0], os.O_RDONLY | os.O_DIRECTORY))
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("this user can read a write-only directory, so the refusal cannot be produced")
+
+        assert directories[0].stat().st_dev == directories[1].stat().st_dev, "the input needs one filesystem"
+
+        with caplog.at_level(logging.WARNING, logger="gwmock.cli.simulate_utils"):
+            for directory in directories:
+                simulate_utils._note_flush_outcome(
+                    directory,
+                    simulate_utils._fsync_directory(directory),
+                    directory / "signal_index.yaml",
+                    "signal_index.yaml.lock",
+                )
+    finally:
+        for directory in directories:
+            directory.chmod(0o755)
+
+    unreadable = [r for r in caplog.records if "could not be opened to flush" in r.message]
+    assert len(unreadable) == 2, (
+        f"two directories with their own permission problem produced {len(unreadable)} warnings"
     )
 
 

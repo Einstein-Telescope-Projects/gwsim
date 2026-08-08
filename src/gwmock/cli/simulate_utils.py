@@ -1000,32 +1000,48 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> _Committ
     return _CommittedIndex(digest, flush)
 
 
-# Devices whose last directory flush was refused, so the warning is not repeated per batch.
+# What is currently known to be degraded, so the warning is not repeated per batch. Entries are
+# `(scope, key)`: a device number for a filesystem that refuses the flush, a directory for one that
+# cannot be opened. Both are cleared when a flush there succeeds, so an episode that ends and returns
+# is reported again -- a permanent cache went silent after the first episode of an intermittent mount.
 #
-# Keyed by `st_dev` and not by the index's path, which was wrong three ways. Refusing to flush is a
-# property of the *filesystem*: keying by path warned once per metadata directory, so a run over twenty
-# of them on one refusing mount emitted twenty copies of a multi-line warning and retained twenty cache
-# entries forever -- the module's only unbounded cache. Two spellings of one directory (a relative path
-# resolved from different working directories) both collided and duplicated, in either direction. And a
-# device set that is *cleared on success* lets a mount that recovers and degrades again warn a second
-# time, which a permanent cache cannot: an intermittent mount went silent after its first episode.
-_DEGRADED_MOUNTS: set[int | None] = set()
+# The two scopes exist because the two faults have different extents and different repairs. An fsync
+# the filesystem rejects is a property of the mount, so keying it per index warned once per metadata
+# directory: a run over twenty of them emitted twenty copies of a multi-line warning and kept twenty
+# entries for the life of the process. A directory that cannot be *opened* is a property of that
+# directory's permissions, and keying it by device hid the second such directory on a filesystem
+# entirely -- its own repair never shown. Path spelling is not a key in either case: a relative path
+# resolved from two working directories used to warn once for two filesystems, and one directory
+# reached by two spellings used to warn twice.
+#
+# `st_dev` is the best filesystem identity `os.stat` offers, and it is not perfect: Linux allocates
+# device numbers for NFS, tmpfs, FUSE and overlay from a pool and reuses them after unmount, so a
+# still-degraded number inherited by a new mount suppresses that mount's first warning. The mount id
+# that would distinguish them (`STATX_MNT_ID`) is not exposed through `os.stat`, and clearing on
+# success already covers the case where the new mount works. Accepted, and recorded here rather than
+# left for the next reader to rediscover.
+#
+# Not synchronised. Every production caller holds the index's `flock`, the writer is a sequential
+# batch loop, and the resource-monitor thread never touches it; the check-then-add is formally racy
+# but a 64-thread stress probe produced exactly one warning, and the worst case is a duplicated or
+# missing *warning*, never a correctness path.
+_DEGRADED_TARGETS: set[tuple[str, object]] = set()
 
 
 def _note_flush_outcome(directory: Path, flush: _DirectoryFlush, index_file: Path, sidecar_name: str) -> None:
-    """Warn on entering a refused-flush episode, once per filesystem rather than once per batch.
+    """Warn on entering a degraded episode, once per affected scope rather than once per batch.
 
-    At ``WARNING`` deliberately. The CLI logs at ``INFO`` by default, so the ``logger.debug`` line
-    inside :func:`_fsync_directory` produces nothing an operator sees, and a degradation with no signal
+    At ``WARNING`` deliberately. The CLI logs at ``INFO`` by default, so the ``logger.debug`` lines
+    inside :func:`_fsync_directory` produce nothing an operator sees, and a degradation with no signal
     is indistinguishable from a guarantee. Once per *episode* per process: a scheduler invoking gwmock
-    repeatedly on a refusing mount is told every time, which is the right way round for a condition an
-    operator can act on.
+    repeatedly against a degraded mount is told every time, which is the right way round for a condition
+    an operator can act on.
 
     ``UNSUPPORTED`` says nothing. It is a permanent property of the platform rather than a fault, and a
     warning on every run about a gap nobody can close is how the ones that can be acted on get ignored.
 
     Args:
-        directory: The directory whose flush was attempted; identified by device.
+        directory: The directory whose flush was attempted.
         flush: What :func:`_fsync_directory` managed.
         index_file: The index whose rename could not be made durable.
         sidecar_name: File name of the sidecar recording its digest.
@@ -1033,29 +1049,47 @@ def _note_flush_outcome(directory: Path, flush: _DirectoryFlush, index_file: Pat
     if flush is _DirectoryFlush.UNSUPPORTED:
         return
     try:
-        device: int | None = directory.stat().st_dev
+        device: object = directory.stat().st_dev
     except OSError:
         # Unidentifiable is its own key rather than a reason to skip: losing the device number must not
         # lose the warning.
         device = None
     if flush is _DirectoryFlush.FLUSHED:
-        _DEGRADED_MOUNTS.discard(device)
+        # Both scopes clear: whichever fault was recorded for this directory, a flush that succeeds here
+        # ends its episode.
+        _DEGRADED_TARGETS.discard(("filesystem", device))
+        _DEGRADED_TARGETS.discard(("directory", str(directory)))
         return
-    if device in _DEGRADED_MOUNTS:
+    if flush is _DirectoryFlush.UNREADABLE:
+        target = ("directory", str(directory))
+        message = (
+            "%s could not be opened to flush its entries, so the rename that installed this update is "
+            "not known to have reached stable storage. The index and its digest are correct and "
+            "complete, and the staleness guard is intact. This is a property of this directory rather "
+            "than of the filesystem -- most often its permissions: flushing needs to open it for "
+            "reading, which a write-only directory refuses. What is not covered: a crash before the "
+            "directory entry reaches the disk can reboot to the previous index while %s describes this "
+            "one, and every later write then refuses as stale against a good file -- repaired by "
+            "stopping the writers and deleting that sidecar, which holds only the digest and the lock. "
+            "Warned once per directory while the condition lasts, and again if it clears and returns."
+        )
+    else:
+        target = ("filesystem", device)
+        message = (
+            "The filesystem holding %s refused to flush the directory, so the rename that installed "
+            "this update is not known to have reached stable storage. The index and its digest are "
+            "correct and complete, and the staleness guard is intact. What is not covered: a crash "
+            "before the directory entry reaches the disk can reboot to the previous index while %s "
+            "describes this one, and every later write then refuses as stale against a good file -- "
+            "repaired by stopping the writers and deleting that sidecar, which holds only the digest "
+            "and the lock. On a network mount that window lasts until the client sends the rename, "
+            "which is seconds rather than instants. Warned once per filesystem while the condition "
+            "lasts, and again if it clears and returns."
+        )
+    if target in _DEGRADED_TARGETS:
         return
-    _DEGRADED_MOUNTS.add(device)
-    logger.warning(
-        "The filesystem holding %s refused to flush the directory, so the rename that installed this "
-        "update is not known to have reached stable storage. The index and its digest are correct and "
-        "complete, and the staleness guard is intact. What is not covered: a crash before the directory "
-        "entry reaches the disk can reboot to the previous index while %s describes this one, and every "
-        "later write then refuses as stale against a good file -- repaired by stopping the writers and "
-        "deleting that sidecar, which holds only the digest and the lock. On a network mount that window "
-        "lasts until the client sends the rename, which is seconds rather than instants. Warned once per "
-        "filesystem while the condition lasts, and again if it clears and returns.",
-        index_file,
-        sidecar_name,
-    )
+    _DEGRADED_TARGETS.add(target)
+    logger.warning(message, index_file, sidecar_name)
 
 
 class _DirectoryFlush(Enum):
@@ -1068,7 +1102,10 @@ class _DirectoryFlush(Enum):
     """This platform offers no way to flush a directory here. Durability is unverifiable."""
 
     REFUSED = "refused"
-    """The filesystem rejected the flush. Durability is unverifiable *and* unexpected."""
+    """The filesystem rejected the flush itself. Unverifiable, unexpected, and true of the whole mount."""
+
+    UNREADABLE = "unreadable"
+    """This directory could not be opened to flush it. Its own problem, not the filesystem's."""
 
 
 def _fsync_directory(directory: Path) -> _DirectoryFlush:
@@ -1103,7 +1140,7 @@ def _fsync_directory(directory: Path) -> _DirectoryFlush:
         descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
     except OSError as error:
         logger.debug("Could not open %s to flush its entries: %s", directory, error)
-        return _DirectoryFlush.REFUSED
+        return _DirectoryFlush.UNREADABLE
     try:
         os.fsync(descriptor)
     except OSError as error:
