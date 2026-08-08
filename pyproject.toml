@@ -27,7 +27,14 @@ dependencies = [
   # rather than the one holding its coalescence. Below this the query is absent, placement falls back
   # to `coa_time`, and the start of any waveform landing near a boundary is cropped -- so this is a
   # floor the behaviour depends on, not a convenience.
-  "gwmock-signal>=0.15.0",
+  #
+  # Floored at 0.16.0 for a *correctness* fix rather than a feature: gwmock-signal #370 projects the
+  # source direction into the frame of date. Before it, `gha = GMST - right_ascension` mixed a J2000
+  # right ascension with an Earth rotation measured from the mean equinox of date, an inconsistency
+  # worth 0.43 degrees in right ascension by 2030. The fix cuts worst-case disagreement with
+  # `lalpulsar.Barycenter` from 1.774e-04 s to 8.686e-07 s across a 192-point sky/epoch grid. It
+  # changes continuous-wave output, which is why this bump carries regenerated e2e references.
+  "gwmock-signal>=0.16.0",
   "gwmock-noise>=0.10.1",
   "gwmock-pop>=0.11.5",
   "typer>=0.19.0",         # Literal-type CLI options; the SPEC 0 floor (0.13) predates them
@@ -41,7 +48,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sgwb = ["gwmock-signal[sgwb]>=0.15.0"]
+sgwb = ["gwmock-signal[sgwb]>=0.16.0"]
 # The batched signal path. Without this extra `SignalAdapter.simulate_segments` and
 # `execution: batched` raise, because gwmock-signal's batched entry points need JAX and ripple,
 # which the base install omits.
@@ -51,16 +58,16 @@ sgwb = ["gwmock-signal[sgwb]>=0.15.0"]
 # it is the one the test suite exercises -- but it is not device execution, and nothing at runtime
 # distinguishes the two beyond `jax.devices()`. Use the `cuda` extra below for a GPU.
 #
-# 0.15.0 rather than 0.13.0 because that release floors `ripplegw>=0.3.1`, the first ripple
+# Floored above 0.13.0 because 0.15.0 floors `ripplegw>=0.3.1`, the first ripple
 # carrying the geocentre fix (GW-JAX-Team/ripple#141). Without it the continuous-wave path gets a
 # ripple that returns NaN for every sample at the geocentre, where these simulators generate. The
 # floor is deliberately *not* restated here as a `ripplegw` declaration: it belongs beside the
 # guard that raises on those NaNs, which lives in gwmock-signal, and stating a version in two
 # repositories is how the two drift.
-jax = ["gwmock-signal[jax]>=0.15.0"]
+jax = ["gwmock-signal[jax]>=0.16.0"]
 # The same path with an actual GPU backend. Linux x86_64 with a CUDA 12 driver only; there is no
 # macOS or Windows wheel, which is why this is separate from `jax` rather than folded into it.
-cuda = ["gwmock-signal[jax]>=0.15.0", "jax[cuda12]>=0.11.0"]
+cuda = ["gwmock-signal[jax]>=0.16.0", "jax[cuda12]>=0.11.0"]
 
 [dependency-groups]
 dev = [
