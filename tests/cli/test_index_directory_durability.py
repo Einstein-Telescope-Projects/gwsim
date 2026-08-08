@@ -334,22 +334,31 @@ def test_the_flush_is_skipped_where_the_platform_has_no_directory_open(
     assert (tmp_path / "signal_index.yaml").exists()
 
 
-def test_a_platform_without_directory_flushing_still_records_its_digest(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_platform_without_directory_flushing_records_its_digest_and_stays_quiet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The staleness guard stays on where durability cannot be verified at all.
+    """The staleness guard stays on where durability cannot be verified at all, and says nothing.
 
-    Every flush outcome records now, so this is the same policy as a refused flush rather than an
-    exception to it. It is pinned separately because the platform reaches the decision by a different
-    branch, and because a change that withholds the digest on either would have to break this test
-    explicitly rather than by omission.
+    Every flush outcome records now, so the digest half is the same policy as a refused flush rather
+    than an exception to it. It is pinned separately because the platform reaches the decision by a
+    different branch, and because a change that withholds the digest on either would have to break this
+    test explicitly rather than by omission.
+
+    The silence is the other half, and it needs its own assertion: a mutation that warned on *every*
+    non-flushed outcome passed every other test in this file. Warning here would fire on every run of
+    every batch on a platform whose gap the operator cannot close, which is how the warnings that can
+    be acted on get filtered out.
     """
     monkeypatch.delattr(os, "O_DIRECTORY", raising=False)
+    simulate_utils._warn_flush_refused_once.cache_clear()
 
-    update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
+    with caplog.at_level(logging.WARNING, logger="gwmock.cli.simulate_utils"):
+        update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
 
     recorded = (tmp_path / "signal_index.yaml.lock").read_text().strip()
-    assert recorded, "the digest was cleared on a platform that cannot flush directories at all"
+    assert recorded, "the digest was withheld on a platform that cannot flush directories at all"
     assert recorded == hashlib.sha256((tmp_path / "signal_index.yaml").read_bytes()).hexdigest(), (
         "the recorded digest does not describe the index that was committed"
     )
+    warnings = [record.message for record in caplog.records if record.levelno >= logging.WARNING]
+    assert warnings == [], f"a platform gap the operator cannot close warned anyway: {warnings}"
