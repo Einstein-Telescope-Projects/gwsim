@@ -293,7 +293,13 @@ class TestTheRealAdapterAnswers:
         Closes the last gap between "the adapter has the method" and "the orchestrator calls it":
         the two are wired by name, and a rename on either side would leave both tests above
         passing.
+
+        Needs ripple, and that is the point rather than an inconvenience: this fixture is a *batched*
+        config, and a batched run whose generating library is missing now answers the tail as
+        unknown on purpose, so that nothing is skipped on a number describing a different library's
+        buffer. Without the extra there is no answer to reach.
         """
+        pytest.importorskip("ripplegw", reason="a batched run cannot answer the tail without it")
         orchestrator = _orchestrator(tmp_path)
 
         tail = orchestrator._post_coalescence_duration({**_COMPLETE_EVENT, "coa_time": _START + 4.0})

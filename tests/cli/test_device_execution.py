@@ -482,3 +482,333 @@ class TestReferenceFrequencyReachesTheBackend:
         )
 
         assert orchestrator._batched_waveform_backend()._f_ref == 25.0
+
+
+#: A complete BBH parameter set, so both the placement query and generation can answer.
+_SKIP_EVENT: dict[str, Any] = {
+    "detector_frame_mass_1": 30.0,
+    "detector_frame_mass_2": 25.0,
+    "distance": 400.0,
+    "right_ascension": 1.0,
+    "declination": 0.5,
+    "polarization_angle": 0.2,
+    "inclination": 0.3,
+}
+
+
+def _install(orchestrator, coa_times: list[float]) -> None:
+    """Replace the catalogue and drop the cached placement order."""
+    orchestrator._population_events = [{**_SKIP_EVENT, "coa_time": t} for t in coa_times]
+    orchestrator._placement_order_cache = None
+    orchestrator.population_index = 0
+
+
+class TestTheBatchedPathActuallySkips:
+    """The lower bound on the path a GPU run takes, with real ripple numbers.
+
+    ``TestCatalogueConsumption`` already asserts the two modes agree on ``population_index`` -- but
+    every event in the bundled catalogue coalesces inside the segment, so it agrees with **zero
+    skips taken**, which is the trivial case. The skip decision itself has been exercised with stubs
+    and with the default LAL adapter; never end to end through ripple, which is what
+    ``execution: batched`` generates with.
+    """
+
+    def test_a_finished_event_is_skipped_and_consumed(self, tmp_path):
+        """Real query, real generation, no substitution."""
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        orchestrator = _orchestrator(tmp_path, "batched")
+        start = float(getattr(orchestrator.start_time, "value", orchestrator.start_time))
+        _install(orchestrator, [start - 900.0, start - 600.0, start + 2.0, start + 6.0])
+
+        event_ids, events = orchestrator._events_for_this_segment()
+
+        assert len(events) == 2, f"batched {len(events)} events for a segment containing 2"
+        assert sorted(event_ids) == [2, 3]
+
+    def test_both_modes_agree_when_skips_are_actually_taken(self, tmp_path):
+        """The agreement the existing test cannot show, because it never skips anything.
+
+        ``population_index`` is checkpointed, so a run switched between modes must not lose or
+        repeat an event -- and the interesting case is precisely the one where the two paths each
+        have to step over the same finished events.
+        """
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        start = _START
+        catalogue = [start - 900.0, start - 600.0, start + 2.0, start + 6.0]
+
+        per_event = _orchestrator(tmp_path / "per", "per-event")
+        batched = _orchestrator(tmp_path / "bat", "batched")
+        _install(per_event, catalogue)
+        _install(batched, catalogue)
+
+        per_event._simulate()
+        batched._simulate()
+
+        assert int(batched.population_index) == int(per_event.population_index)
+        # The index alone cannot see this. A walk that stopped skipping would *generate* the
+        # finished events instead of stepping over them and still arrive at 4, so agreement on the
+        # index is satisfied by both the fixed and the broken path -- a mutation proved exactly that.
+        # What separates them is how many events each one actually produced.
+        assert len(batched._batch_injections) == 2, (
+            f"the batched path generated {len(batched._batch_injections)} events; the finished ones "
+            "were not skipped, so this test is not covering what it exists for"
+        )
+        assert len(per_event._batch_injections) == 2, (
+            f"the per-event path generated {len(per_event._batch_injections)} events; it agreed on "
+            "the index while doing different work"
+        )
+        assert int(batched.population_index) == 4
+
+
+class TestTheQueryAnswersForTheBackendThatGenerates:
+    """A batched run must not ask one library where another library's buffer ends.
+
+    ``execution: batched`` always generates with ripple. The adapter answering the placement query
+    used to default to LAL, so the tail deciding whether an event was finished described a different
+    library's buffer -- and the two round buffer lengths onto different grids, so which is longer
+    flips with mass and cutoff.
+
+    That was not a hypothetical. Measured across 24 mass/cutoff combinations before the fix, **9 had
+    ripple's tail longer than LAL's**: 1.4+1.35 at 5 Hz answered 819.20 s against a generated
+    934.17 s, so an event with up to 115 s of content inside the segment was reported finished and
+    skipped. Low masses and low cutoffs are the Einstein Telescope regime. Two reviewers found this
+    independently, from a test that had pinned a single safe point (30+25 at 30 Hz) as though the
+    asymmetry were an invariant.
+    """
+
+    @pytest.mark.parametrize(
+        ("mass_1", "mass_2", "minimum_frequency"),
+        [
+            (30.0, 25.0, 30.0),  # was safe before the fix
+            (1.4, 1.35, 30.0),  # reversed: 6.4004 answered against 8.4375 generated
+            (1.4, 1.35, 5.0),  # reversed worst: 819.20 against 934.17
+            (4.5, 3.0, 30.0),  # reversed: 1.5996 against 1.8750
+            (3.0, 3.0, 5.0),  # reversed: 204.80 against 256.00
+            (30.0, 25.0, 20.0),  # reversed narrowly: 0.4004 against 0.4502
+        ],
+    )
+    def test_the_answering_tail_is_the_generated_one(self, tmp_path, mass_1, mass_2, minimum_frequency):
+        """Equality, not an inequality: the query and generation must describe one buffer.
+
+        The previous version of this test asserted ``answered >= generated`` -- an inequality that
+        holds at some parameters and not others, so it enshrined a coin-flip of rounding as a safety
+        property. With the adapter built on the generating backend there is nothing to compare
+        conservatively: the two are the same number.
+        """
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        from gwmock_signal.waveform.backends.ripple import RippleBackend
+
+        orchestrator = _orchestrator(
+            tmp_path / f"{mass_1}_{mass_2}_{minimum_frequency}",
+            "batched",
+            waveform_backend=None,
+            **{"minimum-frequency": minimum_frequency},
+        )
+        parameters = {
+            **_SKIP_EVENT,
+            "detector_frame_mass_1": mass_1,
+            "detector_frame_mass_2": mass_2,
+            "coa_time": _START + 4.0,
+        }
+
+        answered = orchestrator._post_coalescence_duration(parameters)
+        generated = RippleBackend().post_coalescence_duration(
+            "IMRPhenomD",
+            _SAMPLING_FREQUENCY,
+            minimum_frequency,
+            mass1=mass_1,
+            mass2=mass_2,
+            distance=_SKIP_EVENT["distance"],
+            inclination=_SKIP_EVENT["inclination"],
+        )
+
+        assert answered is not None
+        assert generated is not None
+        assert answered == pytest.approx(generated, abs=0.5 / _SAMPLING_FREQUENCY), (
+            f"the placement query answers {answered} s while ripple generates {generated} s; an "
+            f"event whose content reaches {generated - answered} s further than the query admits "
+            "can be skipped while it is still contributing to the segment"
+        )
+
+
+class TestTheLeadIsAlignedToo:
+    """The lead moved as well, and that is what actually relocates boundary events.
+
+    A reviewer found this after the tail fix: the adapter answers both queries, so aligning it to
+    ripple changed ``pre_coalescence_duration`` too -- and the lead drives ``_placement_key`` and the
+    upper bound. LAL and ripple disagree there as well (30+25 at 30 Hz: 3.60 s against 2.81 s), so an
+    event at ``end + 3.0`` was claimed by this segment before the fix and belongs to the next one
+    after it.
+
+    That is the same defect as the tail, on the other side: the query described a buffer a different
+    library would produce. It is a real behaviour change, it moves boundary events for configs where
+    the tail direction was already safe, and the tail sweep does not see it.
+    """
+
+    @pytest.mark.parametrize(
+        ("mass_1", "mass_2", "minimum_frequency"),
+        [(30.0, 25.0, 30.0), (1.4, 1.35, 5.0), (4.5, 3.0, 30.0)],
+    )
+    def test_the_answering_lead_is_the_generated_one(self, tmp_path, mass_1, mass_2, minimum_frequency):
+        """Equality against the generating backend, exactly as for the tail."""
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        from gwmock_signal.waveform.backends.ripple import RippleBackend
+
+        orchestrator = _orchestrator(
+            tmp_path / f"lead_{mass_1}_{minimum_frequency}",
+            "batched",
+            waveform_backend=None,
+            **{"minimum-frequency": minimum_frequency},
+        )
+        parameters = {
+            **_SKIP_EVENT,
+            "detector_frame_mass_1": mass_1,
+            "detector_frame_mass_2": mass_2,
+            "coa_time": _START + 4.0,
+        }
+
+        answered = orchestrator._pre_coalescence_duration(parameters)
+        generated = RippleBackend().pre_coalescence_duration(
+            "IMRPhenomD",
+            _SAMPLING_FREQUENCY,
+            minimum_frequency,
+            mass1=mass_1,
+            mass2=mass_2,
+            distance=_SKIP_EVENT["distance"],
+            inclination=_SKIP_EVENT["inclination"],
+        )
+
+        assert answered is not None
+        assert generated is not None
+        assert answered == pytest.approx(generated, abs=0.5 / _SAMPLING_FREQUENCY), (
+            f"the placement query answers a {answered} s lead while ripple generates {generated} s; "
+            "the segment an event is claimed by is decided from a different library's buffer"
+        )
+
+
+class TestTheRippleSubstitutionIsHonest:
+    """Substituting ripple for a batched config must not break construction or lie in provenance.
+
+    Both cases are reviewer findings against the first version of the fix, which instantiated ripple
+    eagerly in ``from_config`` and left the metadata reading the raw config key.
+    """
+
+    def test_metadata_names_the_library_that_actually_ran(self, tmp_path):
+        """Provenance must say ripple, because ripple is what answered and generated.
+
+        The metadata comment says ``None`` means gwmock-signal's default (LAL) applied. Reading the
+        raw config key would file a ripple run under LAL -- and that field exists precisely because
+        the two libraries produce different strain, so a wrong value is worse than a missing one.
+        """
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None)
+
+        assert orchestrator._effective_waveform_backend() == "ripple"
+
+    def test_a_per_event_config_still_reports_no_substitution(self, tmp_path):
+        """The substitution is batched-only, so per-event provenance must be unchanged."""
+        orchestrator = _orchestrator(tmp_path, "per-event", waveform_backend=None)
+
+        assert orchestrator._effective_waveform_backend() is None
+
+    def test_an_explicit_backend_is_reported_as_configured(self, tmp_path):
+        """A named backend is not a substitution and must be reported as the config wrote it."""
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend="ripple")
+
+        assert orchestrator._effective_waveform_backend() == "ripple"
+
+    def test_construction_survives_without_the_jax_extra(self, tmp_path, monkeypatch):
+        """A batched orchestrator must still *construct* when ripple is not installed.
+
+        The first version of this fix instantiated ripple eagerly, so config validation, stubbed
+        placement and every test passing ``waveform_backend=None`` began failing with "rippleGW is
+        not installed" -- and a genuine configuration error would surface as that message instead of
+        its own. Falling back is safe here and only here: without ripple the batched path cannot
+        generate at all, so no placement answer it might get wrong is ever acted on.
+        """
+        from gwmock.cli import adapter_orchestration as module
+
+        real = module.instantiate_backend
+
+        def _no_ripple(kind, name, *args, **kwargs):
+            if kind == "waveform" and name == "ripple":
+                raise ImportError("ripple (rippleGW) is not installed. Run: pip install 'gwmock-signal[jax]'")
+            return real(kind, name, *args, **kwargs)
+
+        monkeypatch.setattr(module, "instantiate_backend", _no_ripple)
+
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None)
+
+        assert orchestrator.signal_adapter is not None
+        # And it does not then claim a library it failed to load.
+        assert orchestrator._effective_waveform_backend() is None
+
+    def test_replacing_the_adapter_stops_the_substitution_claim(self, tmp_path):
+        """The record describes the adapter `from_config` built, so a swap must invalidate it.
+
+        A reviewer found the value surviving the replacement: provenance kept reporting ripple while
+        a LAL-backed stand-in answered every placement query. Tests substitute adapters routinely, so
+        this is the common path, not an exotic one. Clearing on assignment makes the record describe
+        nothing rather than describe the wrong thing.
+        """
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None)
+        assert orchestrator._effective_waveform_backend() == "ripple"
+
+        class _StandIn:
+            detector_names = ("E1",)
+
+        orchestrator.signal_adapter = _StandIn()
+
+        assert orchestrator._effective_waveform_backend() is None, (
+            "provenance still claims the library the replaced adapter was built on"
+        )
+
+    def test_nothing_is_skipped_on_an_answer_the_run_cannot_stand_behind(self, tmp_path, monkeypatch):
+        """The reproducer a reviewer built against the first version of this fallback.
+
+        Constructing is harmless; *answering* is not. With ripple missing, the LAL-backed adapter
+        reported a 1.4+1.35 event at 5 Hz as finished on its 819.20 s tail, when ripple would have
+        produced 934.17 s and still been contributing to the segment. `_events_for_this_segment`
+        skipped it and advanced `population_index`; `_simulate_batched_segment` then returned early
+        on the empty batch, so generation never ran and the install error never surfaced. The event
+        was consumed, never generated, and nothing was reported -- exactly the outcome my "no ripple
+        means no generation, so nothing acts on a wrong answer" reasoning ruled out.
+        """
+        from gwmock.cli import adapter_orchestration as module
+
+        real = module.instantiate_backend
+
+        def _no_ripple(kind, name, *args, **kwargs):
+            if kind == "waveform" and name == "ripple":
+                raise ImportError("ripple (rippleGW) is not installed.")
+            return real(kind, name, *args, **kwargs)
+
+        monkeypatch.setattr(module, "instantiate_backend", _no_ripple)
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None, **{"minimum-frequency": 5.0})
+        start = float(getattr(orchestrator.start_time, "value", orchestrator.start_time))
+        _install(orchestrator, [start - 850.0])
+        orchestrator._population_events = [
+            {**_SKIP_EVENT, "detector_frame_mass_1": 1.4, "detector_frame_mass_2": 1.35, "coa_time": start - 850.0}
+        ]
+        orchestrator._placement_order_cache = None
+        orchestrator.population_index = 0
+
+        # Nothing may be skipped on an answer this run cannot stand behind, so the tail reports
+        # unknown and the event is claimed. The batch is then non-empty, and on a machine without
+        # ripple generation raises the install error -- loudly, where it belongs, instead of an
+        # empty batch quietly completing and checkpointing the events as done.
+        #
+        # The generation half is deliberately not asserted here: this test forces the *construction*
+        # import to fail, so on a machine that has ripple -- which is where the suite runs --
+        # generation succeeds and consumes the event legitimately. Asserting a raise would pass only
+        # where ripple is absent and mislead everywhere else.
+        event = orchestrator._population_events[0]
+
+        assert orchestrator._post_coalescence_duration(event) is None, (
+            "the tail was answered by a library that is not the one this run generates with"
+        )
+        assert not orchestrator._event_ended_before_segment_start(event), (
+            "the event was skipped on a tail the run could not stand behind"
+        )

@@ -33,6 +33,11 @@ from gwmock.simulator.state import StateAttribute
 #: supplying arguments would quietly change which library generates the waveforms.
 _DEFAULT_WAVEFORM_BACKEND = "lal"
 
+#: Sentinel recorded when a batched config needed ripple for its placement queries and could not
+#: have it. Distinct from ``None`` -- which means nothing was substituted and the default genuinely
+#: applies -- because the two must behave differently: one answers, the other must refuse.
+_RIPPLE_UNAVAILABLE = "__ripple_unavailable__"
+
 logger = logging.getLogger("gwmock")
 
 
@@ -98,6 +103,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         population_seed: int | None = None,
         signal_adapter: SignalAdapter | None = None,
         noise_adapter: NoiseAdapter | None = None,
+        substituted_waveform_backend: str | None = None,
     ) -> None:
         self._population_events = tuple(population_events)
         self._population_metadata = dict(population_metadata)
@@ -154,6 +160,10 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         # thousands of times. Keyed by the failure text rather than a flag, because a single
         # malformed row fails only its own query and its cause differs from a whole-catalogue one --
         # collapsing both into one warning would name the wrong cause for everything after it.
+        #: Library the run was switched to when the config named none -- ripple for a batched
+        #: config, because that is what `execution: batched` generates with. `None` when nothing
+        #: was substituted. Provenance reads this so it names the library that actually ran.
+        self._substituted_waveform_backend = substituted_waveform_backend
         self._pre_coalescence_query_failures: set[str] = set()
         self._post_coalescence_query_failures: set[str] = set()
         #: How far the last batched walk traversed, set by `_events_for_this_segment` and consumed
@@ -215,8 +225,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         elif has_signal:
             source_type = str(orchestration_config.signal.source_type)  # type: ignore[union-attr]
 
+        substituted_waveform_backend: str | None = None
         if has_signal:
-            signal_adapter = cls._instantiate_signal_adapter(
+            signal_adapter, substituted_waveform_backend = cls._instantiate_signal_adapter(
                 orchestration_config.signal,
                 source_type=source_type,
                 detector_network=detector_network,
@@ -257,6 +268,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             orchestration_config=orchestration_config,
             population_seed=population_seed,
             signal_adapter=signal_adapter,
+            substituted_waveform_backend=substituted_waveform_backend,
             noise_adapter=noise_adapter,
         )
 
@@ -359,7 +371,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         source_type: str,
         detector_network: Network,
         duration: float,
-    ) -> SignalAdapter:
+    ) -> tuple[SignalAdapter, str | None]:
+        """Return the adapter and the backend name substituted for it, if any."""
+        substituted: str | None = None
         backend_name = signal_config.backend or source_type
         backend_class = resolve_backend_class("signal", backend_name)
         backend_arguments = _normalize_keys(dict(signal_config.arguments))
@@ -380,6 +394,49 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         # resolver and is rejected there instead of being treated as absent.
         waveform_backend_name = getattr(signal_config, "waveform_backend", None)
         waveform_backend_arguments = _normalize_keys(dict(signal_config.waveform_backend_arguments))
+
+        # `execution: batched` always generates with ripple -- `_batched_waveform_backend` refuses
+        # any other library rather than substituting one. So when a batched config names no backend,
+        # the adapter must be built on ripple too, or the *placement queries* answer for a LAL buffer
+        # while generation produces a ripple one.
+        #
+        # That mismatch deletes signal, and not hypothetically. The two libraries round buffer
+        # lengths onto different grids, so which tail is longer flips with mass and cutoff: measured
+        # across 24 mass/cutoff combinations, 9 have ripple's tail longer than LAL's -- 1.4+1.35 at
+        # 5 Hz answers 819.20 s against a generated 934.17 s, so an event up to 115 s of whose
+        # content lands inside the segment is reported finished and skipped. Low cutoffs and low
+        # masses are exactly the ET regime. Aligning the two here removes the whole class rather
+        # than relying on which way the rounding happens to fall.
+        batched = str(getattr(signal_config, "execution", "per-event")) == "batched"
+        if waveform_backend_name is None and batched:
+            # Not eager: a reviewer showed that instantiating ripple here breaks every caller that
+            # only wants to *construct* an orchestrator without the [jax] extra -- config
+            # validation, stubbed placement, the tests that pass waveform_backend=None -- and worse,
+            # it masks a real configuration error behind "rippleGW is not installed".
+            #
+            # Falling back is safe precisely where it applies: without ripple the batched path
+            # cannot generate at all, so no placement decision it might get wrong is ever acted on,
+            # and generation raises the actionable install error instead of this one.
+            try:
+                backend_arguments["waveform_backend"] = instantiate_backend(
+                    "waveform", "ripple", init_kwargs=waveform_backend_arguments
+                )
+                waveform_backend_name = "ripple"
+                substituted = "ripple"
+            except ImportError:
+                # Construction still succeeds -- one reviewer showed that raising here breaks config
+                # validation, stubbed placement and every caller that only builds an orchestrator.
+                # But it must not proceed silently either: another reviewer then showed that a
+                # LAL-backed adapter answers placement, skips an event ripple would still be
+                # producing, and advances `population_index` -- and because the batched path returns
+                # early on an empty batch, generation never runs and the install error never
+                # surfaces. The event is consumed, never generated, and nothing is reported.
+                #
+                # So the failure is deferred to the first placement query instead of being dropped:
+                # constructing is harmless, asking a question whose answer would be wrong is not.
+                substituted = _RIPPLE_UNAVAILABLE
+                logger.debug("ripple is unavailable; placement queries will refuse rather than answer.")
+
         if waveform_backend_name is not None or waveform_backend_arguments:
             backend_arguments["waveform_backend"] = instantiate_backend(
                 "waveform",
@@ -392,11 +449,12 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             backend_arguments=backend_arguments,
         )
         validate_backend("signal", backend_name, backend_class, backend_instance)
-        return SignalAdapter.from_backend(
+        adapter = SignalAdapter.from_backend(
             source_type=source_type,
             backend=backend_instance,
             network=detector_network,
         )
+        return adapter, substituted
 
     @staticmethod
     def _instantiate_noise_adapter(noise_config) -> NoiseAdapter:
@@ -435,9 +493,15 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                     # data: the same approximant from LAL and from ripple agree closely but not
                     # exactly, so without this two runs with materially different strain would
                     # carry identical provenance. Read from the config rather than stored
-                    # separately, to keep one source of truth. ``None`` means none was requested,
-                    # and gwmock-signal's own default (LAL) applied.
-                    "waveform_backend": self._configured_waveform_backend(),
+                    # separately, to keep one source of truth. ``None`` means none was requested
+                    # *and* none was substituted, so gwmock-signal's own default (LAL) applied.
+                    #
+                    # A batched config naming no backend is such a substitution: the adapter is
+                    # built on ripple, because that is what `execution: batched` generates with.
+                    # Reading the raw key here would record ``None`` for a run that used ripple, so
+                    # provenance and replay would name a different library than the one that
+                    # produced the data -- and the note above is exactly why that matters.
+                    "waveform_backend": self._effective_waveform_backend(),
                     "waveform_backend_arguments": self._configured_waveform_backend_arguments(),
                     "waveform_arguments": self.waveform_arguments,
                     "waveform_options": self.waveform_options,
@@ -463,6 +527,32 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         """Return the requested waveform-backend name, or ``None`` if the default applied."""
         signal_config = self.orchestration_config.signal
         return None if signal_config is None else getattr(signal_config, "waveform_backend", None)
+
+    def _effective_waveform_backend(self) -> str | None:
+        """Return the waveform library this run actually used, not the one the config named.
+
+        The two differ in exactly one case, and it is a case provenance must not misreport: a
+        batched config naming no backend is built on ripple, because ``execution: batched``
+        generates with ripple and the placement queries have to describe the buffer generation will
+        produce. Recording the raw key would file such a run under the default library.
+
+        Returns:
+            The backend name, or ``None`` when none was requested and none was substituted.
+        """
+        configured = self._configured_waveform_backend()
+        if configured is not None:
+            return configured
+        if self._substituted_waveform_backend == _RIPPLE_UNAVAILABLE:
+            # Nothing was substituted, and nothing generated either -- such a run cannot get past
+            # its first placement query. Reporting the sentinel as a library name would be worse
+            # than reporting the truth, which is that the default applied.
+            return None
+        # Recorded by the code that made the substitution rather than recovered from the adapter.
+        # The first version of this walked `_backend._waveform_factory` looking for a RippleBackend,
+        # guessed the attribute name wrong, and silently returned None for every run -- reporting
+        # the library correctly only by accident. Two private attributes across a package boundary
+        # is what this codebase warns about elsewhere, and this is why.
+        return self._substituted_waveform_backend
 
     def _configured_waveform_backend_arguments(self) -> dict[str, Any]:
         """Return the waveform-backend constructor arguments, empty when none were given."""
@@ -695,6 +785,46 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         start_time_value = float(coa_time) if lead is None else float(coa_time) - float(lead)
         return start_time_value < end_time_value
 
+    @property
+    def signal_adapter(self):
+        """The adapter answering placement queries and generating signals."""
+        return self._signal_adapter
+
+    @signal_adapter.setter
+    def signal_adapter(self, adapter) -> None:
+        """Replace the adapter, and stop claiming a substitution that described the old one.
+
+        ``_substituted_waveform_backend`` records which library `from_config` built the adapter on.
+        Replacing the adapter -- which tests do routinely, and which library callers may do --
+        invalidates that: a reviewer showed the recorded value survived the swap, so provenance
+        reported ripple while a LAL-backed stand-in answered every query. Clearing it makes the
+        record describe nothing rather than describe the wrong thing, and a caller who knows better
+        can set it explicitly.
+        """
+        self._signal_adapter = adapter
+        if getattr(self, "_substituted_waveform_backend", None) is not None:
+            self._substituted_waveform_backend = None
+
+    def _placement_backend_can_answer(self) -> bool:
+        """Whether the tail query describes the buffer this run will actually generate.
+
+        A batched config with no ``waveform-backend`` needs ripple, because that is what it
+        generates with. When ripple is missing the adapter is left on the default library, whose
+        tail is shorter than ripple's at some masses and cutoffs -- so *acting* on that answer can
+        skip an event ripple would still be producing.
+
+        Only the skip is dangerous, so only the skip is withheld: the tail reports *unknown*, which
+        by this module's standing rule claims the event rather than dropping it. The batch is then
+        non-empty, generation runs, and ripple's own install error surfaces where it belongs.
+        Refusing to answer at all was tried and was too broad -- it made every batched unit test and
+        every construct-and-inspect caller raise, in an environment where nothing was going to
+        generate anyway.
+
+        Returns:
+            Whether the answering backend is the one that will generate.
+        """
+        return self._substituted_waveform_backend != _RIPPLE_UNAVAILABLE
+
     def _event_ended_before_segment_start(self, parameters: Mapping[str, Any]) -> bool:
         """Return whether this event's waveform has finished before the current segment begins.
 
@@ -758,6 +888,18 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             Seconds after ``coa_time`` at which the waveform ends, or ``None`` for unknown.
         """
         if self.signal_adapter is None:
+            return None
+        if not self._placement_backend_can_answer():
+            # Unknown, not zero: the caller claims the event and generation raises the real error.
+            reason = "ripple is not installed, so the tail would describe a different library"
+            if reason not in self._post_coalescence_query_failures:
+                self._post_coalescence_query_failures.add(reason)
+                logger.warning(
+                    "Cannot establish how long after coalescence a waveform ends (%s). Every event "
+                    "is claimed rather than skipped, which is the conservative direction; "
+                    "generation will fail with the install instruction.",
+                    reason,
+                )
             return None
         # Called directly, exactly as the pre side calls its own query, and deliberately *not*
         # behind a `getattr` guard. A guard here returns `None` for an adapter without the method
