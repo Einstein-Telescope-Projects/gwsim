@@ -765,7 +765,7 @@ class TestTheRippleSubstitutionIsHonest:
             "provenance still claims the library the replaced adapter was built on"
         )
 
-    def test_placement_refuses_rather_than_answering_with_the_wrong_library(self, tmp_path, monkeypatch):
+    def test_nothing_is_skipped_on_an_answer_the_run_cannot_stand_behind(self, tmp_path, monkeypatch):
         """The reproducer a reviewer built against the first version of this fallback.
 
         Constructing is harmless; *answering* is not. With ripple missing, the LAL-backed adapter
@@ -795,9 +795,20 @@ class TestTheRippleSubstitutionIsHonest:
         orchestrator._placement_order_cache = None
         orchestrator.population_index = 0
 
-        with pytest.raises(ImportError, match="gwmock-signal\\[jax\\]"):
-            orchestrator._simulate()
+        # Nothing may be skipped on an answer this run cannot stand behind, so the tail reports
+        # unknown and the event is claimed. The batch is then non-empty, and on a machine without
+        # ripple generation raises the install error -- loudly, where it belongs, instead of an
+        # empty batch quietly completing and checkpointing the events as done.
+        #
+        # The generation half is deliberately not asserted here: this test forces the *construction*
+        # import to fail, so on a machine that has ripple -- which is where the suite runs --
+        # generation succeeds and consumes the event legitimately. Asserting a raise would pass only
+        # where ripple is absent and mislead everywhere else.
+        event = orchestrator._population_events[0]
 
-        assert int(orchestrator.population_index) == 0, (
-            "the event was consumed by a placement answer the run could not stand behind"
+        assert orchestrator._post_coalescence_duration(event) is None, (
+            "the tail was answered by a library that is not the one this run generates with"
+        )
+        assert not orchestrator._event_ended_before_segment_start(event), (
+            "the event was skipped on a tail the run could not stand behind"
         )

@@ -805,28 +805,25 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         if getattr(self, "_substituted_waveform_backend", None) is not None:
             self._substituted_waveform_backend = None
 
-    def _require_placement_backend(self) -> None:
-        """Refuse to answer a placement question the run cannot answer correctly.
+    def _placement_backend_can_answer(self) -> bool:
+        """Whether the tail query describes the buffer this run will actually generate.
 
         A batched config with no ``waveform-backend`` needs ripple, because that is what it
-        generates with. When ripple is missing the adapter is left on LAL, and a LAL answer here is
-        not merely unavailable -- it is *wrong in a way that consumes events*: it can report an event
-        finished when ripple would still be producing it, and the batched path then returns early on
-        the empty batch, so generation never runs and the install error never surfaces. The event is
-        skipped, the index advances, and nothing is reported.
+        generates with. When ripple is missing the adapter is left on the default library, whose
+        tail is shorter than ripple's at some masses and cutoffs -- so *acting* on that answer can
+        skip an event ripple would still be producing.
 
-        Raises:
-            ImportError: If placement is asked of a batched run whose generating library is absent.
+        Only the skip is dangerous, so only the skip is withheld: the tail reports *unknown*, which
+        by this module's standing rule claims the event rather than dropping it. The batch is then
+        non-empty, generation runs, and ripple's own install error surfaces where it belongs.
+        Refusing to answer at all was tried and was too broad -- it made every batched unit test and
+        every construct-and-inspect caller raise, in an environment where nothing was going to
+        generate anyway.
+
+        Returns:
+            Whether the answering backend is the one that will generate.
         """
-        if self._substituted_waveform_backend != _RIPPLE_UNAVAILABLE:
-            return
-        raise ImportError(
-            "execution: batched generates with ripple, so segment placement has to ask ripple where "
-            "each waveform starts and ends -- and ripple is not installed. Answering with the "
-            "default library instead would skip events it reports as finished while ripple would "
-            "still be producing them, without ever reaching the code that raises this at "
-            "generation. Install the extra: pip install 'gwmock-signal[jax]'."
-        )
+        return self._substituted_waveform_backend != _RIPPLE_UNAVAILABLE
 
     def _event_ended_before_segment_start(self, parameters: Mapping[str, Any]) -> bool:
         """Return whether this event's waveform has finished before the current segment begins.
@@ -892,7 +889,18 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         """
         if self.signal_adapter is None:
             return None
-        self._require_placement_backend()
+        if not self._placement_backend_can_answer():
+            # Unknown, not zero: the caller claims the event and generation raises the real error.
+            reason = "ripple is not installed, so the tail would describe a different library"
+            if reason not in self._post_coalescence_query_failures:
+                self._post_coalescence_query_failures.add(reason)
+                logger.warning(
+                    "Cannot establish how long after coalescence a waveform ends (%s). Every event "
+                    "is claimed rather than skipped, which is the conservative direction; "
+                    "generation will fail with the install instruction.",
+                    reason,
+                )
+            return None
         # Called directly, exactly as the pre side calls its own query, and deliberately *not*
         # behind a `getattr` guard. A guard here returns `None` for an adapter without the method
         # and says nothing, which is precisely how this change shipped as a silent no-op: the
@@ -935,7 +943,6 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         """
         if self.signal_adapter is None:
             return None
-        self._require_placement_backend()
         try:
             return self.signal_adapter.pre_coalescence_duration(
                 parameters,
