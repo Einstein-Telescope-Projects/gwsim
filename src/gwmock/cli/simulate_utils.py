@@ -726,7 +726,13 @@ def _exclusive_index_lock(index_file: Path) -> Iterator[None]:
     Yields:
         Nothing. The lock is held for the duration of the block.
     """
-    if fcntl is None:  # pragma: no cover - not reachable on POSIX
+    # No `# pragma: no cover` any more, and that is the point: this branch broke three times in one
+    # day while it was excluded, each time caught by a reviewer reading rather than by a failure.
+    # `tests/cli/test_signal_index_without_locking.py` makes it reachable by setting `fcntl` to
+    # `None`, and tripwires `os.fchmod` and `os.fchown` so a return of those two names to this path
+    # fails a test. It does **not** simulate Windows -- nothing here does, and the real differences
+    # that remain are tracked rather than tested.
+    if fcntl is None:
         _warn_unlocked_once()
         yield
         return
