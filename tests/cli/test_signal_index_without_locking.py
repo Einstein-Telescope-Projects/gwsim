@@ -180,3 +180,39 @@ def test_the_digest_sidecar_is_created_even_though_the_lock_path_never_opens_it(
     sidecar = tmp_path / "signal_index.yaml.lock"
     assert sidecar.exists(), "the digest sidecar was not created, so the next update cannot verify"
     assert simulate_utils._recorded_digest(sidecar) is not None, "the sidecar exists but records nothing"
+
+
+def test_the_index_is_opened_in_binary_mode_where_the_platform_has_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The atomic write must request ``O_BINARY``, which POSIX cannot notice on its own.
+
+    A reviewer found this by asking the question this file's fixture was built to answer and getting
+    the wrong answer: removing ``fcntl``, ``fchmod`` and ``fchown`` still permitted a Unix-only
+    assumption. ``os.open`` was called without ``O_BINARY``, so on Windows the descriptor opens in
+    the CRT's text mode -- and that translation sits *beneath* ``os.fdopen(..., "wb")``. The bytes on
+    disk would be CRLF while the digest describes LF, so every update after the first would refuse a
+    correct index as stale. Exactly the failure the code's own comment claimed to have prevented.
+
+    POSIX has no ``O_BINARY``, so this presents a platform that does -- as Windows does -- and
+    asserts the flag is requested. The spy strips it again before the real call, since the value
+    means something else here.
+    """
+    fake_o_binary = 0x8000
+    monkeypatch.setattr(simulate_utils.os, "O_BINARY", fake_o_binary, raising=False)
+    seen: list[int] = []
+    real_open = simulate_utils.os.open
+
+    def _spy(path, flags, *args, **kwargs):
+        seen.append(flags)
+        return real_open(path, flags & ~fake_o_binary, *args, **kwargs)
+
+    monkeypatch.setattr(simulate_utils.os, "open", _spy)
+
+    update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
+
+    assert seen, "the atomic write did not go through os.open, so this test proves nothing"
+    assert all(flags & fake_o_binary for flags in seen), (
+        "the index was opened without O_BINARY, so on Windows the bytes written would not be the "
+        "bytes hashed and the next update would refuse the index as stale"
+    )
