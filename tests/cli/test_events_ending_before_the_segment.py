@@ -302,6 +302,64 @@ class TestTheRealAdapterAnswers:
         assert tail > 0.0
 
 
+class TestAgainstRealGeneration:
+    """The predicted tail has to be the tail generation actually produces.
+
+    The post-side mirror of ``test_the_predicted_lead_matches_the_generated_buffer``, and named by a
+    reviewer as the single most valuable test missing from this change. Every other test here asks
+    whether the query *answers*; this one asks whether the answer is *true*. The direction matters:
+    a tail shorter than generation produces means an event is skipped while it is still contributing
+    signal to the segment -- deleting real data, which is the one outcome strictly worse than the
+    wasted work this change removes. It held when the reviewer probed it by hand; nothing pinned it,
+    so a regression in the adapter's parameter merge or the backend's arithmetic would pass the
+    whole suite.
+    """
+
+    def test_the_predicted_tail_matches_the_generated_buffer(self, tmp_path):
+        """Measured on the produced ``TimeSeries``, not recomputed from the same formula."""
+        orchestrator = _orchestrator(tmp_path)
+        adapter = orchestrator.signal_adapter
+        assert adapter is not None
+        coa_time = _START + 8.0
+        parameters = {**_COMPLETE_EVENT, "coa_time": coa_time}
+
+        predicted = adapter.post_coalescence_duration(
+            parameters,
+            sampling_frequency=_SAMPLING_FREQUENCY,
+            minimum_frequency=30.0,
+        )
+        strain = adapter.simulate(parameters, sampling_frequency=_SAMPLING_FREQUENCY, minimum_frequency=30.0)
+        # `end_time` is the series' own accessor rather than arithmetic on the array, so the test
+        # cannot disagree with the object about where the buffer ends.
+        measured = float(strain.end_time.value) - coa_time
+
+        assert predicted is not None, "LAL can answer this; a None here would disable the fix silently"
+        assert predicted == pytest.approx(measured, abs=0.5 / _SAMPLING_FREQUENCY), (
+            f"predicted tail {predicted} s but generation ends {measured} s after coalescence"
+        )
+
+    def test_the_two_sides_account_for_the_whole_generated_buffer(self, tmp_path):
+        """Lead plus tail is the buffer, checked against the buffer that was generated.
+
+        Catches a drift that splits the buffer wrongly while keeping each side self-consistent --
+        the failure the two separate agreement tests can each miss on their own.
+        """
+        orchestrator = _orchestrator(tmp_path)
+        adapter = orchestrator.signal_adapter
+        assert adapter is not None
+        parameters = {**_COMPLETE_EVENT, "coa_time": _START + 8.0}
+        kwargs = {"sampling_frequency": _SAMPLING_FREQUENCY, "minimum_frequency": 30.0}
+
+        lead = adapter.pre_coalescence_duration(parameters, **kwargs)
+        tail = adapter.post_coalescence_duration(parameters, **kwargs)
+        strain = adapter.simulate(parameters, **kwargs)
+        generated = float(strain.duration.value)
+
+        assert lead is not None
+        assert tail is not None
+        assert lead + tail == pytest.approx(generated, abs=1.0 / _SAMPLING_FREQUENCY)
+
+
 class TestADegradedAdapterIsReported:
     """An adapter that cannot answer must say so once, not disappear into a silent fallback."""
 
@@ -334,6 +392,34 @@ class TestADegradedAdapterIsReported:
         assert any("after coalescence" in record.message for record in caplog.records), (
             "the adapter could not answer and the run was told nothing"
         )
+
+    def test_the_warning_is_not_repeated_once_per_event(self, tmp_path, caplog):
+        """Deduplicated by reason across a whole walk, not merely on a single call.
+
+        A catalogue the query cannot read fails identically for every row, and one message is right
+        for it -- a per-event warning would bury the run's real output. Asserted over a walk rather
+        than two direct calls, because the walk is where the repetition would actually happen.
+        """
+
+        class _AdapterWithoutTheQuery:
+            detector_names = ("E1",)
+
+            def pre_coalescence_duration(self, parameters, **_):
+                del parameters
+                return 3.6
+
+        orchestrator = _orchestrator(tmp_path)
+        orchestrator.signal_adapter = _AdapterWithoutTheQuery()
+        start = _start_time(orchestrator)
+        _install_events(orchestrator, [start - 900.0, start - 800.0, start + 2.0, start + 6.0])
+
+        with caplog.at_level("WARNING"):
+            _, events = orchestrator._events_for_this_segment()
+
+        warnings = [r for r in caplog.records if "after coalescence" in r.message]
+        assert len(warnings) == 1, f"warned {len(warnings)} times across a {len(events)}-event walk"
+        # And the degraded query must not have dropped anything: unknown claims.
+        assert len(events) == 4
 
 
 class TestTheIndexSurvivesInterleavedSkips:
