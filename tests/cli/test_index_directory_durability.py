@@ -23,7 +23,8 @@ backwards before landing here.** The digest is recorded anyway. Withholding it l
 describing a rename that might vanish -- but an empty sidecar *is* the permissive legacy path, so a
 writer on another host with a stale cached view is accepted and silently discards the entries it could
 not see, with no crash needed. Withholding also cannot deliver its own invariant, since clearing happens
-after the rename and a crash between them leaves the old digest describing the new index regardless.
+after the rename and a crash between them leaves the sidecar's old digest against a possibly-new index,
+which refuses exactly as the state it was avoiding does.
 
 So the guard is kept and the durability gap is carried. A crash in that window leaves index and sidecar
 disagreeing one way or the other, and either way the next write refuses: loud, and repaired by deleting
@@ -320,9 +321,11 @@ def test_the_degradation_warns_where_an_operator_will_see_it_but_only_once(
     """A degradation with no signal is indistinguishable from a guarantee.
 
     ``_fsync_directory`` logs at ``DEBUG`` and the CLI runs at ``INFO``, so the flush failure alone
-    produces nothing an operator sees. The warning has to be at ``WARNING`` -- and once per index, not
-    once per batch, because a mount that refuses the flush refuses it for every batch in the run and a
-    per-batch warning is how the message gets filtered out.
+    produces nothing an operator sees. The warning has to be at ``WARNING`` -- and once per *filesystem*
+    rather than once per batch, because a mount that refuses the flush refuses it for every batch in the
+    run and a per-batch warning is how the message gets filtered out. One index is written here, so this
+    test cannot tell per-filesystem from per-index; the scope itself is pinned by
+    `test_many_directories_on_one_refusing_filesystem_warn_once_between_them`.
     """
     _refuse_directory_fsync(monkeypatch)
 
@@ -373,9 +376,10 @@ def test_many_directories_on_one_refusing_filesystem_warn_once_between_them(
 
     Keyed per index, a run over twenty metadata directories on one refusing mount emitted twenty copies
     of a multi-line warning and kept twenty cache entries for the life of the process. A reviewer
-    measured both. Keying on ``st_dev`` collapses them, and it also fixes the path-spelling collisions
-    the other reviewer found -- two spellings of one directory used to warn twice, and one relative path
-    resolved from two working directories used to warn once for what were different filesystems.
+    measured both. Keying on ``st_dev`` collapses them. These four directories share one device, so
+    what is demonstrated here is the collapse and nothing more -- the path-spelling collisions the other
+    reviewer found are asserted for the directory scope by
+    `test_one_relative_spelling_in_two_working_directories_is_two_directories`, not here.
     """
     directories = [tmp_path / f"run-{index}" for index in range(4)]
     for directory in directories:

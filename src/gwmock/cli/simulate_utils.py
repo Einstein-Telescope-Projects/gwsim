@@ -937,8 +937,10 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> _Committ
         is that reading ``index_file`` can be served from a stale client cache, so digesting a re-read
         could record the digest of this client's *stale view* — and a later client with the same stale
         view would then match it and overwrite silently, which is the bug rather than the fix. The
-        flush outcome travels with it because recording that digest is only sound when the name it
-        describes will still be there after a crash.
+        flush outcome travels with it so the caller can *report* a rename whose durability is
+        unverifiable. It is not a gate on recording the digest: an earlier version of this function made
+        it one, and that turned a rare loud failure into a routine silent one -- see the decision comment
+        in :func:`update_signal_index`.
 
     Raises:
         OSError: If the file cannot be written or renamed.
@@ -1137,7 +1139,8 @@ def _fsync_directory(directory: Path) -> _DirectoryFlush:
         directory: Directory whose entries should be flushed.
 
     Returns:
-        Which of the three outcomes occurred.
+        Which of the four outcomes occurred: flushed, unsupported by the platform, refused by the
+        filesystem, or a directory that could not be opened.
     """
     # No `pragma: no cover`. Every branch here is reached by
     # `tests/cli/test_index_directory_durability.py` -- this one by deleting the attribute, the two
