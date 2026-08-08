@@ -396,7 +396,7 @@ class TestWhatTheLoaderActuallyReads:
         assert not [r for r in caplog.records if "not part of the run's identity" in r.message]
 
 
-def test_a_real_resume_over_a_remote_population_emits_the_warning(
+def test_a_real_resume_over_a_remote_population_reports_the_gap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The warning has to be reached by the resume, not merely exist.
@@ -466,7 +466,10 @@ class TestTheNormaliser:
             digest = self._digest(b"header\ra,b\r")
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
-        assert digest == self._digest(b"header\na,b\n")
+        # Termination is the property under test. What that trailing `\r` *means* is the next assertion's
+        # business: it is a terminator, so dropping it agrees with the same file written without it --
+        # while the interior one stays content, which is why this is not compared to the all-LF form.
+        assert digest == self._digest(b"header\ra,b")
 
     @pytest.mark.parametrize(
         ("label", "data"),
@@ -475,8 +478,8 @@ class TestTheNormaliser:
             ("no trailing newline", b"header\na,b"),
             ("one trailing blank line", b"header\na,b\n\n"),
             ("three trailing blank lines", b"header\na,b\n\n\n\n"),
-            ("lone carriage returns", b"header\ra,b\r"),
             ("crlf with trailing blanks", b"header\r\na,b\r\n\r\n"),
+            ("a trailing lone carriage return", b"header\na,b\r"),
         ],
     )
     def test_forms_that_parse_alike_hash_alike(self, label: str, data: bytes) -> None:
@@ -495,6 +498,7 @@ class TestTheNormaliser:
             ("a blank line in the middle", b"header\n\na,b\n"),
             ("an added row", b"header\na,b\nc,d\n"),
             ("trailing spaces on a row", b"header\na,b  \n"),
+            ("an interior lone carriage return", b"header\ra,b\n"),
         ],
     )
     def test_content_changes_still_differ(self, label: str, data: bytes) -> None:
@@ -514,6 +518,16 @@ class TestTheNormaliser:
         filler = b"x" * ((1 << 20) - 1)
         assert self._digest(filler + b"\r\ntail\n") == self._digest(filler + b"\ntail\n")
 
+    def test_an_interior_lone_carriage_return_is_content_not_a_line_ending(self) -> None:
+        """Inside a quoted CSV field a `\r` is data, so collapsing it would hide a real difference.
+
+        Round 2's brief said this explicitly and round 3's code did it anyway -- every lone `\r` was
+        rewritten to `\n`, so a catalogue with `"a\rb"` in a field hashed the same as one with `"a\nb"`.
+        A reviewer caught the contradiction. The cost of not rewriting is that a classic-Mac-terminated
+        file no longer matches its LF twin, which refuses a resume rather than accepting a wrong one.
+        """
+        assert self._digest(b'header\n"a\rb",c\n') != self._digest(b'header\n"a\nb",c\n')
+
     def test_a_lone_carriage_return_at_a_chunk_boundary_is_not_swallowed(self) -> None:
         """Carrying the boundary `\r` matters only when the next byte is not `\n` -- and then it matters.
 
@@ -523,5 +537,32 @@ class TestTheNormaliser:
         same. Found by mutation, not by reading.
         """
         filler = b"x" * ((1 << 20) - 1)
-        assert self._digest(filler + b"\ra,b\n") == self._digest(filler + b"\na,b\n")
+        # The `\r` is content now, so it must survive the boundary rather than vanish -- dropping it
+        # would make this file identical to one with no separator there at all.
         assert self._digest(filler + b"\ra,b\n") != self._digest(filler + b"a,b\n")
+        assert self._digest(filler + b"\r\na,b\n") == self._digest(filler + b"\na,b\n")
+
+
+class TestBinaryCatalogues:
+    """Line-ending normalisation must not touch a format where those bytes are values."""
+
+    def test_two_hdf5_catalogues_differing_by_0x0d_versus_0x0a_do_not_hash_alike(self, tmp_path: Path) -> None:
+        """The false negative a reviewer found: text normalisation applied to a binary catalogue.
+
+        An HDF5 dataset holding int8 13 (`\r`) and one holding 10 (`\n`) are different populations, and the
+        format-blind rewrite mapped them to the same bytes -- so the resume this guard exists to refuse
+        went through. Suffixes the loader parses as text are normalised; everything else is hashed raw.
+        """
+        first, second = tmp_path / "pop.h5", tmp_path / "other.h5"
+        first.write_bytes(b"\x89HDF\r\n\x1a\n" + bytes([13]))
+        second.write_bytes(b"\x89HDF\r\n\x1a\n" + bytes([10]))
+        assert checkpoint_utils._input_digest(str(first)) != checkpoint_utils._input_digest(str(second))
+
+    def test_the_text_suffixes_match_what_the_loader_parses_as_text(self) -> None:
+        """Agreement with the loader, asserted rather than assumed -- as for the URL predicate."""
+        infer = pytest.importorskip("gwmock_pop.loaders.file_loader").infer_population_file_format
+        for suffix in (".csv", ".hdf5", ".h5"):
+            loader_treats_as_text = infer(Path(f"pop{suffix}")) == "csv"
+            assert checkpoint_utils._is_text_catalogue(Path(f"pop{suffix}")) is loader_treats_as_text, (
+                f"the identity and the loader disagree about {suffix}"
+            )

@@ -123,8 +123,8 @@ def _input_digest(reference: str) -> str:
     A remote reference is a marker rather than a fetch: identifying the run is not worth downloading the
     catalogue twice. **This means remote populations get no content coverage at all** -- the marker adds
     nothing the config hash did not already carry, and a re-fetch that returns different bytes between an
-    interrupt and a resume is undetected. :func:`run_fingerprint` warns about that rather than implying
-    the gap is closed.
+    interrupt and a resume is undetected. :func:`report_unverified_inputs`, called from the resume path, says so at
+    ``INFO`` -- it cannot tell a pinned URL from a mutable one, so it informs rather than warns.
 
     An unreadable reference is a marker too, not an exception. This runs before the plan executes, so a
     population staged later or a path typo has to reach its own error rather than a traceback from the
@@ -136,10 +136,46 @@ def _input_digest(reference: str) -> str:
     path = Path(reference).expanduser()
     try:
         with path.open("rb") as handle:
-            return _digest_normalised(handle)
+            # Text normalisation on a binary catalogue is not harmless, it is a false negative: an HDF5
+            # dataset holding int8 13 (`\r`) and one holding 10 (`\n`) normalise to the same bytes, so two
+            # different populations hash identically and the resume they should refuse goes through. Found
+            # in review. Only what the loader parses as text is normalised; everything else is hashed raw.
+            if _is_text_catalogue(path):
+                return _digest_normalised(handle)
+            return _digest_raw(handle)
     except OSError as error:
         logger.debug("Could not hash the run input %s: %s", path, error)
         return "<unhashed>"
+
+
+# Suffixes the population loader parses as text. Mirrors `gwmock_pop`'s
+# `loaders.file_loader.infer_population_file_format`, which maps `.csv` to "csv" and `.hdf5`/`.h5` to
+# "hdf5". Duplicated rather than imported because it is private, and compared against it in the tests
+# whenever it can be imported -- the same arrangement as the URL predicate, for the same reason.
+_TEXT_CATALOGUE_SUFFIXES = frozenset({".csv"})
+
+
+def _is_text_catalogue(path: Path) -> bool:
+    """Whether the loader would parse *path* as text, and line endings therefore carry no content."""
+    return path.suffix.lower() in _TEXT_CATALOGUE_SUFFIXES
+
+
+def _digest_raw(handle: IO[bytes]) -> str:
+    """sha256 of *handle*'s bytes exactly as they are.
+
+    For a binary catalogue, where every byte is content and `\r`/`\n` are values rather than line
+    endings.
+
+    Args:
+        handle: An open binary handle positioned at the start.
+
+    Returns:
+        The hex digest of the bytes.
+    """
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: handle.read(1 << 20), b""):
+        digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _digest_normalised(handle: IO[bytes]) -> str:
@@ -149,10 +185,14 @@ def _digest_normalised(handle: IO[bytes]) -> str:
     45 MB million-row file.
 
     Two normalisations, both aimed at the same false refusal: a machine regenerating a catalogue with
-    identical rows must not turn a resume away. ``\r\n`` and a lone ``\r`` both become ``\n``, and any
-    run of trailing newlines is dropped, so "no final newline", "one", and "three blank lines" agree.
+    identical rows must not turn a resume away. ``\r\n`` becomes ``\n``, and any run of trailing newlines
+    -- or a trailing ``\r`` -- is dropped, so "no final newline", "one", and "three blank lines" agree.
+    An *interior* lone ``\r`` is content and stays: inside a quoted field it is data, and collapsing it
+    would let two different catalogues hash alike.
     Nothing else is touched -- a reordered or reformatted catalogue is still a different input, which is
-    the safe direction and has its own test.
+    the safe direction and has its own test. And nothing at all is touched for a binary catalogue: this
+    runs only for the suffixes the loader parses as text, because in an HDF5 dataset `\r` and `\n` are
+    values.
 
     Two ways this was wrong before review caught them: the previous version's carry-byte loop never
     terminated on a file ending in a lone ``\r`` (the byte was re-prepended to an empty read forever,
@@ -181,7 +221,12 @@ def _digest_normalised(handle: IO[bytes]) -> str:
             chunk, split_carriage_return = chunk[:-1], b"\r"
         else:
             split_carriage_return = b""
-        chunk = pending + chunk.replace(b"\r", b"\n")
+        # Interior lone `\r` is left alone, deliberately: inside a quoted CSV field it is content, and
+        # rewriting it would make two different catalogues hash the same -- the false-negative direction,
+        # which is the one that matters. An earlier version of this rewrote every `\r` despite the round-2
+        # note saying it must not, and a reviewer caught the contradiction. The cost is that a
+        # classic-Mac-terminated file no longer matches its LF twin: a false refusal, the safe direction.
+        chunk = pending + chunk
         without_trailing_newlines = chunk.rstrip(b"\n")
         pending = chunk[len(without_trailing_newlines) :]
         digest.update(without_trailing_newlines)
