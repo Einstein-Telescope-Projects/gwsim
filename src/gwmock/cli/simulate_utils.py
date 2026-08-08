@@ -1000,31 +1000,59 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> _Committ
     return _CommittedIndex(digest, flush)
 
 
-@cache
-def _warn_flush_refused_once(index_file: Path, sidecar_name: str) -> None:
-    """Say once per index that its directory cannot be flushed, so its updates are not durable.
+# Devices whose last directory flush was refused, so the warning is not repeated per batch.
+#
+# Keyed by `st_dev` and not by the index's path, which was wrong three ways. Refusing to flush is a
+# property of the *filesystem*: keying by path warned once per metadata directory, so a run over twenty
+# of them on one refusing mount emitted twenty copies of a multi-line warning and retained twenty cache
+# entries forever -- the module's only unbounded cache. Two spellings of one directory (a relative path
+# resolved from different working directories) both collided and duplicated, in either direction. And a
+# device set that is *cleared on success* lets a mount that recovers and degrades again warn a second
+# time, which a permanent cache cannot: an intermittent mount went silent after its first episode.
+_DEGRADED_MOUNTS: set[int | None] = set()
 
-    Once per *index*, not once per batch. A mount that refuses the flush refuses it every time, and a
-    run writes one batch after another: warning each time is how the message that matters gets
-    filtered out. Cached rather than flagged for the same reason as :func:`_warn_unlocked_once` -- the
-    "warns once" claim is then enforced by the decorator and not by a global nobody re-checks.
+
+def _note_flush_outcome(directory: Path, flush: _DirectoryFlush, index_file: Path, sidecar_name: str) -> None:
+    """Warn on entering a refused-flush episode, once per filesystem rather than once per batch.
 
     At ``WARNING`` deliberately. The CLI logs at ``INFO`` by default, so the ``logger.debug`` line
     inside :func:`_fsync_directory` produces nothing an operator sees, and a degradation with no signal
-    is indistinguishable from a guarantee.
+    is indistinguishable from a guarantee. Once per *episode* per process: a scheduler invoking gwmock
+    repeatedly on a refusing mount is told every time, which is the right way round for a condition an
+    operator can act on.
+
+    ``UNSUPPORTED`` says nothing. It is a permanent property of the platform rather than a fault, and a
+    warning on every run about a gap nobody can close is how the ones that can be acted on get ignored.
 
     Args:
+        directory: The directory whose flush was attempted; identified by device.
+        flush: What :func:`_fsync_directory` managed.
         index_file: The index whose rename could not be made durable.
         sidecar_name: File name of the sidecar recording its digest.
     """
+    if flush is _DirectoryFlush.UNSUPPORTED:
+        return
+    try:
+        device: int | None = directory.stat().st_dev
+    except OSError:
+        # Unidentifiable is its own key rather than a reason to skip: losing the device number must not
+        # lose the warning.
+        device = None
+    if flush is _DirectoryFlush.FLUSHED:
+        _DEGRADED_MOUNTS.discard(device)
+        return
+    if device in _DEGRADED_MOUNTS:
+        return
+    _DEGRADED_MOUNTS.add(device)
     logger.warning(
         "The filesystem holding %s refused to flush the directory, so the rename that installed this "
         "update is not known to have reached stable storage. The index and its digest are correct and "
-        "complete, and the staleness guard is intact. What is not covered: if the machine loses power "
-        "in the window before the directory entry reaches the disk, the reboot can serve the previous "
-        "index while %s records this one, and every later write then refuses as stale against a good "
-        "file -- repaired by stopping the writers and deleting that sidecar, which holds only the "
-        "digest and the lock. Warned once per index; the condition persists for every batch.",
+        "complete, and the staleness guard is intact. What is not covered: a crash before the directory "
+        "entry reaches the disk can reboot to the previous index while %s describes this one, and every "
+        "later write then refuses as stale against a good file -- repaired by stopping the writers and "
+        "deleting that sidecar, which holds only the digest and the lock. On a network mount that window "
+        "lasts until the client sends the rename, which is seconds rather than instants. Warned once per "
+        "filesystem while the condition lasts, and again if it clears and returns.",
         index_file,
         sidecar_name,
     )
@@ -1187,18 +1215,20 @@ def update_signal_index(
         #   - The next batch would then warn "predates the staleness guard", which is a lie about an
         #     index written seconds earlier, and it fires per batch.
         #   - Withholding cannot even deliver its own invariant: the clear happens after the rename, so
-        #     a crash between them leaves the old digest describing the new index -- the same wedge.
+        #     a crash between them leaves the sidecar's old digest against a possibly-new index, which
+        #     refuses exactly as the state it was trying to avoid does.
         #
-        # So the guard is kept and the durability gap is carried instead. If a crash does land in the
-        # window, the outcome is a refusal against a good index: loud, and recoverable by deleting the
-        # sidecar. A rare loud failure is the right thing to keep over a routine silent one.
+        # So the guard is kept and the durability gap is carried instead. A crash in that window leaves
+        # the index and the sidecar disagreeing in one direction or the other, and either way the next
+        # write refuses -- loud, and repaired by deleting the sidecar.
+        #
+        # Not "a rare window", which is what this comment claimed until a reviewer measured the class of
+        # mount involved: an NFS client holds the rename until it sends the RPC, so on the filesystems
+        # that refuse the flush the exposure is seconds rather than instants. The trade stands anyway --
+        # a loud recoverable failure beats a silent one whatever its probability -- but it does not rest
+        # on the window being small.
         _record_digest(lock_file, committed.digest)
-        if committed.directory_flush is _DirectoryFlush.REFUSED:
-            # `REFUSED` is unexpected and per-filesystem, so it warns. `UNSUPPORTED` does not: it is a
-            # permanent property of the platform, and a warning on every run about a gap the operator
-            # cannot close is how the warnings that matter get filtered out. Documented on
-            # `_fsync_directory` instead.
-            _warn_flush_refused_once(index_file, lock_file.name)
+        _note_flush_outcome(index_file.parent, committed.directory_flush, index_file, lock_file.name)
 
 
 def _require_fresh_index_read(index_file: Path, lock_file: Path) -> None:

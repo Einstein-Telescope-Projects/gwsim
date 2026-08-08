@@ -25,10 +25,12 @@ writer on another host with a stale cached view is accepted and silently discard
 not see, with no crash needed. Withholding also cannot deliver its own invariant, since clearing happens
 after the rename and a crash between them leaves the old digest describing the new index regardless.
 
-So the guard is kept and the durability gap is carried. If a crash does land in the window the outcome
-is a refusal against a good index: loud, and repaired by deleting the sidecar. A rare loud failure is
-worth keeping over a routine silent one -- and both failure modes have a test here, because the argument
-is only as good as the ordering it is checked against.
+So the guard is kept and the durability gap is carried. A crash in that window leaves index and sidecar
+disagreeing one way or the other, and either way the next write refuses: loud, and repaired by deleting
+the sidecar. Not "a rare window" -- an NFS client holds the rename until it sends the RPC, so on the very
+mounts that refuse the flush the exposure is seconds. A loud recoverable failure beats a silent one
+whatever the probability, and both failure modes have a test here, because the argument is only as good
+as the ordering it is checked against.
 
 **What these tests pin, and what they cannot.** They pin the mechanism: the directory is fsynced, after
 the rename, before the digest is recorded. They do **not** demonstrate durability -- that needs power
@@ -54,6 +56,17 @@ from gwmock.cli import simulate_utils
 from gwmock.cli.simulate_utils import StaleIndexReadError, update_signal_index
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _forget_degraded_mounts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give each test its own degraded-mount set.
+
+    Process state, so without this a test's first refusal is suppressed by an earlier test's. It is a
+    fixture rather than a call inside the refusal helper: doing it there is what hid the case where a
+    mount recovers and degrades again, since every episode looked like the first.
+    """
+    monkeypatch.setattr(simulate_utils, "_DEGRADED_MOUNTS", set())
 
 
 def _metadata(event_id: int, batch: int) -> dict[str, Any]:
@@ -147,7 +160,6 @@ def _refuse_directory_fsync(monkeypatch: pytest.MonkeyPatch) -> None:
         return real_fsync(fd)
 
     monkeypatch.setattr(os, "fsync", _fsync)
-    simulate_utils._warn_flush_refused_once.cache_clear()
 
 
 @pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
@@ -316,6 +328,61 @@ def test_the_degradation_warns_where_an_operator_will_see_it_but_only_once(
     assert warnings == refusals, f"the degradation emitted other warnings too: {[r.message for r in warnings]}"
 
 
+@pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
+def test_a_mount_that_recovers_and_degrades_again_warns_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An episode that ends and returns is a second episode, not a repeat of the first.
+
+    The suppression was a permanent cache before a reviewer probed this: refuse, recover, refuse again in
+    one process produced a single warning, so an intermittently-refusing mount -- a server restart, a
+    remount, a flaky FUSE layer -- went silent for every episode after the first. The tests hid it too,
+    by resetting the cache inside the refusal helper.
+    """
+    with caplog.at_level(logging.WARNING, logger="gwmock.cli.simulate_utils"):
+        _refuse_directory_fsync(monkeypatch)
+        update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
+        monkeypatch.undo()  # the mount recovers
+
+        update_signal_index(tmp_path, _metadata(2, 1), "orchestration-1.metadata.json")
+
+        _refuse_directory_fsync(monkeypatch)  # and degrades again
+        update_signal_index(tmp_path, _metadata(3, 2), "orchestration-2.metadata.json")
+
+    refusals = [r for r in caplog.records if "refused to flush the directory" in r.message]
+    assert len(refusals) == 2, f"expected one warning per episode, got {len(refusals)}"
+
+
+@pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
+def test_many_directories_on_one_refusing_filesystem_warn_once_between_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Refusing to flush is a property of the filesystem, so it is reported once for the filesystem.
+
+    Keyed per index, a run over twenty metadata directories on one refusing mount emitted twenty copies
+    of a multi-line warning and kept twenty cache entries for the life of the process. A reviewer
+    measured both. Keying on ``st_dev`` collapses them, and it also fixes the path-spelling collisions
+    the other reviewer found -- two spellings of one directory used to warn twice, and one relative path
+    resolved from two working directories used to warn once for what were different filesystems.
+    """
+    directories = [tmp_path / f"run-{index}" for index in range(4)]
+    for directory in directories:
+        directory.mkdir()
+
+    _refuse_directory_fsync(monkeypatch)
+    with caplog.at_level(logging.WARNING, logger="gwmock.cli.simulate_utils"):
+        for index, directory in enumerate(directories):
+            update_signal_index(directory, _metadata(index + 1, index), f"orchestration-{index}.metadata.json")
+
+    refusals = [r for r in caplog.records if "refused to flush the directory" in r.message]
+    assert len(refusals) == 1, (
+        f"one refusing filesystem produced {len(refusals)} warnings across {len(directories)} directories"
+    )
+    assert len(simulate_utils._DEGRADED_MOUNTS) == 1, (
+        f"the degraded-mount set grew per directory rather than per filesystem: {simulate_utils._DEGRADED_MOUNTS}"
+    )
+
+
 def test_the_flush_is_skipped_where_the_platform_has_no_directory_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -350,7 +417,6 @@ def test_a_platform_without_directory_flushing_records_its_digest_and_stays_quie
     be acted on get filtered out.
     """
     monkeypatch.delattr(os, "O_DIRECTORY", raising=False)
-    simulate_utils._warn_flush_refused_once.cache_clear()
 
     with caplog.at_level(logging.WARNING, logger="gwmock.cli.simulate_utils"):
         update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
