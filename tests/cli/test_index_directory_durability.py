@@ -216,7 +216,7 @@ def test_a_refused_flush_still_records_the_digest_of_what_it_committed(
 def test_a_stale_reader_is_still_refused_on_a_filesystem_that_cannot_flush(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The cost of withholding the digest, pinned: silent loss on the mounts the guard exists for.
+    """The guard still refuses a stale read when the flush fails -- which is what withholding would cost.
 
     A reviewer supplied this ordering. Writer A's flush is refused; if that withheld the digest, the
     sidecar is empty, and a writer on another host whose cached view predates A's update takes the

@@ -1104,7 +1104,12 @@ def _note_flush_outcome(directory: Path, flush: _DirectoryFlush, index_file: Pat
 
 
 class _DirectoryFlush(Enum):
-    """Whether a rename was made durable, which decides if its digest may be recorded."""
+    """Whether a rename was made durable, and if not, how that is reported.
+
+    Not a gate on recording the digest -- the digest is recorded whatever this says. An earlier version
+    of this branch made it one; see the decision comment in :func:`update_signal_index` for why that was
+    reversed.
+    """
 
     FLUSHED = "flushed"
     """The directory's entries reached stable storage: the digest describes a durable name."""
