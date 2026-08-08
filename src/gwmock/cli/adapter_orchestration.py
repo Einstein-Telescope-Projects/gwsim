@@ -98,6 +98,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         population_seed: int | None = None,
         signal_adapter: SignalAdapter | None = None,
         noise_adapter: NoiseAdapter | None = None,
+        substituted_waveform_backend: str | None = None,
     ) -> None:
         self._population_events = tuple(population_events)
         self._population_metadata = dict(population_metadata)
@@ -154,6 +155,10 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         # thousands of times. Keyed by the failure text rather than a flag, because a single
         # malformed row fails only its own query and its cause differs from a whole-catalogue one --
         # collapsing both into one warning would name the wrong cause for everything after it.
+        #: Library the run was switched to when the config named none -- ripple for a batched
+        #: config, because that is what `execution: batched` generates with. `None` when nothing
+        #: was substituted. Provenance reads this so it names the library that actually ran.
+        self._substituted_waveform_backend = substituted_waveform_backend
         self._pre_coalescence_query_failures: set[str] = set()
         self._post_coalescence_query_failures: set[str] = set()
         #: How far the last batched walk traversed, set by `_events_for_this_segment` and consumed
@@ -215,8 +220,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         elif has_signal:
             source_type = str(orchestration_config.signal.source_type)  # type: ignore[union-attr]
 
+        substituted_waveform_backend: str | None = None
         if has_signal:
-            signal_adapter = cls._instantiate_signal_adapter(
+            signal_adapter, substituted_waveform_backend = cls._instantiate_signal_adapter(
                 orchestration_config.signal,
                 source_type=source_type,
                 detector_network=detector_network,
@@ -257,6 +263,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             orchestration_config=orchestration_config,
             population_seed=population_seed,
             signal_adapter=signal_adapter,
+            substituted_waveform_backend=substituted_waveform_backend,
             noise_adapter=noise_adapter,
         )
 
@@ -359,7 +366,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         source_type: str,
         detector_network: Network,
         duration: float,
-    ) -> SignalAdapter:
+    ) -> tuple[SignalAdapter, str | None]:
+        """Return the adapter and the backend name substituted for it, if any."""
+        substituted: str | None = None
         backend_name = signal_config.backend or source_type
         backend_class = resolve_backend_class("signal", backend_name)
         backend_arguments = _normalize_keys(dict(signal_config.arguments))
@@ -393,8 +402,24 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         # content lands inside the segment is reported finished and skipped. Low cutoffs and low
         # masses are exactly the ET regime. Aligning the two here removes the whole class rather
         # than relying on which way the rounding happens to fall.
-        if waveform_backend_name is None and str(getattr(signal_config, "execution", "per-event")) == "batched":
-            waveform_backend_name = "ripple"
+        batched = str(getattr(signal_config, "execution", "per-event")) == "batched"
+        if waveform_backend_name is None and batched:
+            # Not eager: a reviewer showed that instantiating ripple here breaks every caller that
+            # only wants to *construct* an orchestrator without the [jax] extra -- config
+            # validation, stubbed placement, the tests that pass waveform_backend=None -- and worse,
+            # it masks a real configuration error behind "rippleGW is not installed".
+            #
+            # Falling back is safe precisely where it applies: without ripple the batched path
+            # cannot generate at all, so no placement decision it might get wrong is ever acted on,
+            # and generation raises the actionable install error instead of this one.
+            try:
+                backend_arguments["waveform_backend"] = instantiate_backend(
+                    "waveform", "ripple", init_kwargs=waveform_backend_arguments
+                )
+                waveform_backend_name = "ripple"
+                substituted = "ripple"
+            except ImportError:
+                logger.debug("ripple is unavailable, so the adapter keeps the default backend.")
 
         if waveform_backend_name is not None or waveform_backend_arguments:
             backend_arguments["waveform_backend"] = instantiate_backend(
@@ -408,11 +433,12 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             backend_arguments=backend_arguments,
         )
         validate_backend("signal", backend_name, backend_class, backend_instance)
-        return SignalAdapter.from_backend(
+        adapter = SignalAdapter.from_backend(
             source_type=source_type,
             backend=backend_instance,
             network=detector_network,
         )
+        return adapter, substituted
 
     @staticmethod
     def _instantiate_noise_adapter(noise_config) -> NoiseAdapter:
@@ -451,9 +477,15 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                     # data: the same approximant from LAL and from ripple agree closely but not
                     # exactly, so without this two runs with materially different strain would
                     # carry identical provenance. Read from the config rather than stored
-                    # separately, to keep one source of truth. ``None`` means none was requested,
-                    # and gwmock-signal's own default (LAL) applied.
-                    "waveform_backend": self._configured_waveform_backend(),
+                    # separately, to keep one source of truth. ``None`` means none was requested
+                    # *and* none was substituted, so gwmock-signal's own default (LAL) applied.
+                    #
+                    # A batched config naming no backend is such a substitution: the adapter is
+                    # built on ripple, because that is what `execution: batched` generates with.
+                    # Reading the raw key here would record ``None`` for a run that used ripple, so
+                    # provenance and replay would name a different library than the one that
+                    # produced the data -- and the note above is exactly why that matters.
+                    "waveform_backend": self._effective_waveform_backend(),
                     "waveform_backend_arguments": self._configured_waveform_backend_arguments(),
                     "waveform_arguments": self.waveform_arguments,
                     "waveform_options": self.waveform_options,
@@ -479,6 +511,27 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         """Return the requested waveform-backend name, or ``None`` if the default applied."""
         signal_config = self.orchestration_config.signal
         return None if signal_config is None else getattr(signal_config, "waveform_backend", None)
+
+    def _effective_waveform_backend(self) -> str | None:
+        """Return the waveform library this run actually used, not the one the config named.
+
+        The two differ in exactly one case, and it is a case provenance must not misreport: a
+        batched config naming no backend is built on ripple, because ``execution: batched``
+        generates with ripple and the placement queries have to describe the buffer generation will
+        produce. Recording the raw key would file such a run under the default library.
+
+        Returns:
+            The backend name, or ``None`` when none was requested and none was substituted.
+        """
+        configured = self._configured_waveform_backend()
+        if configured is not None:
+            return configured
+        # Recorded by the code that made the substitution rather than recovered from the adapter.
+        # The first version of this walked `_backend._waveform_factory` looking for a RippleBackend,
+        # guessed the attribute name wrong, and silently returned None for every run -- reporting
+        # the library correctly only by accident. Two private attributes across a package boundary
+        # is what this codebase warns about elsewhere, and this is why.
+        return self._substituted_waveform_backend
 
     def _configured_waveform_backend_arguments(self) -> dict[str, Any]:
         """Return the waveform-backend constructor arguments, empty when none were given."""

@@ -629,3 +629,62 @@ class TestTheQueryAnswersForTheBackendThatGenerates:
             f"event whose content reaches {generated - answered} s further than the query admits "
             "can be skipped while it is still contributing to the segment"
         )
+
+
+class TestTheRippleSubstitutionIsHonest:
+    """Substituting ripple for a batched config must not break construction or lie in provenance.
+
+    Both cases are reviewer findings against the first version of the fix, which instantiated ripple
+    eagerly in ``from_config`` and left the metadata reading the raw config key.
+    """
+
+    def test_metadata_names_the_library_that_actually_ran(self, tmp_path):
+        """Provenance must say ripple, because ripple is what answered and generated.
+
+        The metadata comment says ``None`` means gwmock-signal's default (LAL) applied. Reading the
+        raw config key would file a ripple run under LAL -- and that field exists precisely because
+        the two libraries produce different strain, so a wrong value is worse than a missing one.
+        """
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None)
+
+        assert orchestrator._effective_waveform_backend() == "ripple"
+
+    def test_a_per_event_config_still_reports_no_substitution(self, tmp_path):
+        """The substitution is batched-only, so per-event provenance must be unchanged."""
+        orchestrator = _orchestrator(tmp_path, "per-event", waveform_backend=None)
+
+        assert orchestrator._effective_waveform_backend() is None
+
+    def test_an_explicit_backend_is_reported_as_configured(self, tmp_path):
+        """A named backend is not a substitution and must be reported as the config wrote it."""
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend="ripple")
+
+        assert orchestrator._effective_waveform_backend() == "ripple"
+
+    def test_construction_survives_without_the_jax_extra(self, tmp_path, monkeypatch):
+        """A batched orchestrator must still *construct* when ripple is not installed.
+
+        The first version of this fix instantiated ripple eagerly, so config validation, stubbed
+        placement and every test passing ``waveform_backend=None`` began failing with "rippleGW is
+        not installed" -- and a genuine configuration error would surface as that message instead of
+        its own. Falling back is safe here and only here: without ripple the batched path cannot
+        generate at all, so no placement answer it might get wrong is ever acted on.
+        """
+        from gwmock.cli import adapter_orchestration as module
+
+        real = module.instantiate_backend
+
+        def _no_ripple(kind, name, *args, **kwargs):
+            if kind == "waveform" and name == "ripple":
+                raise ImportError("ripple (rippleGW) is not installed. Run: pip install 'gwmock-signal[jax]'")
+            return real(kind, name, *args, **kwargs)
+
+        monkeypatch.setattr(module, "instantiate_backend", _no_ripple)
+
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None)
+
+        assert orchestrator.signal_adapter is not None
+        # And it does not then claim a library it failed to load.
+        assert orchestrator._effective_waveform_backend() is None
