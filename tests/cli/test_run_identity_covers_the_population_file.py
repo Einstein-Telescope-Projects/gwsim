@@ -387,3 +387,54 @@ class TestWhatTheLoaderActuallyReads:
         with caplog.at_level(logging.WARNING, logger="gwmock"):
             checkpoint_utils.warn_if_inputs_are_unverified(["https://example.invalid/pop.csv"], resuming=False)
         assert not [r for r in caplog.records if "could not verify" in r.message]
+
+
+def test_a_real_resume_over_a_remote_population_emits_the_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The warning has to be reached by the resume, not merely exist.
+
+    Every other test of it calls the function directly, so removing its one call site left them all
+    passing -- the same way the fingerprint change itself could have been made inert. This drives an
+    actual interrupted run and resume, with a population the identity cannot verify.
+    """
+    output_directory, metadata_directory = tmp_path / "output", tmp_path / "metadata"
+    checkpoint_directory = tmp_path / "checkpoints"
+    remote = "https://example.invalid/bbh_population.csv"
+
+    def _plan_with_remote() -> SimulationPlan:
+        plan = SimulationPlan(checkpoint_directory=checkpoint_directory)
+        for index in range(3):
+            plan.add_batch(
+                SimulationBatch(
+                    simulator_name="mock",
+                    simulator_config=SimulatorConfig(
+                        class_="tests.cli.test_cli_simulate.MockSimulator",
+                        arguments={"seed": 42},
+                        output=SimulatorOutputConfig(file_name=f"batch_{index}.json"),
+                        population=PopulationConfig(backend="FilePopulationLoader", arguments={"path": remote}),
+                    ),
+                    globals_config=GlobalsConfig(),
+                    batch_index=index,
+                )
+            )
+        return plan
+
+    real_save = simulate_utils.save_metadata_record
+
+    def _fail_on_the_last_batch(*args, **kwargs):
+        if "mock-2" in str(kwargs.get("metadata_file", "")) or "mock-2" in str(args[0] if args else ""):
+            raise RuntimeError("interrupted")
+        return real_save(*args, **kwargs)
+
+    monkeypatch.setattr(simulate_utils, "save_metadata_record", _fail_on_the_last_batch)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        execute_plan(_plan_with_remote(), output_directory, metadata_directory, overwrite=True)
+    monkeypatch.undo()
+
+    with caplog.at_level(logging.WARNING, logger="gwmock"):
+        execute_plan(_plan_with_remote(), output_directory, metadata_directory, overwrite=True)
+
+    unverified = [r for r in caplog.records if "could not verify" in r.message]
+    assert unverified, "a resume over a remote population said nothing about the gap"
+    assert remote in unverified[0].message
