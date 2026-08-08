@@ -513,3 +513,15 @@ class TestTheNormaliser:
         """
         filler = b"x" * ((1 << 20) - 1)
         assert self._digest(filler + b"\r\ntail\n") == self._digest(filler + b"\ntail\n")
+
+    def test_a_lone_carriage_return_at_a_chunk_boundary_is_not_swallowed(self) -> None:
+        """Carrying the boundary `\r` matters only when the next byte is not `\n` -- and then it matters.
+
+        Dropping it instead is invisible before a `\n`, because the pair collapses to one newline either
+        way: the previous test passes under that mutation. Before any other byte it deletes a line ending
+        outright, joining two rows into one, and two catalogues that differ by exactly that then hash the
+        same. Found by mutation, not by reading.
+        """
+        filler = b"x" * ((1 << 20) - 1)
+        assert self._digest(filler + b"\ra,b\n") == self._digest(filler + b"\na,b\n")
+        assert self._digest(filler + b"\ra,b\n") != self._digest(filler + b"a,b\n")
