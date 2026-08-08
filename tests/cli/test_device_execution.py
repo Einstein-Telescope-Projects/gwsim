@@ -744,6 +744,27 @@ class TestTheRippleSubstitutionIsHonest:
         # And it does not then claim a library it failed to load.
         assert orchestrator._effective_waveform_backend() is None
 
+    def test_replacing_the_adapter_stops_the_substitution_claim(self, tmp_path):
+        """The record describes the adapter `from_config` built, so a swap must invalidate it.
+
+        A reviewer found the value surviving the replacement: provenance kept reporting ripple while
+        a LAL-backed stand-in answered every placement query. Tests substitute adapters routinely, so
+        this is the common path, not an exotic one. Clearing on assignment makes the record describe
+        nothing rather than describe the wrong thing.
+        """
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None)
+        assert orchestrator._effective_waveform_backend() == "ripple"
+
+        class _StandIn:
+            detector_names = ("E1",)
+
+        orchestrator.signal_adapter = _StandIn()
+
+        assert orchestrator._effective_waveform_backend() is None, (
+            "provenance still claims the library the replaced adapter was built on"
+        )
+
     def test_placement_refuses_rather_than_answering_with_the_wrong_library(self, tmp_path, monkeypatch):
         """The reproducer a reviewer built against the first version of this fallback.
 

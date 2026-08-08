@@ -785,6 +785,26 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         start_time_value = float(coa_time) if lead is None else float(coa_time) - float(lead)
         return start_time_value < end_time_value
 
+    @property
+    def signal_adapter(self):
+        """The adapter answering placement queries and generating signals."""
+        return self._signal_adapter
+
+    @signal_adapter.setter
+    def signal_adapter(self, adapter) -> None:
+        """Replace the adapter, and stop claiming a substitution that described the old one.
+
+        ``_substituted_waveform_backend`` records which library `from_config` built the adapter on.
+        Replacing the adapter -- which tests do routinely, and which library callers may do --
+        invalidates that: a reviewer showed the recorded value survived the swap, so provenance
+        reported ripple while a LAL-backed stand-in answered every query. Clearing it makes the
+        record describe nothing rather than describe the wrong thing, and a caller who knows better
+        can set it explicitly.
+        """
+        self._signal_adapter = adapter
+        if getattr(self, "_substituted_waveform_backend", None) is not None:
+            self._substituted_waveform_backend = None
+
     def _require_placement_backend(self) -> None:
         """Refuse to answer a placement question the run cannot answer correctly.
 
