@@ -33,8 +33,10 @@ path a config can name.
 
 from __future__ import annotations
 
+import io
 import json
 import logging
+import signal
 from pathlib import Path
 
 import pytest
@@ -166,7 +168,7 @@ class TestTheFingerprintItself:
         The marker's *bracketed shape* is load-bearing since the unverified-input warning was added --
         ``_is_marker`` distinguishes "gave up" from "hashed" by it -- so a mutation that returns some
         other constant now silences that warning rather than being harmless. That is pinned by
-        ``test_a_resume_says_it_could_not_verify_an_unreadable_population`` below. The exact spelling
+        ``test_an_unreadable_population_warns_on_resume`` below. The exact spelling
         still is not asserted, only that it is not mistakable for a digest.
         """
         missing = tmp_path / "not-there.csv"
@@ -357,36 +359,41 @@ class TestWhatTheLoaderActuallyReads:
         population.write_text(CATALOGUE_HEADER + "80.0,75.0,1000000200.0,400.0\n30.0,25.0,1000000100.0,400.0\n")
         assert run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta", [population]) != original
 
-    def test_a_resume_says_which_populations_it_could_not_verify(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_a_remote_resume_is_reported_but_not_warned_about(self, caplog: pytest.LogCaptureFixture) -> None:
         """A remote population gets no content coverage, and the operator has to be told.
 
         The marker adds nothing the config hash already carried, so for a remote catalogue this guard
         cannot refuse a mixed resume at all. Warning is the honest alternative to a docstring nobody reads.
         """
-        with caplog.at_level(logging.WARNING, logger="gwmock"):
-            checkpoint_utils.warn_if_inputs_are_unverified(["https://example.invalid/pop.csv"], resuming=True)
-        assert [r for r in caplog.records if "could not verify" in r.message], "a remote resume said nothing"
+        with caplog.at_level(logging.INFO, logger="gwmock"):
+            checkpoint_utils.report_unverified_inputs(["https://example.invalid/pop.csv"], resuming=True)
+        remote_notes = [r for r in caplog.records if "population this run continues from is remote" in r.message]
+        assert remote_notes, "a remote resume said nothing"
+        assert remote_notes[0].levelno == logging.INFO, (
+            "a remote population was reported at WARNING, which fires identically for a commit-pinned URL "
+            "where mixing cannot occur -- and following the advice would not silence it"
+        )
 
-    def test_a_resume_says_it_could_not_verify_an_unreadable_population(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_an_unreadable_population_warns_on_resume(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """An unreadable catalogue is as unverified as a remote one, and warns the same way.
 
         This is what makes the marker's shape matter rather than cosmetic: a change that returned some
         other constant for the unreadable branch would leave the fingerprint working and the warning
         silently off, which no other test here would notice.
         """
-        with caplog.at_level(logging.WARNING, logger="gwmock"):
-            checkpoint_utils.warn_if_inputs_are_unverified([tmp_path / "never-staged.csv"], resuming=True)
-        assert [r for r in caplog.records if "could not verify" in r.message], (
-            "a resume over a population it could not read said nothing"
+        with caplog.at_level(logging.INFO, logger="gwmock"):
+            checkpoint_utils.report_unverified_inputs([tmp_path / "never-staged.csv"], resuming=True)
+        unreadable = [r for r in caplog.records if "could not read the population" in r.message]
+        assert unreadable, "a resume over a population it could not read said nothing"
+        assert unreadable[0].levelno == logging.WARNING, (
+            "an unreadable local file is specific and actionable, so it warns rather than informs"
         )
 
     def test_a_clean_first_run_says_nothing(self, caplog: pytest.LogCaptureFixture) -> None:
         """Not on a first run, and not when everything is verifiable: warnings that always fire are noise."""
-        with caplog.at_level(logging.WARNING, logger="gwmock"):
-            checkpoint_utils.warn_if_inputs_are_unverified(["https://example.invalid/pop.csv"], resuming=False)
-        assert not [r for r in caplog.records if "could not verify" in r.message]
+        with caplog.at_level(logging.INFO, logger="gwmock"):
+            checkpoint_utils.report_unverified_inputs(["https://example.invalid/pop.csv"], resuming=False)
+        assert not [r for r in caplog.records if "not part of the run's identity" in r.message]
 
 
 def test_a_real_resume_over_a_remote_population_emits_the_warning(
@@ -432,9 +439,77 @@ def test_a_real_resume_over_a_remote_population_emits_the_warning(
         execute_plan(_plan_with_remote(), output_directory, metadata_directory, overwrite=True)
     monkeypatch.undo()
 
-    with caplog.at_level(logging.WARNING, logger="gwmock"):
+    with caplog.at_level(logging.INFO, logger="gwmock"):
         execute_plan(_plan_with_remote(), output_directory, metadata_directory, overwrite=True)
 
-    unverified = [r for r in caplog.records if "could not verify" in r.message]
-    assert unverified, "a resume over a remote population said nothing about the gap"
-    assert remote in unverified[0].message
+    reported = [r for r in caplog.records if "not part of the run's identity" in r.message]
+    assert reported, "a resume over a remote population said nothing about the gap"
+    assert remote in reported[0].message
+
+
+class TestTheNormaliser:
+    """The byte-level normalisation, including the two ways it was wrong before review."""
+
+    @staticmethod
+    def _digest(data: bytes) -> str:
+        return checkpoint_utils._digest_normalised(io.BytesIO(data))
+
+    def test_a_file_ending_in_a_lone_carriage_return_terminates(self) -> None:
+        """The first chunked version hung forever here, taking the whole run with it.
+
+        Its carry byte was re-prepended to an empty read on every pass, so the loop never reached its
+        break. A classic-Mac line ending, or a truncated CRLF write, is enough to produce it. The alarm
+        makes a regression fail in seconds instead of hanging the suite.
+        """
+        signal.setitimer(signal.ITIMER_REAL, 10)
+        try:
+            digest = self._digest(b"header\ra,b\r")
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+        assert digest == self._digest(b"header\na,b\n")
+
+    @pytest.mark.parametrize(
+        ("label", "data"),
+        [
+            ("crlf", b"header\r\na,b\r\n"),
+            ("no trailing newline", b"header\na,b"),
+            ("one trailing blank line", b"header\na,b\n\n"),
+            ("three trailing blank lines", b"header\na,b\n\n\n\n"),
+            ("lone carriage returns", b"header\ra,b\r"),
+            ("crlf with trailing blanks", b"header\r\na,b\r\n\r\n"),
+        ],
+    )
+    def test_forms_that_parse_alike_hash_alike(self, label: str, data: bytes) -> None:
+        """Every way a generator can end the same catalogue must resume, not refuse.
+
+        Both reviewers found the docstring claiming trailing blank lines were dropped while nothing
+        dropped them, so only the CRLF case was actually covered -- the "claims more than it does" class,
+        in the fix for it.
+        """
+        assert self._digest(data) == self._digest(b"header\na,b\n"), f"{label} refused a valid resume"
+
+    @pytest.mark.parametrize(
+        ("label", "data"),
+        [
+            ("reordered rows", b"header\nb,a\n"),
+            ("a blank line in the middle", b"header\n\na,b\n"),
+            ("an added row", b"header\na,b\nc,d\n"),
+            ("trailing spaces on a row", b"header\na,b  \n"),
+        ],
+    )
+    def test_content_changes_still_differ(self, label: str, data: bytes) -> None:
+        """The normalisation is line endings and trailing newlines only.
+
+        The boundary matters: widened into "parse and compare" this would stop detecting the swap the
+        whole change exists for. A blank line *inside* the file and trailing spaces on a row are kept
+        significant deliberately -- neither is a line-ending difference.
+        """
+        assert self._digest(data) != self._digest(b"header\na,b\n"), f"{label} was treated as the same input"
+
+    def test_a_split_carriage_return_across_a_chunk_boundary_is_still_one_line_ending(self) -> None:
+        """A `\r\n` straddling the 1 MiB read boundary must not become two line endings.
+
+        Chunked hashing is where this class of bug lives, and no small-file test can reach it.
+        """
+        filler = b"x" * ((1 << 20) - 1)
+        assert self._digest(filler + b"\r\ntail\n") == self._digest(filler + b"\ntail\n")

@@ -36,10 +36,10 @@ from tqdm import tqdm
 from gwmock.cli.adapter_orchestration import AdapterOrchestrationResult, AdapterOrchestrator
 from gwmock.cli.utils.checkpoint import (
     CheckpointManager,
+    report_unverified_inputs,
     require_matching_config,
     run_fingerprint,
     spillover_applies,
-    warn_if_inputs_are_unverified,
 )
 from gwmock.cli.utils.config import OrchestrationConfig, SimulatorConfig, resolve_class_path
 from gwmock.cli.utils.environment import capture_environment
@@ -2064,7 +2064,7 @@ def execute_plan(  # noqa: PLR0915
     resuming = bool(loaded_batch_indices)
     # Said on a resume, because that is when an unverifiable population can silently mix two catalogues:
     # the fingerprints match whatever the bytes were, so this check is the only signal the operator gets.
-    warn_if_inputs_are_unverified(referenced_populations, resuming)
+    report_unverified_inputs(referenced_populations, resuming)
 
     # Reconcile the checkpoint against the filesystem: a batch may be recorded as
     # completed while its output is missing (partial write at interrupt, an external

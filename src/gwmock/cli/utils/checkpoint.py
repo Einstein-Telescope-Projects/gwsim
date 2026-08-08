@@ -8,7 +8,7 @@ import json
 import logging
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 from urllib.parse import urlparse
 
 from gwmock.data.serialize.decoder import Decoder
@@ -58,7 +58,7 @@ def run_fingerprint(
     would refuse every legitimate resume, because the first run computes this before any cache exists.
     So a re-fetch that returns different bytes between an interrupt and a resume -- ``refresh: true``, a
     cleared cache, a mutable URL -- mixes catalogues exactly as a local swap used to, undetected.
-    :func:`warn_if_inputs_are_unverified` says so at the point it matters instead of leaving the
+    :func:`report_unverified_inputs` says so at the point it matters instead of leaving the
     docstring to carry it. Pinning the URL to an immutable revision, as the examples do, is the practical
     answer.
 
@@ -136,38 +136,76 @@ def _input_digest(reference: str) -> str:
     path = Path(reference).expanduser()
     try:
         with path.open("rb") as handle:
-            digest = hashlib.sha256()
-            # Chunked because a catalogue can be hundreds of megabytes; measured at ~2.5 GB/s, which is
-            # 18 ms for a 45 MB million-row file. Normalisation is per chunk boundary-safe because it
-            # only rewrites `\r\n` pairs, and a chunk is read at a 1 MiB boundary that can split one --
-            # so the tail byte is carried into the next chunk.
-            carry = b""
-            while True:
-                chunk = carry + handle.read(1 << 20)
-                if not chunk:
-                    break
-                carry = chunk[-1:] if chunk.endswith(b"\r") else b""
-                if carry:
-                    chunk = chunk[:-1]
-                digest.update(chunk.replace(b"\r\n", b"\n"))
-            if carry:
-                digest.update(carry.replace(b"\r", b"\n"))
-        return digest.hexdigest()
+            return _digest_normalised(handle)
     except OSError as error:
         logger.debug("Could not hash the run input %s: %s", path, error)
         return "<unhashed>"
 
 
-def warn_if_inputs_are_unverified(referenced_inputs: Iterable[Path | str], resuming: bool) -> None:
-    """Say, on a resume, which populations this run's identity could not actually verify.
+def _digest_normalised(handle: IO[bytes]) -> str:
+    """sha256 of *handle*'s bytes with line endings unified and trailing newlines dropped.
 
-    The guard's value is that a resume across two catalogues stops. For a remote or unreadable
-    population it cannot: the digest is a marker, so the fingerprints match whatever the bytes were. That
-    is a gap an operator can act on -- pin the URL, or stage the file locally -- and a gap they cannot see
-    is indistinguishable from a guarantee.
+    Chunked because a catalogue can be hundreds of megabytes; measured at ~2.5 GB/s, which is 18 ms for a
+    45 MB million-row file.
 
-    Only on a resume, and only when something is actually unverified: a first run has nothing to be
-    inconsistent with, and warning on every clean run is how the message that matters gets ignored.
+    Two normalisations, both aimed at the same false refusal: a machine regenerating a catalogue with
+    identical rows must not turn a resume away. ``\r\n`` and a lone ``\r`` both become ``\n``, and any
+    run of trailing newlines is dropped, so "no final newline", "one", and "three blank lines" agree.
+    Nothing else is touched -- a reordered or reformatted catalogue is still a different input, which is
+    the safe direction and has its own test.
+
+    Two ways this was wrong before review caught them: the previous version's carry-byte loop never
+    terminated on a file ending in a lone ``\r`` (the byte was re-prepended to an empty read forever,
+    hanging the run), and the docstring claimed trailing blank lines were dropped while nothing dropped
+    them.
+
+    Args:
+        handle: An open binary handle positioned at the start.
+
+    Returns:
+        The hex digest of the normalised bytes.
+    """
+    digest = hashlib.sha256()
+    # Held back rather than hashed: a trailing newline run must vanish, but one in the middle must not,
+    # and only the next read can tell them apart.
+    pending = b""
+    # A `\r` at a chunk boundary may be the first half of a `\r\n`. Kept out of the digest until the next
+    # read resolves it -- and dropped at end of file, where it is a line terminator like any other.
+    split_carriage_return = b""
+    while True:
+        block = handle.read(1 << 20)
+        if not block:
+            break
+        chunk = (split_carriage_return + block).replace(b"\r\n", b"\n")
+        if chunk.endswith(b"\r"):
+            chunk, split_carriage_return = chunk[:-1], b"\r"
+        else:
+            split_carriage_return = b""
+        chunk = pending + chunk.replace(b"\r", b"\n")
+        without_trailing_newlines = chunk.rstrip(b"\n")
+        pending = chunk[len(without_trailing_newlines) :]
+        digest.update(without_trailing_newlines)
+    return digest.hexdigest()
+
+
+def report_unverified_inputs(referenced_inputs: Iterable[Path | str], resuming: bool) -> None:
+    """Say, on a resume, which populations this run's identity could not verify -- at two levels.
+
+    The guard's value is that a resume across two catalogues stops. Where the digest is a marker it
+    cannot: the fingerprints match whatever the bytes were. A gap an operator cannot see is
+    indistinguishable from a guarantee, so it is stated -- but the two kinds of gap deserve different
+    volumes, which a reviewer had to point out.
+
+    *A local file that could not be read* warns. It is specific, actionable, and unexpected: stage the
+    file, or fix its permissions, and the check works.
+
+    *A remote population* is logged at ``INFO``, which the CLI shows by default. This cannot distinguish a
+    commit-pinned URL -- the practical answer, and what the examples use -- from a mutable one, so at
+    ``WARNING`` it would fire on every remote resume including the ones where mixing cannot occur, and
+    following its own advice would not silence it. That is exactly how the message that matters gets
+    ignored, which this module already refuses to do elsewhere.
+
+    Only on a resume: a first run has nothing to be inconsistent with.
 
     Args:
         referenced_inputs: The population sources this run's identity was built from.
@@ -175,22 +213,31 @@ def warn_if_inputs_are_unverified(referenced_inputs: Iterable[Path | str], resum
     """
     if not resuming:
         return
-    # A marker rather than a digest is the definition of "not verified". Comparing two calls of
-    # `_input_digest` would have been circular -- it is the same function, so it always agrees with
-    # itself; the first version of this did exactly that and could never warn.
-    unverified = sorted(
-        {str(reference) for reference in referenced_inputs if _is_marker(_input_digest(str(reference)))}
+    remote = sorted({str(reference) for reference in referenced_inputs if _is_remote(str(reference))})
+    unreadable = sorted(
+        {
+            str(reference)
+            for reference in referenced_inputs
+            if not _is_remote(str(reference)) and _is_marker(_input_digest(str(reference)))
+        }
     )
-    if not unverified:
-        return
-    logger.warning(
-        "This resume could not verify the population it is continuing from: %s. Their content is not part "
-        "of the run's identity -- a remote catalogue is not fetched to identify a run, and one that cannot "
-        "be read cannot be hashed -- so if those bytes changed since the interrupted run, this resume "
-        "mixes two catalogues and nothing here will refuse it. Pin a remote URL to an immutable revision, "
-        "or stage the catalogue locally, to get the check.",
-        ", ".join(unverified),
-    )
+    if unreadable:
+        logger.warning(
+            "This resume could not read the population it is continuing from: %s. Its content is "
+            "therefore not part of the run's identity, so if those bytes changed since the interrupted "
+            "run, this resume mixes two catalogues and nothing here will refuse it. Stage the file, or fix "
+            "its permissions, to get the check.",
+            ", ".join(unreadable),
+        )
+    if remote:
+        logger.info(
+            "The population this run continues from is remote (%s), so its content is not part of the "
+            "run's identity -- identifying a run does not fetch the catalogue again. If that URL can serve "
+            "different bytes than the interrupted run received, this resume mixes two catalogues without "
+            "refusing. Pinning it to an immutable revision, as the examples do, removes the risk; this "
+            "message cannot tell a pinned URL from a mutable one, so it is said once per resume either way.",
+            ", ".join(remote),
+        )
 
 
 def _is_marker(digest: str) -> bool:
