@@ -852,23 +852,6 @@ def _recorded_digest(lock_file: Path) -> str | None:
     return recorded or None
 
 
-def _clear_digest(lock_file: Path) -> None:
-    """Erase the sidecar's digest, returning the directory to the permissive legacy path.
-
-    For the one case where neither keeping nor advancing the digest is crash-safe: the index is
-    installed, but the durability of its name is unknown. An empty sidecar is the only state
-    :func:`_require_fresh_index_read` accepts whichever index a crash leaves behind.
-
-    Failing to clear it is raised, not swallowed, for the same reason failing to record is: the
-    sidecar would keep a digest describing the index this update replaced, which is the permanent
-    wedge with none of the warning.
-
-    Args:
-        lock_file: The sidecar beside the index.
-    """
-    _record_digest(lock_file, "")
-
-
 def _record_digest(lock_file: Path, digest: str) -> None:
     """Write the digest of the index just committed into the sidecar.
 
@@ -1019,7 +1002,7 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> _Committ
 
 @cache
 def _warn_flush_refused_once(index_file: Path, sidecar_name: str) -> None:
-    """Say once per index that its directory cannot be flushed, so its digest is being withheld.
+    """Say once per index that its directory cannot be flushed, so its updates are not durable.
 
     Once per *index*, not once per batch. A mount that refuses the flush refuses it every time, and a
     run writes one batch after another: warning each time is how the message that matters gets
@@ -1032,15 +1015,16 @@ def _warn_flush_refused_once(index_file: Path, sidecar_name: str) -> None:
 
     Args:
         index_file: The index whose rename could not be made durable.
-        sidecar_name: File name of the sidecar whose digest was cleared.
+        sidecar_name: File name of the sidecar recording its digest.
     """
     logger.warning(
-        "The filesystem holding %s refused to flush the directory, so this update's name is not known "
-        "to have reached stable storage. Its digest has been cleared from %s rather than recorded: "
-        "recording it would make every later write refuse as stale if the machine crashed now. The "
-        "index itself is correct and complete. These writes are unprotected against a stale read, so "
-        "run them from a single host -- a mount that refuses directory flushes cannot support the "
-        "cross-host guard at all. Warned once per index; the condition persists.",
+        "The filesystem holding %s refused to flush the directory, so the rename that installed this "
+        "update is not known to have reached stable storage. The index and its digest are correct and "
+        "complete, and the staleness guard is intact. What is not covered: if the machine loses power "
+        "in the window before the directory entry reaches the disk, the reboot can serve the previous "
+        "index while %s records this one, and every later write then refuses as stale against a good "
+        "file -- repaired by stopping the writers and deleting that sidecar, which holds only the "
+        "digest and the lock. Warned once per index; the condition persists for every batch.",
         index_file,
         sidecar_name,
     )
@@ -1192,26 +1176,29 @@ def update_signal_index(
             return
         _require_fresh_index_read(index_file, lock_file)
         committed = _update_signal_index_locked(index_file, injections, metadata, metadata_file_name, encoding)
+        # Recorded whatever the flush managed, and this is a decision with a history. An earlier
+        # version of this branch *withheld* the digest when the directory could not be flushed, on the
+        # grounds that a digest describing a possibly-non-durable rename can wedge the directory after
+        # a crash. Two reviewers showed that trade is inverted:
+        #
+        #   - An empty sidecar is the permissive legacy path, so a writer on another host with a stale
+        #     cached view is *accepted* and its write discards the entries it could not see. That is
+        #     silent loss on exactly the shared mounts this guard was added for, and it needs no crash.
+        #   - The next batch would then warn "predates the staleness guard", which is a lie about an
+        #     index written seconds earlier, and it fires per batch.
+        #   - Withholding cannot even deliver its own invariant: the clear happens after the rename, so
+        #     a crash between them leaves the old digest describing the new index -- the same wedge.
+        #
+        # So the guard is kept and the durability gap is carried instead. If a crash does land in the
+        # window, the outcome is a refusal against a good index: loud, and recoverable by deleting the
+        # sidecar. A rare loud failure is the right thing to keep over a routine silent one.
+        _record_digest(lock_file, committed.digest)
         if committed.directory_flush is _DirectoryFlush.REFUSED:
-            # The index is installed but its *name* may not survive a crash, so recording this digest
-            # would risk the exact wedge the digest exists to prevent: reboot serves the old index
-            # under the new digest and every later write refuses as stale against a good file.
-            #
-            # Not recording is not enough, and that is the trap. Leaving the sidecar's *previous*
-            # digest in place describes the old index while the new one is installed -- a mismatch in
-            # the other direction, wedged the same way. Only three states are crash-safe to leave
-            # behind, and of the three -- old digest, new digest, no digest -- `_require_fresh_index_read`
-            # accepts just the last. So the digest is cleared: one write loses the staleness guard
-            # (warned about, per write) instead of the directory wedging permanently.
-            _clear_digest(lock_file)
+            # `REFUSED` is unexpected and per-filesystem, so it warns. `UNSUPPORTED` does not: it is a
+            # permanent property of the platform, and a warning on every run about a gap the operator
+            # cannot close is how the warnings that matter get filtered out. Documented on
+            # `_fsync_directory` instead.
             _warn_flush_refused_once(index_file, lock_file.name)
-        else:
-            # `UNSUPPORTED` records too, deliberately. A platform with no directory-flush primitive
-            # can never satisfy the check, so clearing on it would disable the cross-host guard on
-            # every write there for good -- a certain loss against the uncertain one of a crash in a
-            # sub-millisecond window, the same trade the legacy-digest acceptance above makes. The
-            # gap is real and documented on `_fsync_directory`, not silently papered over.
-            _record_digest(lock_file, committed.digest)
 
 
 def _require_fresh_index_read(index_file: Path, lock_file: Path) -> None:
@@ -1298,7 +1285,7 @@ def _update_signal_index_locked(
 
     Returns:
         The committed index's digest and the durability of the rename that installed it, for the
-        caller to turn into a recorded digest or a cleared one.
+        caller to record and, when the durability is unverifiable, to warn about.
     """
     if index_file.exists():
         try:

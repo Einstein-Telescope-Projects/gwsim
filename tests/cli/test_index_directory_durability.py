@@ -18,19 +18,23 @@ in the page cache while ``_record_digest`` writes the sidecar. A crash in that w
 **old** index with the **new** digest, and every later write refuses as stale against a good file --
 loud, recoverable by deleting the sidecar, and needing an operator.
 
-Flushing is only half of it, and the half a reviewer had to point out. When the flush cannot be done,
-the digest must not be recorded either -- a digest describing a name that may not survive is the same
-wedge with an extra step. Nor may the *previous* digest simply be left in place: it then describes the
-old index while the new one is installed, wedged in the other direction. Of the three states a crash
-can leave -- old digest, new digest, no digest -- only the last is accepted whichever index survives,
-so a refused flush clears it. A platform with no directory-flush primitive at all is treated
-differently, and `test_a_platform_without_directory_flushing_still_records_its_digest` says why.
+**What happens when the flush cannot be done is the interesting half, and two rounds of review got it
+backwards before landing here.** The digest is recorded anyway. Withholding it looks safer -- no digest
+describing a rename that might vanish -- but an empty sidecar *is* the permissive legacy path, so a
+writer on another host with a stale cached view is accepted and silently discards the entries it could
+not see, with no crash needed. Withholding also cannot deliver its own invariant, since clearing happens
+after the rename and a crash between them leaves the old digest describing the new index regardless.
 
-**What these tests pin, and what they cannot.** They pin the mechanism: that the directory is fsynced,
-after the rename, before the digest is recorded, and that the digest is withheld when it is not. They
-do **not** demonstrate durability -- that needs power loss or a crash-consistency harness, and no test
-here can produce one. The rollback test replays the resulting *state*, not the crash. Found by a
-reviewer during R24; the ordering is the part a future change can silently break.
+So the guard is kept and the durability gap is carried. If a crash does land in the window the outcome
+is a refusal against a good index: loud, and repaired by deleting the sidecar. A rare loud failure is
+worth keeping over a routine silent one -- and both failure modes have a test here, because the argument
+is only as good as the ordering it is checked against.
+
+**What these tests pin, and what they cannot.** They pin the mechanism: the directory is fsynced, after
+the rename, before the digest is recorded. They do **not** demonstrate durability -- that needs power
+loss or a crash-consistency harness, and no test here can produce one. The crash tests replay the
+resulting *state*, not the crash. Found by a reviewer during R24; the ordering is the part a future
+change can silently break.
 """
 
 from __future__ import annotations
@@ -38,6 +42,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import stat
 from pathlib import Path
 from typing import Any
@@ -46,7 +51,7 @@ import pytest
 import yaml
 
 from gwmock.cli import simulate_utils
-from gwmock.cli.simulate_utils import update_signal_index
+from gwmock.cli.simulate_utils import StaleIndexReadError, update_signal_index
 
 pytestmark = pytest.mark.unit
 
@@ -165,53 +170,97 @@ def test_a_filesystem_refusing_the_flush_does_not_fail_the_write(
 
 
 @pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
-def test_a_refused_flush_clears_the_digest_instead_of_recording_one(
+def test_a_refused_flush_still_records_the_digest_of_what_it_committed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A digest may only be recorded for a rename known to be durable, and the old one must go.
+    """The staleness guard survives a filesystem that cannot flush directories.
 
-    Surviving the write is not the property that matters -- recording the digest anyway also survives,
-    which is why the assertion here is on the sidecar and not on the index.
-
-    The first write is flushed normally so a digest is actually **there** to be cleared. Without it,
-    this test starts from the empty sidecar the lock creates and cannot tell clearing from doing
-    nothing: a mutation that dropped the clear and kept only the warning passed.
+    An earlier version of this branch withheld the digest here, reasoning that a digest for a rename of
+    unknown durability can wedge the directory after a crash. That is the wrong way round, and the test
+    below shows what it costs. The durability gap is carried instead, and warned about.
     """
-    update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
-    sidecar = tmp_path / "signal_index.yaml.lock"
-    assert sidecar.read_text().strip(), "the first write recorded no digest, so there is nothing to clear"
-
     _refuse_directory_fsync(monkeypatch)
+
+    update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
     update_signal_index(tmp_path, _metadata(2, 1), "orchestration-1.metadata.json")
 
-    assert sidecar.read_text().strip() == "", (
-        "the sidecar still holds a digest after an unflushed write. Either it describes the index this "
-        "update replaced -- wedging the next write against a good file -- or it describes a name that "
-        f"may not survive a crash: {sidecar.read_text()!r}"
+    recorded = (tmp_path / "signal_index.yaml.lock").read_text().strip()
+    assert recorded == hashlib.sha256((tmp_path / "signal_index.yaml").read_bytes()).hexdigest(), (
+        "the sidecar does not describe the index on disk, so the next writer cannot tell a stale read "
+        f"from a current one: {recorded!r}"
     )
 
 
 @pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
-def test_the_next_write_after_an_unflushed_one_is_not_refused_as_stale(
+def test_a_stale_reader_is_still_refused_on_a_filesystem_that_cannot_flush(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Keeping the previous digest wedges the directory with no crash involved at all.
+    """The cost of withholding the digest, pinned: silent loss on the mounts the guard exists for.
 
-    This is the ordering that makes "just don't record it" wrong, and it needs no power loss: the
-    unflushed rename *does* land, so the sidecar's older digest now describes an index that has been
-    replaced. The next write reads a good index, finds it does not match, and raises
-    ``StaleIndexReadError`` -- permanently, since nothing advances the digest but a successful write.
+    A reviewer supplied this ordering. Writer A's flush is refused; if that withheld the digest, the
+    sidecar is empty, and a writer on another host whose cached view predates A's update takes the
+    *permissive legacy path* -- it is accepted, and its write discards the entries it could not see. No
+    crash, no error, both runs exit 0. Refusing a stale read is loud and costs one batch; believing one
+    costs the entries.
+
+    Note which mounts these are. A filesystem that refuses ``fsync`` on a directory is the same class
+    that serves stale cached reads, so the guard is being disabled exactly where it is load-bearing.
+    """
+    _refuse_directory_fsync(monkeypatch)
+    update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
+    update_signal_index(tmp_path, _metadata(2, 1), "orchestration-1.metadata.json")
+
+    index_file = tmp_path / "signal_index.yaml"
+    assert sorted(yaml.safe_load(index_file.read_text())) == ["1", "2"]
+
+    # The other host's stale view: the index as it was one update ago. Only the index's bytes are
+    # patched -- blanking the sidecar too would send the guard down its "no digest" branch and pass for
+    # the wrong reason.
+    one_update_ago = yaml.safe_dump({"1": {"batches": [], "coa_time": 101.0}}).encode()
+    real_read_bytes = Path.read_bytes
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda self: one_update_ago if self == index_file else real_read_bytes(self),
+    )
+
+    with pytest.raises(StaleIndexReadError, match="stale"):
+        update_signal_index(tmp_path, _metadata(3, 2), "orchestration-2.metadata.json")
+
+    monkeypatch.undo()
+    assert sorted(yaml.safe_load(index_file.read_text())) == ["1", "2"], (
+        "the refusal itself damaged the index, which is no better than believing the stale read"
+    )
+
+
+@pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
+def test_a_crash_losing_an_unflushed_rename_refuses_loudly_and_names_the_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gap this branch knowingly carries, and the shape of it when it fires.
+
+    Recording the digest for a rename that may not be durable means a crash in that window reboots to
+    the *previous* index while the sidecar describes the new one. That state is a refusal, not a silent
+    acceptance -- and the message has to carry the repair, because nothing advances the digest by
+    itself: only deleting the sidecar clears it.
+
+    Rolling the index bytes back by hand is the closest a test without power loss gets to that state.
     """
     update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
+    index_file = tmp_path / "signal_index.yaml"
+    before_the_lost_write = index_file.read_bytes()
 
     _refuse_directory_fsync(monkeypatch)
     update_signal_index(tmp_path, _metadata(2, 1), "orchestration-1.metadata.json")
     monkeypatch.undo()
 
-    update_signal_index(tmp_path, _metadata(3, 2), "orchestration-2.metadata.json")
+    # The crash: the rename that installed event 2's index never reached stable storage.
+    index_file.write_bytes(before_the_lost_write)
 
-    index = yaml.safe_load((tmp_path / "signal_index.yaml").read_text())
-    assert sorted(index) == ["1", "2", "3"], f"the write after an unflushed one did not land: {sorted(index)}"
+    # The repair, not merely the sidecar's name: a refusal that does not say what to delete leaves the
+    # operator with a permanently wedged directory and no instruction.
+    with pytest.raises(StaleIndexReadError, match=re.escape("delete signal_index.yaml.lock")):
+        update_signal_index(tmp_path, _metadata(3, 2), "orchestration-2.metadata.json")
 
 
 @pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
@@ -257,41 +306,14 @@ def test_the_degradation_warns_where_an_operator_will_see_it_but_only_once(
         update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
         update_signal_index(tmp_path, _metadata(2, 1), "orchestration-1.metadata.json")
 
-    refusals = [record for record in caplog.records if "refused to flush the directory" in record.message]
-    assert len(refusals) == 1, f"expected exactly one warning across two batches, got {len(refusals)}"
-    assert refusals[0].levelno == logging.WARNING
-
-
-@pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
-def test_the_directory_does_not_wedge_when_an_unflushed_rename_is_rolled_back(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The crash ordering itself, replayed: an unflushed rename lost, the sidecar surviving.
-
-    A crash after ``os.replace`` but before its directory entry reaches the disk can reboot to the
-    *previous* index -- while the sidecar, written in place, keeps whatever digest it holds. Rolling the
-    index bytes back by hand is the closest a test without power loss gets to that state.
-
-    With a digest recorded, the next write reads an index that does not match it and raises
-    ``StaleIndexReadError`` against a perfectly good file, and the directory stays wedged until an
-    operator deletes the sidecar. With the digest cleared, the same state is the permissive legacy path:
-    it warns and proceeds.
-    """
-    update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
-    index_file = tmp_path / "signal_index.yaml"
-    before_the_lost_write = index_file.read_bytes()
-
-    _refuse_directory_fsync(monkeypatch)
-    update_signal_index(tmp_path, _metadata(2, 1), "orchestration-1.metadata.json")
-    monkeypatch.undo()
-
-    # The crash: the rename that installed event 2's index never reached stable storage.
-    index_file.write_bytes(before_the_lost_write)
-
-    update_signal_index(tmp_path, _metadata(3, 2), "orchestration-2.metadata.json")
-
-    index = yaml.safe_load(index_file.read_text())
-    assert sorted(index) == ["1", "3"], f"the write after the rolled-back rename did not land: {sorted(index)}"
+    warnings = [record for record in caplog.records if record.levelno >= logging.WARNING]
+    refusals = [record for record in warnings if "refused to flush the directory" in record.message]
+    assert len(refusals) == 1, f"expected exactly one refusal warning across two batches, got {len(refusals)}"
+    # Every warning, not only this one. The earlier version counted its own message and called that
+    # "only once" while the second batch emitted a *different* warning claiming the index "predates the
+    # staleness guard" -- a lie about an index written seconds earlier, and per batch. It came from
+    # withholding the digest; counting all warnings is what would have caught it.
+    assert warnings == refusals, f"the degradation emitted other warnings too: {[r.message for r in warnings]}"
 
 
 def test_the_flush_is_skipped_where_the_platform_has_no_directory_open(
@@ -317,10 +339,10 @@ def test_a_platform_without_directory_flushing_still_records_its_digest(
 ) -> None:
     """The staleness guard stays on where durability cannot be verified at all.
 
-    Distinct from a *refused* flush, which clears the digest. A platform with no directory-flush
-    primitive can never satisfy the check, so clearing there would disable the cross-host guard on
-    every write for good -- a certain loss against the uncertain one of a crash in a sub-millisecond
-    window. Without this test, clearing unconditionally passes every other test in this file.
+    Every flush outcome records now, so this is the same policy as a refused flush rather than an
+    exception to it. It is pinned separately because the platform reaches the decision by a different
+    branch, and because a change that withholds the digest on either would have to break this test
+    explicitly rather than by omission.
     """
     monkeypatch.delattr(os, "O_DIRECTORY", raising=False)
 
