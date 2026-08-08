@@ -1010,9 +1010,13 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> _Committ
 # directory: a run over twenty of them emitted twenty copies of a multi-line warning and kept twenty
 # entries for the life of the process. A directory that cannot be *opened* is a property of that
 # directory's permissions, and keying it by device hid the second such directory on a filesystem
-# entirely -- its own repair never shown. Path spelling is not a key in either case: a relative path
-# resolved from two working directories used to warn once for two filesystems, and one directory
-# reached by two spellings used to warn twice.
+# entirely -- its own repair never shown. The directory scope keys on the *absolute* path rather than
+# the spelling it was given: one relative path used from two working directories is two different
+# directories, and suppressing the second one's warning is the failure direction that costs an operator
+# a repair. Two spellings of one directory -- through a symlink, or a bind mount -- still warn twice,
+# which is the harmless direction and not worth a `resolve()` that can fail on the directory being
+# reported. Spelling was never a key for the filesystem scope, where it warned once for what were two
+# different mounts.
 #
 # `st_dev` is the best filesystem identity `os.stat` offers, and it is not perfect: Linux allocates
 # device numbers for NFS, tmpfs, FUSE and overlay from a pool and reuses them after unmount, so a
@@ -1058,33 +1062,38 @@ def _note_flush_outcome(directory: Path, flush: _DirectoryFlush, index_file: Pat
         # Both scopes clear: whichever fault was recorded for this directory, a flush that succeeds here
         # ends its episode.
         _DEGRADED_TARGETS.discard(("filesystem", device))
-        _DEGRADED_TARGETS.discard(("directory", str(directory)))
+        _DEGRADED_TARGETS.discard(("directory", os.path.abspath(directory)))
         return
     if flush is _DirectoryFlush.UNREADABLE:
-        target = ("directory", str(directory))
+        target = ("directory", os.path.abspath(directory))
         message = (
             "%s could not be opened to flush its entries, so the rename that installed this update is "
             "not known to have reached stable storage. The index and its digest are correct and "
             "complete, and the staleness guard is intact. This is a property of this directory rather "
             "than of the filesystem -- most often its permissions: flushing needs to open it for "
-            "reading, which a write-only directory refuses. What is not covered: a crash before the "
-            "directory entry reaches the disk can reboot to the previous index while %s describes this "
-            "one, and every later write then refuses as stale against a good file -- repaired by "
-            "stopping the writers and deleting that sidecar, which holds only the digest and the lock. "
-            "Warned once per directory while the condition lasts, and again if it clears and returns."
+            "reading, which a write-only directory refuses. Repair it by making the directory readable "
+            "by the account running gwmock; deleting the sidecar does not help, because the next write "
+            "cannot flush it either. What is not covered until then: a crash before the directory entry "
+            "reaches the disk can reboot to the previous index while %s describes this one, and every "
+            "later write refuses as stale against a good file -- recovered from by stopping the writers "
+            "and deleting that sidecar, which holds only the digest and the lock. Warned once per "
+            "directory while the condition lasts, and again if it clears and returns."
         )
     else:
         target = ("filesystem", device)
         message = (
             "The filesystem holding %s refused to flush the directory, so the rename that installed "
             "this update is not known to have reached stable storage. The index and its digest are "
-            "correct and complete, and the staleness guard is intact. What is not covered: a crash "
-            "before the directory entry reaches the disk can reboot to the previous index while %s "
-            "describes this one, and every later write then refuses as stale against a good file -- "
-            "repaired by stopping the writers and deleting that sidecar, which holds only the digest "
-            "and the lock. On a network mount that window lasts until the client sends the rename, "
-            "which is seconds rather than instants. Warned once per filesystem while the condition "
-            "lasts, and again if it clears and returns."
+            "correct and complete, and the staleness guard is intact. Nothing on this mount repairs "
+            "it -- a filesystem that rejects the call offers no way to make a rename durable -- so the "
+            "choice is to accept the exposure or to put the metadata directory on a filesystem that "
+            "supports the flush. What is not covered meanwhile: a crash before the directory entry "
+            "reaches the disk can reboot to the previous index while %s describes this one, and every "
+            "later write refuses as stale against a good file -- recovered from by stopping the writers "
+            "and deleting that sidecar, which holds only the digest and the lock. On a network mount "
+            "that window lasts until the client sends the rename, which is seconds rather than "
+            "instants. Warned once per filesystem while the condition lasts, and again if it clears "
+            "and returns."
         )
     if target in _DEGRADED_TARGETS:
         return

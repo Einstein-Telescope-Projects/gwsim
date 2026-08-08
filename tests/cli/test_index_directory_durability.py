@@ -59,8 +59,8 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
-def _forget_degraded_mounts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Give each test its own degraded-mount set.
+def _forget_degraded_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give each test its own degraded-target set.
 
     Process state, so without this a test's first refusal is suppressed by an earlier test's. It is a
     fixture rather than a call inside the refusal helper: doing it there is what hid the case where a
@@ -284,7 +284,7 @@ def test_a_crash_losing_an_unflushed_rename_refuses_loudly_and_names_the_repair(
 
 
 @pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
-def test_a_directory_that_cannot_be_opened_for_reading_is_a_refusal(tmp_path: Path) -> None:
+def test_a_directory_that_cannot_be_opened_for_reading_is_unreadable(tmp_path: Path) -> None:
     """The ``os.open`` failure is a real input, not a defensive branch.
 
     A write-only metadata directory -- mode ``0o333`` -- accepts the ``os.replace`` that installs the
@@ -302,6 +302,10 @@ def test_a_directory_that_cannot_be_opened_for_reading_is_a_refusal(tmp_path: Pa
         except PermissionError:
             pass
         else:
+            # Root ignores the mode, so the branch genuinely cannot be reached and skipping is honest.
+            # The project's CI runs as a non-root user on ubuntu-latest and macos-latest, so this is
+            # exercised there -- but a root cell added to that matrix would make these tests vanish
+            # silently rather than fail.
             pytest.skip("this user can read a write-only directory, so the refusal cannot be produced")
 
         assert simulate_utils._fsync_directory(metadata_directory) is simulate_utils._DirectoryFlush.UNREADABLE
@@ -445,6 +449,10 @@ def test_two_unreadable_directories_on_one_filesystem_each_warn(
         except PermissionError:
             pass
         else:
+            # Root ignores the mode, so the branch genuinely cannot be reached and skipping is honest.
+            # The project's CI runs as a non-root user on ubuntu-latest and macos-latest, so this is
+            # exercised there -- but a root cell added to that matrix would make these tests vanish
+            # silently rather than fail.
             pytest.skip("this user can read a write-only directory, so the refusal cannot be produced")
 
         assert directories[0].stat().st_dev == directories[1].stat().st_dev, "the input needs one filesystem"
@@ -495,6 +503,10 @@ def test_a_directory_whose_permissions_are_fixed_and_broken_again_warns_again(
         except PermissionError:
             pass
         else:
+            # Root ignores the mode, so the branch genuinely cannot be reached and skipping is honest.
+            # The project's CI runs as a non-root user on ubuntu-latest and macos-latest, so this is
+            # exercised there -- but a root cell added to that matrix would make these tests vanish
+            # silently rather than fail.
             pytest.skip("this user can read a write-only directory, so the refusal cannot be produced")
 
         with caplog.at_level(logging.WARNING, logger="gwmock.cli.simulate_utils"):
@@ -508,6 +520,47 @@ def test_a_directory_whose_permissions_are_fixed_and_broken_again_warns_again(
 
     unreadable = [r for r in caplog.records if "could not be opened to flush" in r.message]
     assert len(unreadable) == 2, f"expected one warning per episode, got {len(unreadable)}"
+
+
+@pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
+def test_one_relative_spelling_in_two_working_directories_is_two_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The directory key is the absolute path, because the same spelling can name different directories.
+
+    A reviewer supplied this: keyed on the string it was handed, ``Path("metadata")`` reached from two
+    working directories is one key, so the second directory's permission problem is suppressed and its
+    repair never shown. The reviewers disagreed on whether the CLI can reach it -- the other argued the
+    path passed in is stable, making duplication the only live direction -- and the disagreement is
+    resolved by fixing the key, since suppressing a warning is the direction that costs a repair.
+    """
+    for name in ("a", "b"):
+        (tmp_path / name / "metadata").mkdir(parents=True)
+        (tmp_path / name / "metadata").chmod(0o333)
+    try:
+        try:
+            os.close(os.open(tmp_path / "a" / "metadata", os.O_RDONLY | os.O_DIRECTORY))
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("this user can read a write-only directory, so the refusal cannot be produced")
+
+        with caplog.at_level(logging.WARNING, logger="gwmock.cli.simulate_utils"):
+            for name in ("a", "b"):
+                monkeypatch.chdir(tmp_path / name)
+                relative = Path("metadata")
+                simulate_utils._note_flush_outcome(
+                    relative,
+                    simulate_utils._fsync_directory(relative),
+                    relative / "signal_index.yaml",
+                    "signal_index.yaml.lock",
+                )
+    finally:
+        for name in ("a", "b"):
+            (tmp_path / name / "metadata").chmod(0o755)
+
+    unreadable = [r for r in caplog.records if "could not be opened to flush" in r.message]
+    assert len(unreadable) == 2, f"two directories sharing one relative spelling produced {len(unreadable)} warnings"
 
 
 def test_the_flush_is_skipped_where_the_platform_has_no_directory_open(
