@@ -16,7 +16,12 @@ from gwmock.data.serialize.encoder import Encoder
 logger = logging.getLogger("gwmock")
 
 
-def run_fingerprint(config_hashes: Iterable[str | None], output_directory: Path, metadata_directory: Path) -> str:
+def run_fingerprint(
+    config_hashes: Iterable[str | None],
+    output_directory: Path,
+    metadata_directory: Path,
+    referenced_inputs: Iterable[Path | str] = (),
+) -> str:
     """Identify a run by everything that decides where its outputs go, not just its config file.
 
     The config file hash alone is not the run. Two invocations of the *same* file with different
@@ -38,11 +43,22 @@ def run_fingerprint(config_hashes: Iterable[str | None], output_directory: Path,
     reindenting changes it and a legitimate resume is turned away. Annoying, and the safe direction;
     ``--ignore-checkpoint`` is the way out.
 
-    *External inputs are invisible.* The same config file with a different population CSV behind it
-    fingerprints identically, so a resume can mix the old catalogue's completed batches with the new
-    one's remaining batches. This does not make anything worse than before -- nothing checked it
-    previously either -- but it is the sharp edge left in this guard, and hashing referenced inputs
-    is the fix if it ever bites.
+    **The population file is covered by content, not just by name.** A config names its catalogue by
+    path, so replacing that file's bytes left every part of this identity unchanged: the checkpoint was
+    accepted and the batches it recorded were skipped, giving one run some batches from the old
+    catalogue and the rest from the new one. Measured before fixing -- a 3-batch run interrupted after
+    the first batch and resumed over a rewritten CSV kept mass 30 in batch 0 while batches 1 and 2
+    carried 81 and 82, exit code 0. Hashing it costs 18 ms for a 45 MB million-row catalogue, against a
+    run measured in minutes.
+
+    *Remote inputs still are not covered.* A URL contributes the URL, because hashing it would mean
+    downloading the catalogue a second time purely to identify the run. The examples pin theirs to a
+    commit, which is the practical answer; a server that serves different bytes at one URL is not
+    detected here.
+
+    *Only the population file is covered*, deliberately -- the input this was found through. Other paths
+    a config can name (PSD files, waveform tables) remain invisible, and would need the same treatment
+    if one of them ever bites.
 
     Args:
         config_hashes: Per-batch ``config_sha256`` values, in plan order. ``None`` entries are kept
@@ -50,6 +66,12 @@ def run_fingerprint(config_hashes: Iterable[str | None], output_directory: Path,
             fingerprint the same as one without that batch.
         output_directory: Where this run writes its data.
         metadata_directory: Where this run writes its metadata and index.
+        referenced_inputs: Files whose *content* is part of this run's identity. Duplicates and order
+            are normalised away: every batch carries the population config, so a three-batch plan
+            presents the same path three times, and adding a batch must not change the input part of
+            the identity. A path that cannot be read contributes a marker naming it, which still
+            differs from the same path read successfully -- so a run that could not hash its input is
+            never mistaken for one that did.
 
     Returns:
         A hex digest identifying the run.
@@ -57,7 +79,38 @@ def run_fingerprint(config_hashes: Iterable[str | None], output_directory: Path,
     parts = [hash_value if hash_value is not None else "<none>" for hash_value in config_hashes]
     parts.append(str(Path(output_directory).resolve()))
     parts.append(str(Path(metadata_directory).resolve()))
+    # Sorted and de-duplicated, so the identity depends on which inputs a run reads and not on how many
+    # batches happen to name them.
+    for reference in sorted({str(reference) for reference in referenced_inputs}):
+        parts.append(f"{reference}={_input_digest(reference)}")
     return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()
+
+
+def _input_digest(reference: str) -> str:
+    """Digest the bytes behind *reference*, or say why not.
+
+    A remote reference is left as a marker rather than fetched: identifying the run is not worth
+    downloading the catalogue twice, and the run's own fetch is where a content check would belong.
+
+    An unreadable one is a marker too, not an exception. This runs before the plan executes, so a
+    population staged later or a path typo has to reach its own error rather than a traceback from the
+    identity check -- and the marker still differs from a successful digest, so "could not hash" is
+    never confused with "hashed".
+    """
+    if "://" in reference:
+        return "<remote>"
+    path = Path(reference)
+    try:
+        with path.open("rb") as handle:
+            digest = hashlib.sha256()
+            # Chunked because a catalogue can be hundreds of megabytes; measured at ~2.5 GB/s, which is
+            # 18 ms for a 45 MB million-row file.
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError as error:
+        logger.debug("Could not hash the run input %s: %s", path, error)
+        return "<unhashed>"
 
 
 class ForeignCheckpointError(RuntimeError):

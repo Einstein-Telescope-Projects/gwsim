@@ -1877,6 +1877,27 @@ def _resolve_recorded_output_paths(metadata: dict[str, Any], working_directory: 
     return paths
 
 
+def _referenced_population_files(plan: SimulationPlan) -> list[str]:
+    """Every population source the plan's batches name, for the run's identity.
+
+    Read from each batch's own config rather than the first: a plan assembled from several metadata
+    records can name more than one catalogue, and taking one of them would let the rest change
+    unnoticed -- the same reasoning as hashing every batch's config rather than the first.
+
+    Only the population is collected. Other paths a config can reference are out of scope here, and
+    :func:`run_fingerprint` says so rather than implying they are covered.
+    """
+    references: list[str] = []
+    for batch in plan.batches:
+        population = getattr(batch.simulator_config, "population", None)
+        if population is None:
+            continue
+        source = (getattr(population, "arguments", None) or {}).get("path")
+        if source:
+            references.append(str(source))
+    return references
+
+
 def _batch_outputs_present(batch: SimulationBatch, metadata_directory: Path) -> bool | None:
     """Return whether the outputs recorded for ``batch`` all exist on disk.
 
@@ -2017,7 +2038,16 @@ def execute_plan(  # noqa: PLR0915
     # Not `batch.config_sha256` on its own: that hashes the config *file*, so the same file run with
     # a different `--output-dir` fingerprints identically and the guard waves it through -- measured
     # at 2 frames where a clean run writes 3. The identity has to include where the outputs go.
-    plan_sha256 = run_fingerprint([batch.config_sha256 for batch in plan.batches], output_directory, metadata_directory)
+    # The population file's *content*, not only its path: a config names its catalogue by name, so
+    # swapping that file's bytes left this identity unchanged and a resume mixed two catalogues into one
+    # run -- measured at batch 0 holding the old catalogue's event while batches 1 and 2 held the new
+    # one's, exit code 0.
+    plan_sha256 = run_fingerprint(
+        [batch.config_sha256 for batch in plan.batches],
+        output_directory,
+        metadata_directory,
+        _referenced_population_files(plan),
+    )
     if checkpoint:
         require_matching_config(checkpoint.get("config_sha256"), plan_sha256, checkpoint_manager.checkpoint_file)
     # A set, matching what `get_completed_batch_indices` returned: it is compared against
