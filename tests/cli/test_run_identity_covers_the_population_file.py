@@ -40,6 +40,7 @@ import pytest
 
 from gwmock.cli import simulate_utils
 from gwmock.cli.simulate_utils import execute_plan
+from gwmock.cli.utils import checkpoint as checkpoint_utils
 from gwmock.cli.utils.checkpoint import ForeignCheckpointError, run_fingerprint
 from gwmock.cli.utils.config import GlobalsConfig, PopulationConfig, SimulatorConfig, SimulatorOutputConfig
 from gwmock.cli.utils.simulation_plan import SimulationBatch, SimulationPlan
@@ -138,6 +139,21 @@ class TestTheFingerprintItself:
             ["a" * 64], tmp_path / "out", tmp_path / "meta", [second]
         )
 
+    def test_a_remote_input_is_never_read_from_disk(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A URL must not reach the filesystem, which is what "kept as its URL" has to mean.
+
+        Comparing two URLs' fingerprints does not show this: with the remote branch removed, a URL falls
+        through to a failed ``open`` and gets a marker, and because the reference string is part of the
+        key the two fingerprints still differ. The assertion has to be that no file access happens --
+        that mutation survived every other test here.
+        """
+
+        def _explode(*args, **kwargs):
+            raise AssertionError("a remote reference was opened as a local path")
+
+        monkeypatch.setattr(Path, "open", _explode)
+        assert checkpoint_utils._input_digest("https://example.invalid/bbh_population.csv") == "<remote>"
+
     def test_a_missing_input_does_not_crash_the_run(self, tmp_path: Path) -> None:
         """An unreadable or absent input is a marker, not an exception.
 
@@ -145,6 +161,12 @@ class TestTheFingerprintItself:
         yet -- a remote URL, a path typo, a file staged later -- must reach its own error rather than a
         traceback from the identity check. It still has to change the fingerprint, so a run that could
         not hash its input is not mistaken for one that did.
+
+        The marker's literal spelling is deliberately not asserted. Changing ``"<unhashed>"`` to any
+        other non-digest constant is semantically null -- no sha256 output is the empty string, or any
+        other short literal -- so a mutation that swaps it survives on purpose rather than for want of a
+        test. What matters, and is asserted, is that it differs from a real digest and from contributing
+        nothing at all.
         """
         missing = tmp_path / "not-there.csv"
         unhashed = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta", [missing])
@@ -219,3 +241,46 @@ def test_the_recorded_fingerprint_is_what_the_next_run_compares(
     without_it = run_fingerprint([batch.config_sha256 for batch in plan.batches], output_directory, metadata_directory)
     assert with_the_input != without_it, "the two fingerprints agree, so this test cannot discriminate"
     assert saved.get("config_sha256") == with_the_input
+
+
+def test_every_batch_s_population_counts_not_only_the_first(tmp_path: Path) -> None:
+    """A plan can name more than one catalogue, and each one is part of the run's identity.
+
+    Every batch in the earlier tests names the same file, so a change that hashed only the first batch's
+    population passed all of them. A plan assembled from several metadata records is the real case --
+    the same reasoning the config-hash side already documents.
+    """
+    first, second = tmp_path / "first.csv", tmp_path / "second.csv"
+    first.write_text(OLD_CATALOGUE)
+    second.write_text(OLD_CATALOGUE)
+
+    before = run_fingerprint(["a" * 64, "b" * 64], tmp_path / "out", tmp_path / "meta", [first, second])
+    second.write_text(NEW_CATALOGUE)  # the *second* batch's catalogue changes
+    after = run_fingerprint(["a" * 64, "b" * 64], tmp_path / "out", tmp_path / "meta", [first, second])
+
+    assert before != after, "a later batch's catalogue was replaced and the run looked identical"
+
+
+def test_the_plan_s_populations_are_collected_from_every_batch(tmp_path: Path) -> None:
+    """The collector itself, since the fingerprint cannot see a path the collector dropped."""
+    first, second = tmp_path / "first.csv", tmp_path / "second.csv"
+    first.write_text(OLD_CATALOGUE)
+    second.write_text(NEW_CATALOGUE)
+    plan = _plan(tmp_path / "checkpoints", first, batches=1)
+    plan.add_batch(
+        SimulationBatch(
+            simulator_name="mock",
+            simulator_config=SimulatorConfig(
+                class_="tests.cli.test_cli_simulate.MockSimulator",
+                arguments={"seed": 42},
+                output=SimulatorOutputConfig(file_name="batch_1.json"),
+                population=PopulationConfig(backend="FilePopulationLoader", arguments={"path": str(second)}),
+            ),
+            globals_config=GlobalsConfig(),
+            batch_index=1,
+        )
+    )
+
+    collected = simulate_utils._referenced_population_files(plan)
+
+    assert collected == [str(first), str(second)], f"a batch's population was dropped: {collected}"
