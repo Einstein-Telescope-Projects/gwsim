@@ -39,6 +39,7 @@ import logging
 import signal
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from gwmock.cli import simulate_utils
@@ -360,10 +361,13 @@ class TestWhatTheLoaderActuallyReads:
         assert run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta", [population]) != original
 
     def test_a_remote_resume_is_reported_but_not_warned_about(self, caplog: pytest.LogCaptureFixture) -> None:
-        """A remote population gets no content coverage, and the operator has to be told.
+        """A remote population gets no content coverage, and the operator is told at ``INFO``.
 
         The marker adds nothing the config hash already carried, so for a remote catalogue this guard
-        cannot refuse a mixed resume at all. Warning is the honest alternative to a docstring nobody reads.
+        cannot refuse a mixed resume at all. Saying so beats a docstring nobody reads -- but at ``INFO``,
+        not ``WARNING``: the check cannot tell a commit-pinned URL, where mixing cannot occur, from a
+        mutable one, and a warning on every remote resume would be unsilenceable by following its own
+        advice.
         """
         with caplog.at_level(logging.INFO, logger="gwmock"):
             checkpoint_utils.report_unverified_inputs(["https://example.invalid/pop.csv"], resuming=True)
@@ -375,7 +379,10 @@ class TestWhatTheLoaderActuallyReads:
         )
 
     def test_an_unreadable_population_warns_on_resume(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        """An unreadable catalogue is as unverified as a remote one, and warns the same way.
+        """An unreadable catalogue is as unverified as a remote one, but it warns rather than informs.
+
+        The difference is actionability: staging the file or fixing its mode makes the check work, whereas
+        a remote URL has no local repair. Same reason the levels differ.
 
         This is what makes the marker's shape matter rather than cosmetic: a change that returned some
         other constant for the unreadable branch would leave the fingerprint working and the warning
@@ -399,7 +406,7 @@ class TestWhatTheLoaderActuallyReads:
 def test_a_real_resume_over_a_remote_population_reports_the_gap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The warning has to be reached by the resume, not merely exist.
+    """The report has to be reached by the resume, not merely exist.
 
     Every other test of it calls the function directly, so removing its one call site left them all
     passing -- the same way the fingerprint change itself could have been made inert. This drives an
@@ -552,10 +559,18 @@ class TestBinaryCatalogues:
         An HDF5 dataset holding int8 13 (`\r`) and one holding 10 (`\n`) are different populations, and the
         format-blind rewrite mapped them to the same bytes -- so the resume this guard exists to refuse
         went through. Suffixes the loader parses as text are normalised; everything else is hashed raw.
+
+        Written with ``h5py`` rather than a handmade byte string carrying an HDF signature: the first
+        version of this test did the latter, so it pinned suffix-based hashing while its docstring claimed
+        HDF5 datasets, and ``h5py`` could not have read what it produced.
         """
+        h5py = pytest.importorskip("h5py")
         first, second = tmp_path / "pop.h5", tmp_path / "other.h5"
-        first.write_bytes(b"\x89HDF\r\n\x1a\n" + bytes([13]))
-        second.write_bytes(b"\x89HDF\r\n\x1a\n" + bytes([10]))
+        for path, mass in ((first, 13), (second, 10)):
+            with h5py.File(path, "w") as handle:
+                handle.create_dataset("detector_frame_mass_1", data=np.array([mass], dtype=np.int8))
+
+        assert first.read_bytes() != second.read_bytes(), "the two catalogues are byte-identical on disk"
         assert checkpoint_utils._input_digest(str(first)) != checkpoint_utils._input_digest(str(second))
 
     def test_the_text_suffixes_match_what_the_loader_parses_as_text(self) -> None:

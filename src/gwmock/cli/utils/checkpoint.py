@@ -114,11 +114,15 @@ def _input_digest(reference: str) -> str:
     file held -- so the guard silently did nothing for exactly the paths people write by hand. Found in
     review, and the reason this function does not simply take a ``Path``.
 
-    Line endings are normalised and trailing blank lines dropped before hashing. The run consumes the
-    *parsed* catalogue, so a regenerated file that differs only in CRLF/LF or a trailing newline yields
-    an identical population -- and refusing that resume costs a long run for no reason. Population files
-    are machine-generated, so same-content regeneration is a normal workflow rather than a rare edit.
-    This is not full parsing: a reordered or reformatted CSV still refuses, which is the safe direction.
+    **For a CSV**, line endings are normalised and trailing blank lines dropped before hashing. The run
+    consumes the *parsed* catalogue, so a regenerated file differing only in CRLF/LF or a trailing newline
+    yields an identical population -- and refusing that resume costs a long run for no reason. Population
+    files are machine-generated, so same-content regeneration is a normal workflow rather than a rare
+    edit. This is not full parsing: a reordered or reformatted CSV still refuses, the safe direction.
+
+    **For anything else** -- ``.hdf5``, ``.h5`` -- the bytes are hashed exactly as they are. In a binary
+    catalogue ``\r`` and ``\n`` are values, and normalising them made two different populations hash
+    alike, which is the failure this guard exists to prevent.
 
     A remote reference is a marker rather than a fetch: identifying the run is not worth downloading the
     catalogue twice. **This means remote populations get no content coverage at all** -- the marker adds
