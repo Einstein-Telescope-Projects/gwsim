@@ -42,6 +42,7 @@ change can silently break.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import logging
 import os
@@ -312,6 +313,43 @@ def test_a_directory_that_cannot_be_opened_for_reading_is_unreadable(tmp_path: P
         assert simulate_utils._fsync_directory(metadata_directory) is simulate_utils._DirectoryFlush.UNREADABLE
     finally:
         metadata_directory.chmod(0o755)
+
+
+@pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
+def test_an_open_failure_that_is_not_about_permissions_prescribes_no_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``EMFILE`` is not a permission problem, and must not be answered with a permission repair.
+
+    Every ``OSError`` from the open used to be classified as unreadable, whose warning tells the operator
+    to widen the directory's mode -- which repairs nothing when the real cause is an exhausted descriptor
+    table, a directory removed under the run, or a device error. An automated reviewer caught it: the same
+    wrong-repair defect as an earlier round, in the branch that round added.
+
+    Patching ``os.open`` is safe here where patching ``Path.stat`` was not -- nothing else in this path
+    calls it with ``O_DIRECTORY``.
+    """
+    real_open = os.open
+
+    def _refuse_to_open(path, flags, *args, **kwargs):
+        if flags & os.O_DIRECTORY:
+            raise OSError(errno.EMFILE, "Too many open files")
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", _refuse_to_open)
+
+    assert simulate_utils._fsync_directory(tmp_path) is simulate_utils._DirectoryFlush.UNAVAILABLE
+
+    with caplog.at_level(logging.WARNING, logger="gwmock.cli.simulate_utils"):
+        update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
+
+    warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1, f"expected one warning, got {warnings}"
+    assert "could not be opened" in warnings[0]
+    assert "permissions" not in warnings[0], (
+        f"a descriptor exhaustion was answered with a permissions repair: {warnings[0]}"
+    )
+    assert "No repair can be named" in warnings[0]
 
 
 @pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")

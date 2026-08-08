@@ -1066,7 +1066,21 @@ def _note_flush_outcome(directory: Path, flush: _DirectoryFlush, index_file: Pat
         _DEGRADED_TARGETS.discard(("filesystem", device))
         _DEGRADED_TARGETS.discard(("directory", os.path.abspath(directory)))
         return
-    if flush is _DirectoryFlush.UNREADABLE:
+    if flush is _DirectoryFlush.UNAVAILABLE:
+        target = ("directory", os.path.abspath(directory))
+        message = (
+            "%s could not be opened to flush its entries, so the rename that installed this update is "
+            "not known to have reached stable storage. The index and its digest are correct and "
+            "complete, and the staleness guard is intact. No repair can be named from here -- the "
+            "causes range from a directory removed under the run to a process out of file descriptors "
+            "-- so the specific error is in the debug log. What is not covered until it is fixed: a "
+            "crash before the directory entry reaches the disk can reboot to the previous index while "
+            "%s describes this one, and every later write refuses as stale against a good file -- "
+            "recovered from by stopping the writers and deleting that sidecar, which holds only the "
+            "digest and the lock. Warned once per directory while the condition lasts, and again if it "
+            "clears and returns."
+        )
+    elif flush is _DirectoryFlush.UNREADABLE:
         target = ("directory", os.path.abspath(directory))
         message = (
             "%s could not be opened to flush its entries, so the rename that installed this update is "
@@ -1121,7 +1135,10 @@ class _DirectoryFlush(Enum):
     """The filesystem rejected the flush itself. Unverifiable, unexpected, and true of the whole mount."""
 
     UNREADABLE = "unreadable"
-    """This directory could not be opened to flush it. Its own problem, not the filesystem's."""
+    """This directory refused to be opened for reading. Its own permissions, and repairable as such."""
+
+    UNAVAILABLE = "unavailable"
+    """This directory could not be opened for some other reason. No repair can be prescribed."""
 
 
 def _fsync_directory(directory: Path) -> _DirectoryFlush:
@@ -1144,8 +1161,9 @@ def _fsync_directory(directory: Path) -> _DirectoryFlush:
         directory: Directory whose entries should be flushed.
 
     Returns:
-        Which of the four outcomes occurred: flushed, unsupported by the platform, refused by the
-        filesystem, or a directory that could not be opened.
+        Which of the five outcomes occurred: flushed, unsupported by the platform, refused by the
+        filesystem, a directory that refused to be opened, or one that could not be opened for another
+        reason.
     """
     # No `pragma: no cover`. Every branch here is reached by
     # `tests/cli/test_index_directory_durability.py` -- this one by deleting the attribute, the two
@@ -1155,9 +1173,18 @@ def _fsync_directory(directory: Path) -> _DirectoryFlush:
         return _DirectoryFlush.UNSUPPORTED
     try:
         descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-    except OSError as error:
-        logger.debug("Could not open %s to flush its entries: %s", directory, error)
+    except PermissionError as error:
+        logger.debug("Not permitted to open %s to flush its entries: %s", directory, error)
         return _DirectoryFlush.UNREADABLE
+    except OSError as error:
+        # Everything else the open can fail with -- `EMFILE`/`ENFILE` from an exhausted descriptor
+        # table, `ENOENT` from a directory removed under the run, `EIO` from the device. Kept apart from
+        # the permission case because that one's warning names a repair -- widen the mode -- which none
+        # of these are fixed by, and a message that prescribes the wrong repair is worse than a generic
+        # one. The specific errno reaches the debug log rather than the warning, which stays stable
+        # enough to grep for.
+        logger.debug("Could not open %s to flush its entries: %s", directory, error)
+        return _DirectoryFlush.UNAVAILABLE
     try:
         os.fsync(descriptor)
     except OSError as error:
