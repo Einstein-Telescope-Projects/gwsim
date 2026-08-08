@@ -1033,10 +1033,17 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> _Committ
 # success already covers the case where the new mount works. Accepted, and recorded here rather than
 # left for the next reader to rediscover.
 #
-# Not synchronised. Every production caller holds the index's `flock`, the writer is a sequential
-# batch loop, and the resource-monitor thread never touches it; the check-then-add is formally racy
-# but a 64-thread stress probe produced exactly one warning, and the worst case is a duplicated or
-# missing *warning*, never a correctness path.
+# Not synchronised, and the reason is narrower than this comment used to claim. Callers hold the index's
+# `flock` *when locking is available*: `_exclusive_index_lock` deliberately yields **unlocked** when
+# `fcntl` is missing, and when `flock` fails with a locking-unsupported errno such as `ENOLCK` or
+# `EOPNOTSUPP` -- on those filesystems two hosts reach this set with nothing serialising them. Within one
+# process the writer is still a sequential batch loop and the resource-monitor thread never touches it.
+#
+# The check-then-add is therefore formally racy in more situations than "not at all", and it stays
+# unsynchronised anyway: a 64-thread stress probe produced exactly one warning, and the worst case in
+# every case is a duplicated or missing *warning*, never a correctness path. Stated properly because the
+# false version of it -- "every production caller holds the lock" -- is what a future reader would rely
+# on when deciding whether a lock is needed here.
 _DEGRADED_TARGETS: set[tuple[str, object]] = set()
 
 
@@ -1161,7 +1168,9 @@ def _fsync_directory(directory: Path) -> _DirectoryFlush:
     raising would turn a landed update into an error. But the outcome cannot be *dropped* either: the
     caller records a digest next, and a digest recorded for a rename that never reached the disk is
     precisely the wedge this function exists to prevent. :func:`update_signal_index` decides what to
-    do with each outcome; the two failures are kept distinct because they warrant different answers.
+    do with each outcome; the three failures are kept distinct because they warrant different answers --
+    an unreadable directory names a repair, an unsupported platform names none, and a refusing filesystem
+    names a different one.
 
     Args:
         directory: Directory whose entries should be flushed.
