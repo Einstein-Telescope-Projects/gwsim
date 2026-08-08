@@ -34,7 +34,13 @@ from gwmock_noise import SimulationResult
 from tqdm import tqdm
 
 from gwmock.cli.adapter_orchestration import AdapterOrchestrationResult, AdapterOrchestrator
-from gwmock.cli.utils.checkpoint import CheckpointManager, require_matching_config, run_fingerprint, spillover_applies
+from gwmock.cli.utils.checkpoint import (
+    CheckpointManager,
+    require_matching_config,
+    run_fingerprint,
+    spillover_applies,
+    warn_if_inputs_are_unverified,
+)
 from gwmock.cli.utils.config import OrchestrationConfig, SimulatorConfig, resolve_class_path
 from gwmock.cli.utils.environment import capture_environment
 from gwmock.cli.utils.hash import compute_content_hash, compute_file_hash
@@ -2042,11 +2048,12 @@ def execute_plan(  # noqa: PLR0915
     # swapping that file's bytes left this identity unchanged and a resume mixed two catalogues into one
     # run -- measured at batch 0 holding the old catalogue's event while batches 1 and 2 held the new
     # one's, exit code 0.
+    referenced_populations = _referenced_population_files(plan)
     plan_sha256 = run_fingerprint(
         [batch.config_sha256 for batch in plan.batches],
         output_directory,
         metadata_directory,
-        _referenced_population_files(plan),
+        referenced_populations,
     )
     if checkpoint:
         require_matching_config(checkpoint.get("config_sha256"), plan_sha256, checkpoint_manager.checkpoint_file)
@@ -2055,6 +2062,9 @@ def execute_plan(  # noqa: PLR0915
     # sends every resume down the "outputs are missing" branch.
     loaded_batch_indices = set(checkpoint.get("completed_batch_indices") or [])
     resuming = bool(loaded_batch_indices)
+    # Said on a resume, because that is when an unverifiable population can silently mix two catalogues:
+    # the fingerprints match whatever the bytes were, so this check is the only signal the operator gets.
+    warn_if_inputs_are_unverified(referenced_populations, resuming)
 
     # Reconcile the checkpoint against the filesystem: a batch may be recorded as
     # completed while its output is missing (partial write at interrupt, an external

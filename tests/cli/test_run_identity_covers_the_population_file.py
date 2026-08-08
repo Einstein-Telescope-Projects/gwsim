@@ -34,6 +34,7 @@ path a config can name.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -162,11 +163,11 @@ class TestTheFingerprintItself:
         traceback from the identity check. It still has to change the fingerprint, so a run that could
         not hash its input is not mistaken for one that did.
 
-        The marker's literal spelling is deliberately not asserted. Changing ``"<unhashed>"`` to any
-        other non-digest constant is semantically null -- no sha256 output is the empty string, or any
-        other short literal -- so a mutation that swaps it survives on purpose rather than for want of a
-        test. What matters, and is asserted, is that it differs from a real digest and from contributing
-        nothing at all.
+        The marker's *bracketed shape* is load-bearing since the unverified-input warning was added --
+        ``_is_marker`` distinguishes "gave up" from "hashed" by it -- so a mutation that returns some
+        other constant now silences that warning rather than being harmless. That is pinned by
+        ``test_a_resume_says_it_could_not_verify_an_unreadable_population`` below. The exact spelling
+        still is not asserted, only that it is not mistakable for a digest.
         """
         missing = tmp_path / "not-there.csv"
         unhashed = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta", [missing])
@@ -284,3 +285,105 @@ def test_the_plan_s_populations_are_collected_from_every_batch(tmp_path: Path) -
     collected = simulate_utils._referenced_population_files(plan)
 
     assert collected == [str(first), str(second)], f"a batch's population was dropped: {collected}"
+
+
+class TestWhatTheLoaderActuallyReads:
+    """Findings from review: the identity has to follow the loader, not a plausible guess at it."""
+
+    def test_a_tilde_path_is_expanded_before_hashing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The live false negative: a hand-written `~/...` path silently verified nothing.
+
+        The loader expands `~` before reading. This did not, so the open failed, the same marker was
+        recorded whatever the file held, and the guard did nothing for exactly the paths people type.
+        """
+        monkeypatch.setenv("HOME", str(tmp_path))
+        population = tmp_path / "population.csv"
+        population.write_text(OLD_CATALOGUE)
+
+        before = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta", ["~/population.csv"])
+        population.write_text(NEW_CATALOGUE)
+        after = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta", ["~/population.csv"])
+
+        assert before != after, "a `~` path was never opened, so the catalogue behind it was never checked"
+
+    def test_the_remote_predicate_agrees_with_the_loader(self) -> None:
+        """Drift between our scheme test and the loader's is the defect, so compare them directly.
+
+        Skipped rather than replicated if the loader's helper moves: this asserts agreement, and an
+        assertion against an import that no longer exists would fail for the wrong reason.
+        """
+        loader_predicate = pytest.importorskip("gwmock_pop.loaders._fetch").is_population_url
+        for reference in (
+            "https://example.invalid/pop.csv",
+            "http://example.invalid/pop.csv",
+            "s3://bucket/pop.csv",
+            "zenodo://12345/pop.csv",
+            "data://pop.csv",  # a directory literally named `data:` -- local to the loader
+            "file:///tmp/pop.csv",
+            "ftp://example.invalid/pop.csv",
+            "/absolute/pop.csv",
+            "relative/pop.csv",
+            "~/pop.csv",
+        ):
+            assert checkpoint_utils._is_remote(reference) is bool(loader_predicate(reference)), (
+                f"the identity and the loader disagree about {reference!r}"
+            )
+
+    def test_a_regenerated_catalogue_with_different_line_endings_still_resumes(self, tmp_path: Path) -> None:
+        """The run consumes the parsed catalogue, so byte-identical parses must not refuse a resume.
+
+        Verified in review: a trailing newline, a blank line, or CRLF/LF each changed the fingerprint while
+        the parsed catalogue was identical. Population files are machine-generated, so a same-content
+        regeneration is a normal workflow -- and refusing it costs a long run for nothing.
+        """
+        population = tmp_path / "population.csv"
+        population.write_text(OLD_CATALOGUE)
+        original = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta", [population])
+
+        population.write_bytes(OLD_CATALOGUE.replace("\n", "\r\n").encode())
+        assert run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta", [population]) == original, (
+            "the same catalogue rewritten with CRLF line endings refused the resume"
+        )
+
+    def test_a_reordered_catalogue_still_refuses(self, tmp_path: Path) -> None:
+        """The normalisation is line endings only, and must not become "parse it and compare".
+
+        A reordered or reformatted catalogue is a different input as far as this guard is concerned --
+        the safe direction, and the boundary the previous test could otherwise be widened past.
+        """
+        population = tmp_path / "population.csv"
+        population.write_text(CATALOGUE_HEADER + "30.0,25.0,1000000100.0,400.0\n80.0,75.0,1000000200.0,400.0\n")
+        original = run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta", [population])
+        population.write_text(CATALOGUE_HEADER + "80.0,75.0,1000000200.0,400.0\n30.0,25.0,1000000100.0,400.0\n")
+        assert run_fingerprint(["a" * 64], tmp_path / "out", tmp_path / "meta", [population]) != original
+
+    def test_a_resume_says_which_populations_it_could_not_verify(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A remote population gets no content coverage, and the operator has to be told.
+
+        The marker adds nothing the config hash already carried, so for a remote catalogue this guard
+        cannot refuse a mixed resume at all. Warning is the honest alternative to a docstring nobody reads.
+        """
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            checkpoint_utils.warn_if_inputs_are_unverified(["https://example.invalid/pop.csv"], resuming=True)
+        assert [r for r in caplog.records if "could not verify" in r.message], "a remote resume said nothing"
+
+    def test_a_resume_says_it_could_not_verify_an_unreadable_population(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An unreadable catalogue is as unverified as a remote one, and warns the same way.
+
+        This is what makes the marker's shape matter rather than cosmetic: a change that returned some
+        other constant for the unreadable branch would leave the fingerprint working and the warning
+        silently off, which no other test here would notice.
+        """
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            checkpoint_utils.warn_if_inputs_are_unverified([tmp_path / "never-staged.csv"], resuming=True)
+        assert [r for r in caplog.records if "could not verify" in r.message], (
+            "a resume over a population it could not read said nothing"
+        )
+
+    def test_a_clean_first_run_says_nothing(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Not on a first run, and not when everything is verifiable: warnings that always fire are noise."""
+        with caplog.at_level(logging.WARNING, logger="gwmock"):
+            checkpoint_utils.warn_if_inputs_are_unverified(["https://example.invalid/pop.csv"], resuming=False)
+        assert not [r for r in caplog.records if "could not verify" in r.message]
