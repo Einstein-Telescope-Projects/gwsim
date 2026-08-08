@@ -34,7 +34,13 @@ from gwmock_noise import SimulationResult
 from tqdm import tqdm
 
 from gwmock.cli.adapter_orchestration import AdapterOrchestrationResult, AdapterOrchestrator
-from gwmock.cli.utils.checkpoint import CheckpointManager, require_matching_config, run_fingerprint, spillover_applies
+from gwmock.cli.utils.checkpoint import (
+    CheckpointManager,
+    report_unverified_inputs,
+    require_matching_config,
+    run_fingerprint,
+    spillover_applies,
+)
 from gwmock.cli.utils.config import OrchestrationConfig, SimulatorConfig, resolve_class_path
 from gwmock.cli.utils.environment import capture_environment
 from gwmock.cli.utils.hash import compute_content_hash, compute_file_hash
@@ -1877,6 +1883,27 @@ def _resolve_recorded_output_paths(metadata: dict[str, Any], working_directory: 
     return paths
 
 
+def _referenced_population_files(plan: SimulationPlan) -> list[str]:
+    """Every population source the plan's batches name, for the run's identity.
+
+    Read from each batch's own config rather than the first: a plan assembled from several metadata
+    records can name more than one catalogue, and taking one of them would let the rest change
+    unnoticed -- the same reasoning as hashing every batch's config rather than the first.
+
+    Only the population is collected. Other paths a config can reference are out of scope here, and
+    :func:`run_fingerprint` says so rather than implying they are covered.
+    """
+    references: list[str] = []
+    for batch in plan.batches:
+        population = getattr(batch.simulator_config, "population", None)
+        if population is None:
+            continue
+        source = (getattr(population, "arguments", None) or {}).get("path")
+        if source:
+            references.append(str(source))
+    return references
+
+
 def _batch_outputs_present(batch: SimulationBatch, metadata_directory: Path) -> bool | None:
     """Return whether the outputs recorded for ``batch`` all exist on disk.
 
@@ -2017,7 +2044,17 @@ def execute_plan(  # noqa: PLR0915
     # Not `batch.config_sha256` on its own: that hashes the config *file*, so the same file run with
     # a different `--output-dir` fingerprints identically and the guard waves it through -- measured
     # at 2 frames where a clean run writes 3. The identity has to include where the outputs go.
-    plan_sha256 = run_fingerprint([batch.config_sha256 for batch in plan.batches], output_directory, metadata_directory)
+    # The population file's *content*, not only its path: a config names its catalogue by name, so
+    # swapping that file's bytes left this identity unchanged and a resume mixed two catalogues into one
+    # run -- measured at batch 0 holding the old catalogue's event while batches 1 and 2 held the new
+    # one's, exit code 0.
+    referenced_populations = _referenced_population_files(plan)
+    plan_sha256 = run_fingerprint(
+        [batch.config_sha256 for batch in plan.batches],
+        output_directory,
+        metadata_directory,
+        referenced_populations,
+    )
     if checkpoint:
         require_matching_config(checkpoint.get("config_sha256"), plan_sha256, checkpoint_manager.checkpoint_file)
     # A set, matching what `get_completed_batch_indices` returned: it is compared against
@@ -2025,6 +2062,9 @@ def execute_plan(  # noqa: PLR0915
     # sends every resume down the "outputs are missing" branch.
     loaded_batch_indices = set(checkpoint.get("completed_batch_indices") or [])
     resuming = bool(loaded_batch_indices)
+    # Said on a resume, because that is when an unverifiable population can silently mix two catalogues:
+    # the fingerprints match whatever the bytes were, so this check is the only signal the operator gets.
+    report_unverified_inputs(referenced_populations, resuming)
 
     # Reconcile the checkpoint against the filesystem: a batch may be recorded as
     # completed while its output is missing (partial write at interrupt, an external

@@ -8,7 +8,8 @@ import json
 import logging
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
+from urllib.parse import urlparse
 
 from gwmock.data.serialize.decoder import Decoder
 from gwmock.data.serialize.encoder import Encoder
@@ -16,7 +17,12 @@ from gwmock.data.serialize.encoder import Encoder
 logger = logging.getLogger("gwmock")
 
 
-def run_fingerprint(config_hashes: Iterable[str | None], output_directory: Path, metadata_directory: Path) -> str:
+def run_fingerprint(
+    config_hashes: Iterable[str | None],
+    output_directory: Path,
+    metadata_directory: Path,
+    referenced_inputs: Iterable[Path | str] = (),
+) -> str:
     """Identify a run by everything that decides where its outputs go, not just its config file.
 
     The config file hash alone is not the run. Two invocations of the *same* file with different
@@ -38,11 +44,27 @@ def run_fingerprint(config_hashes: Iterable[str | None], output_directory: Path,
     reindenting changes it and a legitimate resume is turned away. Annoying, and the safe direction;
     ``--ignore-checkpoint`` is the way out.
 
-    *External inputs are invisible.* The same config file with a different population CSV behind it
-    fingerprints identically, so a resume can mix the old catalogue's completed batches with the new
-    one's remaining batches. This does not make anything worse than before -- nothing checked it
-    previously either -- but it is the sharp edge left in this guard, and hashing referenced inputs
-    is the fix if it ever bites.
+    **The population file is covered by content, not just by name.** A config names its catalogue by
+    path, so replacing that file's bytes left every part of this identity unchanged: the checkpoint was
+    accepted and the batches it recorded were skipped, giving one run some batches from the old
+    catalogue and the rest from the new one. Measured before fixing -- a 3-batch run interrupted after
+    the first batch and resumed over a rewritten CSV kept mass 30 in batch 0 while batches 1 and 2
+    carried 81 and 82, exit code 0. Hashing it costs 18 ms for a 45 MB million-row catalogue, against a
+    run measured in minutes.
+
+    **Remote inputs are not covered at all, and the marker is not coverage.** A URL contributes a fixed
+    marker, which adds nothing the config hash did not already carry: hashing the bytes would mean
+    downloading the catalogue a second time purely to identify the run, and hashing the loader's cache
+    would refuse every legitimate resume, because the first run computes this before any cache exists.
+    So a re-fetch that returns different bytes between an interrupt and a resume -- ``refresh: true``, a
+    cleared cache, a mutable URL -- mixes catalogues exactly as a local swap used to, undetected.
+    :func:`report_unverified_inputs` says so at the point it matters instead of leaving the
+    docstring to carry it. Pinning the URL to an immutable revision, as the examples do, is the practical
+    answer.
+
+    *Only the population file is covered*, deliberately -- the input this was found through. Other paths
+    a config can name (PSD files, waveform tables) remain invisible, and would need the same treatment
+    if one of them ever bites.
 
     Args:
         config_hashes: Per-batch ``config_sha256`` values, in plan order. ``None`` entries are kept
@@ -50,6 +72,12 @@ def run_fingerprint(config_hashes: Iterable[str | None], output_directory: Path,
             fingerprint the same as one without that batch.
         output_directory: Where this run writes its data.
         metadata_directory: Where this run writes its metadata and index.
+        referenced_inputs: Files whose *content* is part of this run's identity. Duplicates and order
+            are normalised away: every batch carries the population config, so a three-batch plan
+            presents the same path three times, and adding a batch must not change the input part of
+            the identity. A path that cannot be read contributes a marker naming it, which still
+            differs from the same path read successfully -- so a run that could not hash its input is
+            never mistaken for one that did.
 
     Returns:
         A hex digest identifying the run.
@@ -57,7 +85,222 @@ def run_fingerprint(config_hashes: Iterable[str | None], output_directory: Path,
     parts = [hash_value if hash_value is not None else "<none>" for hash_value in config_hashes]
     parts.append(str(Path(output_directory).resolve()))
     parts.append(str(Path(metadata_directory).resolve()))
+    # Sorted and de-duplicated, so the identity depends on which inputs a run reads and not on how many
+    # batches happen to name them.
+    for reference in sorted({str(reference) for reference in referenced_inputs}):
+        parts.append(f"{reference}={_input_digest(reference)}")
     return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()
+
+
+# Schemes the population loader fetches rather than opens. Mirrors `gwmock_pop`'s own predicate
+# (`loaders._fetch.is_population_url`) rather than testing for "://", which disagreed with it in both
+# directions: a relative path under a directory named `data:` is local to the loader and was remote
+# here, so its content went unhashed. Duplicated rather than imported because that helper is private;
+# `test_run_identity_covers_the_population_file.py` compares the two whenever it can be imported, so
+# drift is caught rather than assumed away.
+_REMOTE_SCHEMES = frozenset({"http", "https", "s3", "zenodo"})
+
+
+def _is_remote(reference: str) -> bool:
+    """Whether the population loader would fetch *reference* instead of opening it."""
+    return urlparse(reference).scheme.lower() in _REMOTE_SCHEMES
+
+
+def _input_digest(reference: str) -> str:
+    """Digest the content behind *reference*, or say why not.
+
+    ``~`` is expanded, because the loader expands it before reading. Without that, a config naming
+    ``~/population.csv`` failed to open here and recorded the same "could not hash" marker whatever the
+    file held -- so the guard silently did nothing for exactly the paths people write by hand. Found in
+    review, and the reason this function does not simply take a ``Path``.
+
+    **For a CSV**, line endings are normalised and trailing blank lines dropped before hashing. The run
+    consumes the *parsed* catalogue, so a regenerated file differing only in CRLF/LF or a trailing newline
+    yields an identical population -- and refusing that resume costs a long run for no reason. Population
+    files are machine-generated, so same-content regeneration is a normal workflow rather than a rare
+    edit. This is not full parsing: a reordered or reformatted CSV still refuses, the safe direction.
+
+    **For anything else** -- ``.hdf5``, ``.h5`` -- the bytes are hashed exactly as they are. In a binary
+    catalogue ``\r`` and ``\n`` are values, and normalising them made two different populations hash
+    alike, which is the failure this guard exists to prevent.
+
+    A remote reference is a marker rather than a fetch: identifying the run is not worth downloading the
+    catalogue twice. **This means remote populations get no content coverage at all** -- the marker adds
+    nothing the config hash did not already carry, and a re-fetch that returns different bytes between an
+    interrupt and a resume is undetected. :func:`report_unverified_inputs`, called from the resume path, says so at
+    ``INFO`` -- it cannot tell a pinned URL from a mutable one, so it informs rather than warns.
+
+    An unreadable reference is a marker too, not an exception. This runs before the plan executes, so a
+    population staged later or a path typo has to reach its own error rather than a traceback from the
+    identity check -- and the marker still differs from a successful digest, so "could not hash" is never
+    confused with "hashed".
+    """
+    if _is_remote(reference):
+        return "<remote>"
+    path = Path(reference)
+    try:
+        # Inside the try, and catching `RuntimeError`: `expanduser` raises that -- not `OSError` -- when
+        # the home directory cannot be resolved at all (no `HOME`, no passwd entry), which a container or
+        # a stripped service account can produce. Outside, it escaped and took the run down instead of
+        # degrading to a marker, which is the opposite of what every other failure here does.
+        path = path.expanduser()
+        with path.open("rb") as handle:
+            # Text normalisation on a binary catalogue is not harmless, it is a false negative: an HDF5
+            # dataset holding int8 13 (`\r`) and one holding 10 (`\n`) normalise to the same bytes, so two
+            # different populations hash identically and the resume they should refuse goes through. Found
+            # in review. Only what the loader parses as text is normalised; everything else is hashed raw.
+            if _is_text_catalogue(path):
+                return _digest_normalised(handle)
+            return _digest_raw(handle)
+    except (OSError, RuntimeError) as error:
+        logger.debug("Could not hash the run input %s: %s", path, error)
+        return "<unhashed>"
+
+
+# Suffixes the population loader parses as text. Mirrors `gwmock_pop`'s
+# `loaders.file_loader.infer_population_file_format`, which maps `.csv` to "csv" and `.hdf5`/`.h5` to
+# "hdf5". Duplicated rather than imported because it is private, and compared against it in the tests
+# whenever it can be imported -- the same arrangement as the URL predicate, for the same reason.
+_TEXT_CATALOGUE_SUFFIXES = frozenset({".csv"})
+
+
+def _is_text_catalogue(path: Path) -> bool:
+    """Whether the loader would parse *path* as text, and line endings therefore carry no content."""
+    return path.suffix.lower() in _TEXT_CATALOGUE_SUFFIXES
+
+
+def _digest_raw(handle: IO[bytes]) -> str:
+    """sha256 of *handle*'s bytes exactly as they are.
+
+    For a binary catalogue, where every byte is content and `\r`/`\n` are values rather than line
+    endings.
+
+    Args:
+        handle: An open binary handle positioned at the start.
+
+    Returns:
+        The hex digest of the bytes.
+    """
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: handle.read(1 << 20), b""):
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _digest_normalised(handle: IO[bytes]) -> str:
+    """sha256 of *handle*'s bytes with line endings unified and trailing newlines dropped.
+
+    Chunked because a catalogue can be hundreds of megabytes; measured at ~2.5 GB/s, which is 18 ms for a
+    45 MB million-row file.
+
+    Two normalisations, both aimed at the same false refusal: a machine regenerating a catalogue with
+    identical rows must not turn a resume away. ``\r\n`` becomes ``\n``, and any run of trailing newlines
+    -- or a trailing ``\r`` -- is dropped, so "no final newline", "one", and "three blank lines" agree.
+    An *interior* lone ``\r`` is content and stays: inside a quoted field it is data, and collapsing it
+    would let two different catalogues hash alike.
+    Nothing else is touched -- a reordered or reformatted catalogue is still a different input, which is
+    the safe direction and has its own test. And nothing at all is touched for a binary catalogue: this
+    runs only for the suffixes the loader parses as text, because in an HDF5 dataset `\r` and `\n` are
+    values.
+
+    Two ways this was wrong before review caught them: the previous version's carry-byte loop never
+    terminated on a file ending in a lone ``\r`` (the byte was re-prepended to an empty read forever,
+    hanging the run), and the docstring claimed trailing blank lines were dropped while nothing dropped
+    them.
+
+    Args:
+        handle: An open binary handle positioned at the start.
+
+    Returns:
+        The hex digest of the normalised bytes.
+    """
+    digest = hashlib.sha256()
+    # Held back rather than hashed: a trailing newline run must vanish, but one in the middle must not,
+    # and only the next read can tell them apart.
+    pending = b""
+    # A `\r` at a chunk boundary may be the first half of a `\r\n`. Kept out of the digest until the next
+    # read resolves it -- and dropped at end of file, where it is a line terminator like any other.
+    split_carriage_return = b""
+    while True:
+        block = handle.read(1 << 20)
+        if not block:
+            break
+        chunk = (split_carriage_return + block).replace(b"\r\n", b"\n")
+        if chunk.endswith(b"\r"):
+            chunk, split_carriage_return = chunk[:-1], b"\r"
+        else:
+            split_carriage_return = b""
+        # Interior lone `\r` is left alone, deliberately: inside a quoted CSV field it is content, and
+        # rewriting it would make two different catalogues hash the same -- the false-negative direction,
+        # which is the one that matters. An earlier version of this rewrote every `\r` despite the round-2
+        # note saying it must not, and a reviewer caught the contradiction. The cost is that a
+        # classic-Mac-terminated file no longer matches its LF twin: a false refusal, the safe direction.
+        chunk = pending + chunk
+        without_trailing_newlines = chunk.rstrip(b"\n")
+        pending = chunk[len(without_trailing_newlines) :]
+        digest.update(without_trailing_newlines)
+    return digest.hexdigest()
+
+
+def report_unverified_inputs(referenced_inputs: Iterable[Path | str], resuming: bool) -> None:
+    """Say, on a resume, which populations this run's identity could not verify -- at two levels.
+
+    The guard's value is that a resume across two catalogues stops. Where the digest is a marker it
+    cannot: the fingerprints match whatever the bytes were. A gap an operator cannot see is
+    indistinguishable from a guarantee, so it is stated -- but the two kinds of gap deserve different
+    volumes, which a reviewer had to point out.
+
+    *A local file that could not be read* warns. It is specific, actionable, and unexpected: stage the
+    file, or fix its permissions, and the check works.
+
+    *A remote population* is logged at ``INFO``, which the CLI shows by default. This cannot distinguish a
+    commit-pinned URL -- the practical answer, and what the examples use -- from a mutable one, so at
+    ``WARNING`` it would fire on every remote resume including the ones where mixing cannot occur, and
+    following its own advice would not silence it. That is exactly how the message that matters gets
+    ignored, which this module already refuses to do elsewhere.
+
+    Only on a resume: a first run has nothing to be inconsistent with.
+
+    Args:
+        referenced_inputs: The population sources this run's identity was built from.
+        resuming: Whether a checkpoint is being resumed from.
+    """
+    if not resuming:
+        return
+    remote = sorted({str(reference) for reference in referenced_inputs if _is_remote(str(reference))})
+    unreadable = sorted(
+        {
+            str(reference)
+            for reference in referenced_inputs
+            if not _is_remote(str(reference)) and _is_marker(_input_digest(str(reference)))
+        }
+    )
+    if unreadable:
+        logger.warning(
+            "This resume could not read the population it is continuing from: %s. Its content is "
+            "therefore not part of the run's identity, so if those bytes changed since the interrupted "
+            "run, this resume mixes two catalogues and nothing here will refuse it. Stage the file, or fix "
+            "its permissions, to get the check.",
+            ", ".join(unreadable),
+        )
+    if remote:
+        logger.info(
+            "The population this run continues from is remote (%s), so its content is not part of the "
+            "run's identity -- identifying a run does not fetch the catalogue again. If that URL can serve "
+            "different bytes than the interrupted run received, this resume mixes two catalogues without "
+            "refusing. Pinning it to an immutable revision, as the examples do, removes the risk; this "
+            "message cannot tell a pinned URL from a mutable one, so it is said once per resume either way.",
+            ", ".join(remote),
+        )
+
+
+def _is_marker(digest: str) -> bool:
+    """Whether :func:`_input_digest` gave up rather than hashing.
+
+    Markers are bracketed and a sha256 hex digest never is, so this cannot mistake one for the other --
+    which is also why the marker's exact spelling is not part of any contract.
+    """
+    return digest.startswith("<")
 
 
 class ForeignCheckpointError(RuntimeError):
