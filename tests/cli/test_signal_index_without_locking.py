@@ -73,17 +73,36 @@ def _reset_the_once_only_warning() -> None:
 
 
 def _without_fcntl(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Present the platform as Windows: no ``fcntl`` module, and no Unix-only ``os`` calls.
+    """Present Windows semantics for the calls this path actually makes.
 
-    Removing ``fcntl`` alone is not the platform. Breakage 1 was ``os.fchmod`` -- a call that exists
-    on every host this suite runs on, so a test that only nulls ``fcntl`` cannot fail on it; verified
-    by reinstating that breakage, which survived until this fixture also took ``fchmod`` away.
-    Windows has neither, so both go, and any Unix-only call on this branch now raises the
-    ``AttributeError`` it would raise there.
+    **What this does and does not claim.** An earlier version of this docstring said "any Unix-only
+    call on this branch now raises the ``AttributeError`` it would raise there". That was false, and
+    a reviewer showed why: deleting ``os.fchmod`` and ``os.fchown`` is name-removal, not a platform.
+    Worse, both are *off-path* -- breakage 1's own fix replaced ``fchmod`` with ``os.chmod``, so the
+    deletions guard two names nothing executes. They are kept as tripwires against those exact names
+    returning, and labelled as such rather than as a simulation.
+
+    What is simulated is the one live difference on this path: ``os.chmod`` accepts a *descriptor* on
+    POSIX (it forwards to ``fchmod``) and requires a *path* on Windows, where an fd raises. The code
+    holds a descriptor in scope while chmod'ing by path, and the comment there frames path-versus-
+    descriptor as a considered trade -- so the natural cleanup to ``os.chmod(descriptor, ...)`` would
+    break every write on Windows and, before this, passed every test here.
+
+    Still not simulated, and known: open-handle sharing semantics, which need a real second writer
+    that no POSIX temporary directory can produce.
     """
     monkeypatch.setattr(simulate_utils, "fcntl", None)
     monkeypatch.delattr(simulate_utils.os, "fchmod", raising=False)
     monkeypatch.delattr(simulate_utils.os, "fchown", raising=False)
+
+    real_chmod = simulate_utils.os.chmod
+
+    def _path_only_chmod(target, mode, *args, **kwargs):
+        if isinstance(target, int):
+            raise NotImplementedError("chmod: file descriptors are not supported on this platform")
+        return real_chmod(target, mode, *args, **kwargs)
+
+    monkeypatch.setattr(simulate_utils.os, "chmod", _path_only_chmod)
 
 
 def _with_flock_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -155,6 +174,31 @@ def test_the_unlocked_warning_arrives_exactly_once(
 
     unlocked = [record for record in caplog.records if "without a lock" in record.message]
     assert len(unlocked) == 1, f"three updates produced {len(unlocked)} warnings"
+
+
+@pytest.mark.parametrize("degrade", [_without_fcntl, _with_flock_unsupported], ids=["no-fcntl", "flock-rejected"])
+def test_the_warning_is_once_per_process_not_once_per_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, degrade
+) -> None:
+    """Two directories in one process still warn once, which the previous test cannot show.
+
+    A reviewer named the gap precisely: the test above gives each scenario one directory and one call
+    site, so a regression that keyed the cache per-directory -- or per-call-site, which a real run
+    updating both the signal and metadata indexes would hit -- would warn twice in production and
+    still pass. Two directories in a single test is what distinguishes "once per process" from "once
+    per whatever this test happened to use".
+    """
+    degrade(monkeypatch)
+    first, second = tmp_path / "run-a", tmp_path / "run-b"
+    first.mkdir()
+    second.mkdir()
+
+    with caplog.at_level("WARNING"):
+        update_signal_index(first, _metadata(1, 0), "orchestration-0.metadata.json")
+        update_signal_index(second, _metadata(2, 0), "orchestration-0.metadata.json")
+
+    unlocked = [record for record in caplog.records if "without a lock" in record.message]
+    assert len(unlocked) == 1, f"two directories produced {len(unlocked)} warnings; the cache is not per-process"
 
 
 def test_the_digest_sidecar_is_created_even_though_the_lock_path_never_opens_it(
