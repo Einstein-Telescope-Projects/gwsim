@@ -22,18 +22,23 @@ classifiers = [
 requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
-  # 0.15.0 is the first release exposing `CBCSimulator.pre_coalescence_duration`, which segment
-  # placement asks before generating so an event is claimed by the segment its *waveform* starts in
-  # rather than the one holding its coalescence. Below this the query is absent, placement falls back
-  # to `coa_time`, and the start of any waveform landing near a boundary is cropped -- so this is a
-  # floor the behaviour depends on, not a convenience.
+  # Two floors, both behavioural rather than conveniences.
   #
-  # Floored at 0.16.0 for a *correctness* fix rather than a feature: gwmock-signal #370 projects the
-  # source direction into the frame of date. Before it, `gha = GMST - right_ascension` mixed a J2000
-  # right ascension with an Earth rotation measured from the mean equinox of date, an inconsistency
-  # worth 0.43 degrees in right ascension by 2030. The fix cuts worst-case disagreement with
-  # `lalpulsar.Barycenter` from 1.774e-04 s to 8.686e-07 s across a 192-point sky/epoch grid. It
-  # changes continuous-wave output, which is why this bump carries regenerated e2e references.
+  # 0.15.0 first exposed `CBCSimulator.pre_coalescence_duration`, which segment placement asks
+  # before generating so an event is claimed by the segment its *waveform* starts in rather than the
+  # one holding its coalescence. Below it the query is absent, placement falls back to `coa_time`,
+  # and the start of any waveform landing near a boundary is cropped.
+  #
+  # 0.16.0 adds the other half, `post_coalescence_duration`. Without the tail, a run whose
+  # start-time is later than its population's first event cannot tell that the earlier events are
+  # finished, so it claims every one of them into its first segment and discards the samples; the
+  # batch then grows with the distance from the catalogue start until the preflight refuses it.
+  #
+  # 0.16.0 also carries a projection *correctness* fix (gwmock-signal #370): the source direction is
+  # projected into the frame of date, where before `gha = GMST - right_ascension` mixed a J2000 right
+  # ascension with an Earth rotation measured from the mean equinox of date -- 0.43 degrees in right
+  # ascension by 2030. It changes continuous-wave output, which is why the bump landed with
+  # regenerated e2e references rather than inside this change.
   "gwmock-signal>=0.16.0",
   "gwmock-noise>=0.10.1",
   "gwmock-pop>=0.11.5",

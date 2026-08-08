@@ -444,3 +444,74 @@ class TestWaveformOptions:
             waveform_options={},
         )
         assert "waveform_arguments" not in backend.received_params[0]
+
+
+class TailQueryingBackend:
+    """Backend answering the tail query, rejecting unsupported parameters on the first call.
+
+    Deliberately separate from :class:`FailingBackend`: that one fails inside ``simulate``, and the
+    point here is the *query*, which runs before any generation and has its own retry.
+    """
+
+    def __init__(self, *, waveform_model: str = "IMRPhenomD", backend_label: str = "LAL") -> None:
+        self.waveform_model = waveform_model
+        self.backend_label = backend_label
+        self.required_params = frozenset({"coa_time"})
+        self.query_calls: list[dict] = []
+
+    def post_coalescence_duration(self, params, *, sampling_frequency, minimum_frequency):
+        del sampling_frequency, minimum_frequency
+        self.query_calls.append(dict(params))
+        if "redshift" in params:
+            raise ValueError(f"Unsupported {self.backend_label} waveform parameters: redshift")
+        return 0.4
+
+
+class TestPostCoalescenceDurationThroughTheAdapter:
+    """The tail query's own parameter handling, which generation's tests do not cover.
+
+    Both cases were named by a reviewer as residual risk after the round-2 fixes: the query is the
+    thing that decides *placement*, so if it and generation disagree about what reaches the
+    backend, the number describes a waveform the run will not produce.
+    """
+
+    def test_a_population_column_the_backend_rejects_does_not_lose_the_answer(self):
+        """Catch-parse-retry on the query, mirroring what generation already does.
+
+        Without it a catalogue carrying an extra column -- ``redshift`` is the usual one -- makes
+        every tail unknown, and the placement rule silently degrades to the behaviour it replaced.
+        """
+        backend = TailQueryingBackend()
+        adapter = _make_adapter_with_backend(backend)
+
+        tail = adapter.post_coalescence_duration(
+            {"mass_1": 30.0, "coa_time": 0.0, "redshift": 0.1},
+            sampling_frequency=1024.0,
+            minimum_frequency=20.0,
+        )
+
+        assert tail == 0.4
+        assert len(backend.query_calls) == 2, "the query was not retried without the rejected column"
+        assert "redshift" not in backend.query_calls[1]
+
+    def test_waveform_arguments_and_options_reach_the_query(self):
+        """The query must see the same merged mapping generation sees.
+
+        A query answering from defaults while generation runs with a pinned ``segment_duration`` or
+        a non-default ``ringdown_fraction`` would size a different buffer than the one produced,
+        and the placement decision would be made about a waveform that does not exist.
+        """
+        backend = TailQueryingBackend()
+        adapter = _make_adapter_with_backend(backend)
+
+        adapter.post_coalescence_duration(
+            {"mass_1": 30.0, "coa_time": 0.0},
+            sampling_frequency=1024.0,
+            minimum_frequency=20.0,
+            waveform_arguments={"reference_frequency": 50.0},
+            waveform_options={"ModeArray": [(2, 2)]},
+        )
+
+        received = backend.query_calls[0]
+        assert received["reference_frequency"] == 50.0
+        assert "waveform_arguments" in received

@@ -700,6 +700,61 @@ class SignalAdapter:
                 minimum_frequency=minimum_frequency,
             )
 
+    def post_coalescence_duration(
+        self,
+        parameters: Mapping[str, Any],
+        *,
+        sampling_frequency: float,
+        minimum_frequency: float,
+        waveform_arguments: Mapping[str, Any] | None = None,
+        waveform_options: Mapping[str, Any] | None = None,
+    ) -> float | None:
+        """Return how long after ``coa_time`` this event's waveform ends, in seconds.
+
+        The complement of :meth:`pre_coalescence_duration`, and the reason it exists: knowing only
+        where a buffer *starts* tells a caller that an event begins before a segment, never that it
+        has finished before one. Without the tail, a run whose ``start-time`` is later than its
+        population's first event cannot tell that the earlier events are behind it, and claims
+        every one of them into its first segment.
+
+        Args:
+            parameters: Per-event source parameters, as :meth:`simulate` takes them.
+            sampling_frequency: Sample rate in Hz.
+            minimum_frequency: Low-frequency cutoff in Hz.
+            waveform_arguments: Fixed waveform parameters, as :meth:`simulate` takes them.
+            waveform_options: Extra waveform options, as :meth:`simulate` takes them.
+
+        Returns:
+            Seconds between coalescence and one sample past the buffer's end, positive; or ``None``
+            when the answer is *unknown* -- a backend that cannot say (PyCBC), a source type with no
+            coalescence, or an installed gwmock-signal predating the query. Never read ``None`` as
+            zero: zero claims the waveform stops at coalescence, and acting on it discards an event
+            whose tail still reaches into the segment. The tail is a fraction of the buffer rather
+            than a physical ringdown, so it is 0.4 s for a 4 s binary-black-hole buffer and 25.6 s
+            for a 256 s binary-neutron-star one.
+        """
+        query = getattr(self._backend, "post_coalescence_duration", None)
+        if query is None:
+            return None
+        backend_parameters = self._backend_parameters(parameters, waveform_arguments, waveform_options)
+        try:
+            return query(
+                backend_parameters,
+                sampling_frequency=sampling_frequency,
+                minimum_frequency=minimum_frequency,
+            )
+        except ValueError as exc:
+            # As on the pre side: a population column the backend does not know must not be what
+            # decides whether an event is placed. Anything else propagates.
+            filtered = self._without_unsupported(exc, backend_parameters)
+            if filtered is None:
+                raise
+            return query(
+                filtered,
+                sampling_frequency=sampling_frequency,
+                minimum_frequency=minimum_frequency,
+            )
+
     def simulate_stack(
         self,
         parameters: Mapping[str, Any],
