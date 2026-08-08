@@ -631,6 +631,61 @@ class TestTheQueryAnswersForTheBackendThatGenerates:
         )
 
 
+class TestTheLeadIsAlignedToo:
+    """The lead moved as well, and that is what actually relocates boundary events.
+
+    A reviewer found this after the tail fix: the adapter answers both queries, so aligning it to
+    ripple changed ``pre_coalescence_duration`` too -- and the lead drives ``_placement_key`` and the
+    upper bound. LAL and ripple disagree there as well (30+25 at 30 Hz: 3.60 s against 2.81 s), so an
+    event at ``end + 3.0`` was claimed by this segment before the fix and belongs to the next one
+    after it.
+
+    That is the same defect as the tail, on the other side: the query described a buffer a different
+    library would produce. It is a real behaviour change, it moves boundary events for configs where
+    the tail direction was already safe, and the tail sweep does not see it.
+    """
+
+    @pytest.mark.parametrize(
+        ("mass_1", "mass_2", "minimum_frequency"),
+        [(30.0, 25.0, 30.0), (1.4, 1.35, 5.0), (4.5, 3.0, 30.0)],
+    )
+    def test_the_answering_lead_is_the_generated_one(self, tmp_path, mass_1, mass_2, minimum_frequency):
+        """Equality against the generating backend, exactly as for the tail."""
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        from gwmock_signal.waveform.backends.ripple import RippleBackend
+
+        orchestrator = _orchestrator(
+            tmp_path / f"lead_{mass_1}_{minimum_frequency}",
+            "batched",
+            waveform_backend=None,
+            **{"minimum-frequency": minimum_frequency},
+        )
+        parameters = {
+            **_SKIP_EVENT,
+            "detector_frame_mass_1": mass_1,
+            "detector_frame_mass_2": mass_2,
+            "coa_time": _START + 4.0,
+        }
+
+        answered = orchestrator._pre_coalescence_duration(parameters)
+        generated = RippleBackend().pre_coalescence_duration(
+            "IMRPhenomD",
+            _SAMPLING_FREQUENCY,
+            minimum_frequency,
+            mass1=mass_1,
+            mass2=mass_2,
+            distance=_SKIP_EVENT["distance"],
+            inclination=_SKIP_EVENT["inclination"],
+        )
+
+        assert answered is not None
+        assert generated is not None
+        assert answered == pytest.approx(generated, abs=0.5 / _SAMPLING_FREQUENCY), (
+            f"the placement query answers a {answered} s lead while ripple generates {generated} s; "
+            "the segment an event is claimed by is decided from a different library's buffer"
+        )
+
+
 class TestTheRippleSubstitutionIsHonest:
     """Substituting ripple for a batched config must not break construction or lie in provenance.
 
