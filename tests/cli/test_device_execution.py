@@ -560,41 +560,72 @@ class TestTheBatchedPathActuallySkips:
         assert int(batched.population_index) == 4
 
 
-class TestTheQueryAndGenerationCanDisagreeAboutTheBackend:
-    """A batched config with no ``waveform-backend`` asks LAL where a ripple buffer ends.
+class TestTheQueryAnswersForTheBackendThatGenerates:
+    """A batched run must not ask one library where another library's buffer ends.
 
-    The batched path always generates with ripple; the adapter answering the placement query uses
-    the configured backend, which defaults to LAL. So in that configuration the tail that decides
-    whether an event is skipped describes a *different library's* buffer than the one produced.
+    ``execution: batched`` always generates with ripple. The adapter answering the placement query
+    used to default to LAL, so the tail deciding whether an event was finished described a different
+    library's buffer -- and the two round buffer lengths onto different grids, so which is longer
+    flips with mass and cutoff.
 
-    Today that is safe only because LAL's buffer is the longer of the two, so the query overstates
-    the tail and the run errs toward claiming -- wasted work rather than deleted signal. Safe by
-    asymmetry, not by design, and nothing checked it. This is the check: if a change ever makes
-    ripple's tail the longer one, an event could be skipped while ripple is still producing it.
+    That was not a hypothetical. Measured across 24 mass/cutoff combinations before the fix, **9 had
+    ripple's tail longer than LAL's**: 1.4+1.35 at 5 Hz answered 819.20 s against a generated
+    934.17 s, so an event with up to 115 s of content inside the segment was reported finished and
+    skipped. Low masses and low cutoffs are the Einstein Telescope regime. Two reviewers found this
+    independently, from a test that had pinned a single safe point (30+25 at 30 Hz) as though the
+    asymmetry were an invariant.
     """
 
-    def test_the_answering_backend_never_understates_the_generating_one(self, tmp_path):
-        """The direction of the mismatch, which is the whole safety argument."""
+    @pytest.mark.parametrize(
+        ("mass_1", "mass_2", "minimum_frequency"),
+        [
+            (30.0, 25.0, 30.0),  # was safe before the fix
+            (1.4, 1.35, 30.0),  # reversed: 6.4004 answered against 8.4375 generated
+            (1.4, 1.35, 5.0),  # reversed worst: 819.20 against 934.17
+            (4.5, 3.0, 30.0),  # reversed: 1.5996 against 1.8750
+            (3.0, 3.0, 5.0),  # reversed: 204.80 against 256.00
+            (30.0, 25.0, 20.0),  # reversed narrowly: 0.4004 against 0.4502
+        ],
+    )
+    def test_the_answering_tail_is_the_generated_one(self, tmp_path, mass_1, mass_2, minimum_frequency):
+        """Equality, not an inequality: the query and generation must describe one buffer.
+
+        The previous version of this test asserted ``answered >= generated`` -- an inequality that
+        holds at some parameters and not others, so it enshrined a coin-flip of rounding as a safety
+        property. With the adapter built on the generating backend there is nothing to compare
+        conservatively: the two are the same number.
+        """
         pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
         from gwmock_signal.waveform.backends.ripple import RippleBackend
 
-        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None)
-        answered = orchestrator._post_coalescence_duration({**_SKIP_EVENT, "coa_time": _START + 4.0})
+        orchestrator = _orchestrator(
+            tmp_path / f"{mass_1}_{mass_2}_{minimum_frequency}",
+            "batched",
+            waveform_backend=None,
+            **{"minimum-frequency": minimum_frequency},
+        )
+        parameters = {
+            **_SKIP_EVENT,
+            "detector_frame_mass_1": mass_1,
+            "detector_frame_mass_2": mass_2,
+            "coa_time": _START + 4.0,
+        }
 
-        ripple = RippleBackend()
-        generated = ripple.post_coalescence_duration(
+        answered = orchestrator._post_coalescence_duration(parameters)
+        generated = RippleBackend().post_coalescence_duration(
             "IMRPhenomD",
             _SAMPLING_FREQUENCY,
-            30.0,
-            mass1=_SKIP_EVENT["detector_frame_mass_1"],
-            mass2=_SKIP_EVENT["detector_frame_mass_2"],
+            minimum_frequency,
+            mass1=mass_1,
+            mass2=mass_2,
             distance=_SKIP_EVENT["distance"],
             inclination=_SKIP_EVENT["inclination"],
         )
 
         assert answered is not None
         assert generated is not None
-        assert answered >= generated, (
-            f"the query answers {answered} s but ripple generates {generated} s of tail: an event "
-            "could be skipped while ripple is still producing it"
+        assert answered == pytest.approx(generated, abs=0.5 / _SAMPLING_FREQUENCY), (
+            f"the placement query answers {answered} s while ripple generates {generated} s; an "
+            f"event whose content reaches {generated - answered} s further than the query admits "
+            "can be skipped while it is still contributing to the segment"
         )

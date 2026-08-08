@@ -380,6 +380,22 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         # resolver and is rejected there instead of being treated as absent.
         waveform_backend_name = getattr(signal_config, "waveform_backend", None)
         waveform_backend_arguments = _normalize_keys(dict(signal_config.waveform_backend_arguments))
+
+        # `execution: batched` always generates with ripple -- `_batched_waveform_backend` refuses
+        # any other library rather than substituting one. So when a batched config names no backend,
+        # the adapter must be built on ripple too, or the *placement queries* answer for a LAL buffer
+        # while generation produces a ripple one.
+        #
+        # That mismatch deletes signal, and not hypothetically. The two libraries round buffer
+        # lengths onto different grids, so which tail is longer flips with mass and cutoff: measured
+        # across 24 mass/cutoff combinations, 9 have ripple's tail longer than LAL's -- 1.4+1.35 at
+        # 5 Hz answers 819.20 s against a generated 934.17 s, so an event up to 115 s of whose
+        # content lands inside the segment is reported finished and skipped. Low cutoffs and low
+        # masses are exactly the ET regime. Aligning the two here removes the whole class rather
+        # than relying on which way the rounding happens to fall.
+        if waveform_backend_name is None and str(getattr(signal_config, "execution", "per-event")) == "batched":
+            waveform_backend_name = "ripple"
+
         if waveform_backend_name is not None or waveform_backend_arguments:
             backend_arguments["waveform_backend"] = instantiate_backend(
                 "waveform",
