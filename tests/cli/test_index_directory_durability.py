@@ -168,22 +168,50 @@ def test_a_filesystem_refusing_the_flush_does_not_fail_the_write(
 def test_a_refused_flush_clears_the_digest_instead_of_recording_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A digest may only be recorded for a rename known to be durable.
+    """A digest may only be recorded for a rename known to be durable, and the old one must go.
 
     Surviving the write is not the property that matters -- recording the digest anyway also survives,
-    which is why the assertion here is on the sidecar and not on the index. The digest describes a name
-    that may still be in the page cache; recording it bets the directory on that write reaching the
-    disk, and the test below replays the ordering where it does not.
-    """
-    _refuse_directory_fsync(monkeypatch)
+    which is why the assertion here is on the sidecar and not on the index.
 
+    The first write is flushed normally so a digest is actually **there** to be cleared. Without it,
+    this test starts from the empty sidecar the lock creates and cannot tell clearing from doing
+    nothing: a mutation that dropped the clear and kept only the warning passed.
+    """
+    update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
+    sidecar = tmp_path / "signal_index.yaml.lock"
+    assert sidecar.read_text().strip(), "the first write recorded no digest, so there is nothing to clear"
+
+    _refuse_directory_fsync(monkeypatch)
+    update_signal_index(tmp_path, _metadata(2, 1), "orchestration-1.metadata.json")
+
+    assert sidecar.read_text().strip() == "", (
+        "the sidecar still holds a digest after an unflushed write. Either it describes the index this "
+        "update replaced -- wedging the next write against a good file -- or it describes a name that "
+        f"may not survive a crash: {sidecar.read_text()!r}"
+    )
+
+
+@pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
+def test_the_next_write_after_an_unflushed_one_is_not_refused_as_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keeping the previous digest wedges the directory with no crash involved at all.
+
+    This is the ordering that makes "just don't record it" wrong, and it needs no power loss: the
+    unflushed rename *does* land, so the sidecar's older digest now describes an index that has been
+    replaced. The next write reads a good index, finds it does not match, and raises
+    ``StaleIndexReadError`` -- permanently, since nothing advances the digest but a successful write.
+    """
     update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
 
-    sidecar = tmp_path / "signal_index.yaml.lock"
-    assert sidecar.read_text().strip() == "", (
-        "a digest was recorded for a rename whose durability is unknown, which is the wedge this "
-        f"guards: {sidecar.read_text()!r}"
-    )
+    _refuse_directory_fsync(monkeypatch)
+    update_signal_index(tmp_path, _metadata(2, 1), "orchestration-1.metadata.json")
+    monkeypatch.undo()
+
+    update_signal_index(tmp_path, _metadata(3, 2), "orchestration-2.metadata.json")
+
+    index = yaml.safe_load((tmp_path / "signal_index.yaml").read_text())
+    assert sorted(index) == ["1", "2", "3"], f"the write after an unflushed one did not land: {sorted(index)}"
 
 
 @pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
