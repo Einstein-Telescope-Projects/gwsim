@@ -21,11 +21,12 @@ import time
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from enum import Enum
 from functools import cache
 from importlib import import_module
 from importlib import metadata as importlib_metadata
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import numpy as np
 import yaml
@@ -904,7 +905,17 @@ def _record_digest(lock_file: Path, digest: str) -> None:
         ) from error
 
 
-def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> str:
+class _CommittedIndex(NamedTuple):
+    """An index that has been installed, and what is known about the durability of its name."""
+
+    digest: str
+    """The sha256 of the bytes committed."""
+
+    directory_flush: _DirectoryFlush
+    """Whether the rename that installed those bytes was made durable."""
+
+
+def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> _CommittedIndex:
     """Write the index so a reader sees either the old file or the new one, never a fragment.
 
     ``open(path, "w")`` truncates in place, so a crash or a full disk part-way through the dump
@@ -921,11 +932,15 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> str:
         index: The index mapping to serialise.
 
     Returns:
-        The sha256 of the bytes committed. Returned rather than re-read afterwards: the whole
-        defect this guards is that reading ``index_file`` can be served from a stale client
-        cache, so digesting a re-read could record the digest of this client's *stale view* — and
-        a later client with the same stale view would then match it and overwrite silently, which
-        is the bug rather than the fix.
+        The sha256 of the bytes committed, and whether the rename that installed them was made
+        durable. The digest is returned rather than re-read afterwards: the whole defect this guards
+        is that reading ``index_file`` can be served from a stale client cache, so digesting a re-read
+        could record the digest of this client's *stale view* — and a later client with the same stale
+        view would then match it and overwrite silently, which is the bug rather than the fix. The
+        flush outcome travels with it so the caller can *report* a rename whose durability is
+        unverifiable. It is not a gate on recording the digest: an earlier version of this function made
+        it one, and that turned a rare loud failure into a routine silent one -- see the decision comment
+        in :func:`update_signal_index`.
 
     Raises:
         OSError: If the file cannot be written or renamed.
@@ -973,10 +988,211 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> str:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, index_file)
+        # The rename itself has to reach the disk before the digest describing it does. `os.replace`
+        # is atomic with respect to readers, which is what the comment above is about, but atomicity
+        # is not durability: the directory entry can still be in the page cache when
+        # `_record_digest` writes the sidecar. A crash in that window leaves the *old* index with the
+        # *new* digest, and every later write then refuses as stale against a perfectly good file --
+        # loud and recoverable by deleting the sidecar, never a silent blessing of wrong bytes, but
+        # it needs an operator.
+        flush = _fsync_directory(index_file.parent)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
-    return digest
+    return _CommittedIndex(digest, flush)
+
+
+# What is currently known to be degraded, so the warning is not repeated per batch. Entries are
+# `(scope, key)`: a device number for a filesystem that refuses the flush, a directory for one that
+# cannot be opened. Both are cleared when a flush there succeeds, so an episode that ends and returns
+# is reported again -- a permanent cache went silent after the first episode of an intermittent mount.
+#
+# The two scopes exist because the two faults have different extents and different repairs. An fsync
+# the filesystem rejects is a property of the mount, so keying it per index warned once per metadata
+# directory: a run over twenty of them emitted twenty copies of a multi-line warning and kept twenty
+# entries for the life of the process. A directory that cannot be *opened* is a property of that
+# directory's permissions, and keying it by device hid the second such directory on a filesystem
+# entirely -- its own repair never shown. The directory scope keys on the *absolute* path rather than
+# the spelling it was given: one relative path used from two working directories is two different
+# directories, and suppressing the second one's warning is the failure direction that costs an operator
+# a repair. Two spellings of one directory -- through a symlink, or a bind mount -- still warn twice,
+# which is the harmless direction and not worth a `resolve()` that can fail on the directory being
+# reported. Spelling was never a key for the filesystem scope, where it warned once for what were two
+# different mounts.
+#
+# `st_dev` is the best filesystem identity `os.stat` offers, and it is not perfect: Linux allocates
+# device numbers for NFS, tmpfs, FUSE and overlay from a pool and reuses them after unmount, so a
+# still-degraded number inherited by a new mount suppresses that mount's first warning. The mount id
+# that would distinguish them (`STATX_MNT_ID`) is not exposed through `os.stat`, and clearing on
+# success already covers the case where the new mount works. Accepted, and recorded here rather than
+# left for the next reader to rediscover.
+#
+# Not synchronised. Every production caller holds the index's `flock`, the writer is a sequential
+# batch loop, and the resource-monitor thread never touches it; the check-then-add is formally racy
+# but a 64-thread stress probe produced exactly one warning, and the worst case is a duplicated or
+# missing *warning*, never a correctness path.
+_DEGRADED_TARGETS: set[tuple[str, object]] = set()
+
+
+def _note_flush_outcome(directory: Path, flush: _DirectoryFlush, index_file: Path, sidecar_name: str) -> None:
+    """Warn on entering a degraded episode, once per affected scope rather than once per batch.
+
+    At ``WARNING`` deliberately. The CLI logs at ``INFO`` by default, so the ``logger.debug`` lines
+    inside :func:`_fsync_directory` produce nothing an operator sees, and a degradation with no signal
+    is indistinguishable from a guarantee. Once per *episode* per process: a scheduler invoking gwmock
+    repeatedly against a degraded mount is told every time, which is the right way round for a condition
+    an operator can act on.
+
+    ``UNSUPPORTED`` says nothing. It is a permanent property of the platform rather than a fault, and a
+    warning on every run about a gap nobody can close is how the ones that can be acted on get ignored.
+
+    Args:
+        directory: The directory whose flush was attempted.
+        flush: What :func:`_fsync_directory` managed.
+        index_file: The index whose rename could not be made durable.
+        sidecar_name: File name of the sidecar recording its digest.
+    """
+    if flush is _DirectoryFlush.UNSUPPORTED:
+        return
+    try:
+        device: object = directory.stat().st_dev
+    except OSError:
+        # Unidentifiable is its own key rather than a reason to skip: losing the device number must not
+        # lose the warning.
+        device = None
+    if flush is _DirectoryFlush.FLUSHED:
+        # Both scopes clear: whichever fault was recorded for this directory, a flush that succeeds here
+        # ends its episode.
+        _DEGRADED_TARGETS.discard(("filesystem", device))
+        _DEGRADED_TARGETS.discard(("directory", os.path.abspath(directory)))
+        return
+    if flush is _DirectoryFlush.UNAVAILABLE:
+        target = ("directory", os.path.abspath(directory))
+        message = (
+            "%s could not be opened to flush its entries, so the rename that installed this update is "
+            "not known to have reached stable storage. The index and its digest are correct and "
+            "complete, and the staleness guard is intact. No repair can be named from here -- the "
+            "causes range from a directory removed under the run to a process out of file descriptors "
+            "-- so the specific error is in the debug log. What is not covered until it is fixed: a "
+            "crash before the directory entry reaches the disk can reboot to the previous index while "
+            "%s describes this one, and every later write refuses as stale against a good file -- "
+            "recovered from by stopping the writers and deleting that sidecar, which holds only the "
+            "digest and the lock. Warned once per directory while the condition lasts, and again if it "
+            "clears and returns."
+        )
+    elif flush is _DirectoryFlush.UNREADABLE:
+        target = ("directory", os.path.abspath(directory))
+        message = (
+            "%s could not be opened to flush its entries, so the rename that installed this update is "
+            "not known to have reached stable storage. The index and its digest are correct and "
+            "complete, and the staleness guard is intact. This is a property of this directory rather "
+            "than of the filesystem -- most often its permissions: flushing needs to open it for "
+            "reading, which a write-only directory refuses. Repair it by making the directory readable "
+            "by the account running gwmock; deleting the sidecar does not help, because the next write "
+            "cannot flush it either. What is not covered until then: a crash before the directory entry "
+            "reaches the disk can reboot to the previous index while %s describes this one, and every "
+            "later write refuses as stale against a good file -- recovered from by stopping the writers "
+            "and deleting that sidecar, which holds only the digest and the lock. Warned once per "
+            "directory while the condition lasts, and again if it clears and returns."
+        )
+    else:
+        target = ("filesystem", device)
+        message = (
+            "The filesystem holding %s refused to flush the directory, so the rename that installed "
+            "this update is not known to have reached stable storage. The index and its digest are "
+            "correct and complete, and the staleness guard is intact. Nothing on this mount repairs "
+            "it -- a filesystem that rejects the call offers no way to make a rename durable -- so the "
+            "choice is to accept the exposure or to put the metadata directory on a filesystem that "
+            "supports the flush. What is not covered meanwhile: a crash before the directory entry "
+            "reaches the disk can reboot to the previous index while %s describes this one, and every "
+            "later write refuses as stale against a good file -- recovered from by stopping the writers "
+            "and deleting that sidecar, which holds only the digest and the lock. On a network mount "
+            "that window lasts until the client sends the rename, which is seconds rather than "
+            "instants. Warned once per filesystem while the condition lasts, and again if it clears "
+            "and returns."
+        )
+    if target in _DEGRADED_TARGETS:
+        return
+    _DEGRADED_TARGETS.add(target)
+    logger.warning(message, index_file, sidecar_name)
+
+
+class _DirectoryFlush(Enum):
+    """Whether a rename was made durable, and if not, how that is reported.
+
+    Not a gate on recording the digest -- the digest is recorded whatever this says. An earlier version
+    of this branch made it one; see the decision comment in :func:`update_signal_index` for why that was
+    reversed.
+    """
+
+    FLUSHED = "flushed"
+    """The directory's entries reached stable storage: the digest describes a durable name."""
+
+    UNSUPPORTED = "unsupported"
+    """This platform offers no way to flush a directory here. Durability is unverifiable."""
+
+    REFUSED = "refused"
+    """The filesystem rejected the flush itself. Unverifiable, unexpected, and true of the whole mount."""
+
+    UNREADABLE = "unreadable"
+    """This directory refused to be opened for reading. Its own permissions, and repairable as such."""
+
+    UNAVAILABLE = "unavailable"
+    """This directory could not be opened for some other reason. No repair can be prescribed."""
+
+
+def _fsync_directory(directory: Path) -> _DirectoryFlush:
+    """Flush *directory*'s entries, so a rename inside it survives a crash.
+
+    POSIX only, and deliberately not emulated elsewhere. Windows cannot open a directory with
+    ``os.open``, and the equivalent there would be a ``FlushFileBuffers`` call through ``ctypes`` on a
+    handle obtained with ``CreateFileW`` -- code no host in this project can execute. A reviewer
+    proposed exactly that; it is left out, because untested platform code that looks like protection
+    is worse than a documented gap. NTFS journals metadata, so the exposure there is smaller in any
+    case.
+
+    Reports its outcome rather than raising. The index is already committed by the time this runs, so
+    raising would turn a landed update into an error. But the outcome cannot be *dropped* either: the
+    caller records a digest next, and a digest recorded for a rename that never reached the disk is
+    precisely the wedge this function exists to prevent. :func:`update_signal_index` decides what to
+    do with each outcome; the two failures are kept distinct because they warrant different answers.
+
+    Args:
+        directory: Directory whose entries should be flushed.
+
+    Returns:
+        Which of the five outcomes occurred: flushed, unsupported by the platform, refused by the
+        filesystem, a directory that refused to be opened, or one that could not be opened for another
+        reason.
+    """
+    # No `pragma: no cover`. Every branch here is reached by
+    # `tests/cli/test_index_directory_durability.py` -- this one by deleting the attribute, the two
+    # failures by an unopenable directory and a refusing fsync. A pragma claiming an executed branch
+    # cannot run is how a break in it still reports green, which this file has already paid for once.
+    if not hasattr(os, "O_DIRECTORY"):
+        return _DirectoryFlush.UNSUPPORTED
+    try:
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    except PermissionError as error:
+        logger.debug("Not permitted to open %s to flush its entries: %s", directory, error)
+        return _DirectoryFlush.UNREADABLE
+    except OSError as error:
+        # Everything else the open can fail with -- `EMFILE`/`ENFILE` from an exhausted descriptor
+        # table, `ENOENT` from a directory removed under the run, `EIO` from the device. Kept apart from
+        # the permission case because that one's warning names a repair -- widen the mode -- which none
+        # of these are fixed by, and a message that prescribes the wrong repair is worse than a generic
+        # one. The specific errno reaches the debug log rather than the warning, which stays stable
+        # enough to grep for.
+        logger.debug("Could not open %s to flush its entries: %s", directory, error)
+        return _DirectoryFlush.UNAVAILABLE
+    try:
+        os.fsync(descriptor)
+    except OSError as error:
+        logger.debug("Could not flush the entries of %s: %s", directory, error)
+        return _DirectoryFlush.REFUSED
+    finally:
+        os.close(descriptor)
+    return _DirectoryFlush.FLUSHED
 
 
 def _existing_index_mode(index_file: Path) -> int | None:
@@ -1069,7 +1285,31 @@ def update_signal_index(
             return
         _require_fresh_index_read(index_file, lock_file)
         committed = _update_signal_index_locked(index_file, injections, metadata, metadata_file_name, encoding)
-        _record_digest(lock_file, committed)
+        # Recorded whatever the flush managed, and this is a decision with a history. An earlier
+        # version of this branch *withheld* the digest when the directory could not be flushed, on the
+        # grounds that a digest describing a possibly-non-durable rename can wedge the directory after
+        # a crash. Two reviewers showed that trade is inverted:
+        #
+        #   - An empty sidecar is the permissive legacy path, so a writer on another host with a stale
+        #     cached view is *accepted* and its write discards the entries it could not see. That is
+        #     silent loss on exactly the shared mounts this guard was added for, and it needs no crash.
+        #   - The next batch would then warn "predates the staleness guard", which is a lie about an
+        #     index written seconds earlier, and it fires per batch.
+        #   - Withholding cannot even deliver its own invariant: the clear happens after the rename, so
+        #     a crash between them leaves the sidecar's old digest against a possibly-new index, which
+        #     refuses exactly as the state it was trying to avoid does.
+        #
+        # So the guard is kept and the durability gap is carried instead. A crash in that window leaves
+        # the index and the sidecar disagreeing in one direction or the other, and either way the next
+        # write refuses -- loud, and repaired by deleting the sidecar.
+        #
+        # Not "a rare window", which is what this comment claimed until a reviewer measured the class of
+        # mount involved: an NFS client holds the rename until it sends the RPC, so on the filesystems
+        # that refuse the flush the exposure is seconds rather than instants. The trade stands anyway --
+        # a loud recoverable failure beats a silent one whatever its probability -- but it does not rest
+        # on the window being small.
+        _record_digest(lock_file, committed.digest)
+        _note_flush_outcome(index_file.parent, committed.directory_flush, index_file, lock_file.name)
 
 
 def _require_fresh_index_read(index_file: Path, lock_file: Path) -> None:
@@ -1140,7 +1380,7 @@ def _update_signal_index_locked(
     metadata: dict[str, Any],
     metadata_file_name: str,
     encoding: str,
-) -> str:
+) -> _CommittedIndex:
     """Do the read-modify-write, with the caller holding the index lock.
 
     Split out so the critical section is a single named span: the read, the withdrawal and the
@@ -1153,6 +1393,10 @@ def _update_signal_index_locked(
         metadata: The batch metadata record just written.
         metadata_file_name: File name of that batch metadata record.
         encoding: File encoding for reading the index file.
+
+    Returns:
+        The committed index's digest and the durability of the rename that installed it, for the
+        caller to record and, when the durability is unverifiable, to warn about.
     """
     if index_file.exists():
         try:
