@@ -150,16 +150,24 @@ def test_the_directory_is_flushed_after_the_rename(tmp_path: Path, monkeypatch: 
     )
 
 
-def _refuse_directory_fsync(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make every fsync of a *directory* fail with ``EINVAL``, as some network mounts do."""
+def _refuse_directory_fsync(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+    """Make fsync of a *directory* fail with ``EINVAL``, as some network mounts do.
+
+    Returns a one-element switch so a test can let the mount recover and degrade again. Flipping the
+    switch rather than calling ``monkeypatch.undo()`` is deliberate: ``undo`` reverts *every* patch,
+    including the autouse fixture's replacement of the degraded-mount set, which restored the real
+    module-level set mid-test and made the toggle test pass whatever the suppression did.
+    """
+    refusing = [True]
     real_fsync = os.fsync
 
     def _fsync(fd):
-        if stat.S_ISDIR(os.fstat(fd).st_mode):
+        if refusing[0] and stat.S_ISDIR(os.fstat(fd).st_mode):
             raise OSError(22, "Invalid argument")
         return real_fsync(fd)
 
     monkeypatch.setattr(os, "fsync", _fsync)
+    return refusing
 
 
 @pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
@@ -262,9 +270,9 @@ def test_a_crash_losing_an_unflushed_rename_refuses_loudly_and_names_the_repair(
     index_file = tmp_path / "signal_index.yaml"
     before_the_lost_write = index_file.read_bytes()
 
-    _refuse_directory_fsync(monkeypatch)
+    refusing = _refuse_directory_fsync(monkeypatch)
     update_signal_index(tmp_path, _metadata(2, 1), "orchestration-1.metadata.json")
-    monkeypatch.undo()
+    refusing[0] = False
 
     # The crash: the rename that installed event 2's index never reached stable storage.
     index_file.write_bytes(before_the_lost_write)
@@ -339,14 +347,14 @@ def test_a_mount_that_recovers_and_degrades_again_warns_again(
     remount, a flaky FUSE layer -- went silent for every episode after the first. The tests hid it too,
     by resetting the cache inside the refusal helper.
     """
+    refusing = _refuse_directory_fsync(monkeypatch)
     with caplog.at_level(logging.WARNING, logger="gwmock.cli.simulate_utils"):
-        _refuse_directory_fsync(monkeypatch)
         update_signal_index(tmp_path, _metadata(1, 0), "orchestration-0.metadata.json")
-        monkeypatch.undo()  # the mount recovers
 
+        refusing[0] = False  # the mount recovers
         update_signal_index(tmp_path, _metadata(2, 1), "orchestration-1.metadata.json")
 
-        _refuse_directory_fsync(monkeypatch)  # and degrades again
+        refusing[0] = True  # and degrades again
         update_signal_index(tmp_path, _metadata(3, 2), "orchestration-2.metadata.json")
 
     refusals = [r for r in caplog.records if "refused to flush the directory" in r.message]
@@ -380,6 +388,35 @@ def test_many_directories_on_one_refusing_filesystem_warn_once_between_them(
     )
     assert len(simulate_utils._DEGRADED_MOUNTS) == 1, (
         f"the degraded-mount set grew per directory rather than per filesystem: {simulate_utils._DEGRADED_MOUNTS}"
+    )
+
+
+def test_an_unidentifiable_filesystem_still_warns(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """Losing the device number must not lose the warning.
+
+    Suppression is keyed on ``st_dev``, which is itself a syscall that can fail -- a metadata directory
+    removed under a running job is the ordinary way. Skipping the warning when the key cannot be read
+    would silence exactly the degraded setups this reports on, so an unreadable device becomes its own
+    key instead. A mutation that returned early there passed every other test in this file.
+
+    Calls the helper directly on a directory that does not exist, rather than patching ``Path.stat``: the
+    patch also caught ``mkdir(exist_ok=True)``, which stats to decide whether the existing path is a
+    directory, and the test failed in its own setup.
+    """
+    missing = tmp_path / "unmounted"
+
+    with caplog.at_level(logging.WARNING, logger="gwmock.cli.simulate_utils"):
+        simulate_utils._note_flush_outcome(
+            missing,
+            simulate_utils._DirectoryFlush.REFUSED,
+            missing / "signal_index.yaml",
+            "signal_index.yaml.lock",
+        )
+
+    refusals = [r for r in caplog.records if "refused to flush the directory" in r.message]
+    assert len(refusals) == 1, f"the warning was lost with the device number: {len(refusals)}"
+    assert {None} == simulate_utils._DEGRADED_MOUNTS, (
+        f"an unidentifiable filesystem was not given a key of its own: {simulate_utils._DEGRADED_MOUNTS}"
     )
 
 
