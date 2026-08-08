@@ -467,6 +467,49 @@ def test_two_unreadable_directories_on_one_filesystem_each_warn(
     )
 
 
+@pytest.mark.skipif(not hasattr(os, "O_DIRECTORY"), reason="directory fsync is POSIX-only")
+def test_a_directory_whose_permissions_are_fixed_and_broken_again_warns_again(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The directory scope needs its own clear-on-success, exactly as the filesystem scope does.
+
+    A mutation that cleared only the filesystem scope survived every other test: an operator who fixes
+    the directory's mode, and later breaks it again, would then never be told a second time. Same defect
+    as the permanent cache this branch already replaced once, in the scope added last.
+    """
+    directory = tmp_path / "run"
+    directory.mkdir()
+
+    def note() -> None:
+        simulate_utils._note_flush_outcome(
+            directory,
+            simulate_utils._fsync_directory(directory),
+            directory / "signal_index.yaml",
+            "signal_index.yaml.lock",
+        )
+
+    directory.chmod(0o333)
+    try:
+        try:
+            os.close(os.open(directory, os.O_RDONLY | os.O_DIRECTORY))
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("this user can read a write-only directory, so the refusal cannot be produced")
+
+        with caplog.at_level(logging.WARNING, logger="gwmock.cli.simulate_utils"):
+            note()
+            directory.chmod(0o755)  # the operator fixes it
+            note()
+            directory.chmod(0o333)  # and it breaks again
+            note()
+    finally:
+        directory.chmod(0o755)
+
+    unreadable = [r for r in caplog.records if "could not be opened to flush" in r.message]
+    assert len(unreadable) == 2, f"expected one warning per episode, got {len(unreadable)}"
+
+
 def test_the_flush_is_skipped_where_the_platform_has_no_directory_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
