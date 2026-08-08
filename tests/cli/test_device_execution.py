@@ -482,3 +482,119 @@ class TestReferenceFrequencyReachesTheBackend:
         )
 
         assert orchestrator._batched_waveform_backend()._f_ref == 25.0
+
+
+#: A complete BBH parameter set, so both the placement query and generation can answer.
+_SKIP_EVENT: dict[str, Any] = {
+    "detector_frame_mass_1": 30.0,
+    "detector_frame_mass_2": 25.0,
+    "distance": 400.0,
+    "right_ascension": 1.0,
+    "declination": 0.5,
+    "polarization_angle": 0.2,
+    "inclination": 0.3,
+}
+
+
+def _install(orchestrator, coa_times: list[float]) -> None:
+    """Replace the catalogue and drop the cached placement order."""
+    orchestrator._population_events = [{**_SKIP_EVENT, "coa_time": t} for t in coa_times]
+    orchestrator._placement_order_cache = None
+    orchestrator.population_index = 0
+
+
+class TestTheBatchedPathActuallySkips:
+    """The lower bound on the path a GPU run takes, with real ripple numbers.
+
+    ``TestCatalogueConsumption`` already asserts the two modes agree on ``population_index`` -- but
+    every event in the bundled catalogue coalesces inside the segment, so it agrees with **zero
+    skips taken**, which is the trivial case. The skip decision itself has been exercised with stubs
+    and with the default LAL adapter; never end to end through ripple, which is what
+    ``execution: batched`` generates with.
+    """
+
+    def test_a_finished_event_is_skipped_and_consumed(self, tmp_path):
+        """Real query, real generation, no substitution."""
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        orchestrator = _orchestrator(tmp_path, "batched")
+        start = float(getattr(orchestrator.start_time, "value", orchestrator.start_time))
+        _install(orchestrator, [start - 900.0, start - 600.0, start + 2.0, start + 6.0])
+
+        event_ids, events = orchestrator._events_for_this_segment()
+
+        assert len(events) == 2, f"batched {len(events)} events for a segment containing 2"
+        assert sorted(event_ids) == [2, 3]
+
+    def test_both_modes_agree_when_skips_are_actually_taken(self, tmp_path):
+        """The agreement the existing test cannot show, because it never skips anything.
+
+        ``population_index`` is checkpointed, so a run switched between modes must not lose or
+        repeat an event -- and the interesting case is precisely the one where the two paths each
+        have to step over the same finished events.
+        """
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        start = _START
+        catalogue = [start - 900.0, start - 600.0, start + 2.0, start + 6.0]
+
+        per_event = _orchestrator(tmp_path / "per", "per-event")
+        batched = _orchestrator(tmp_path / "bat", "batched")
+        _install(per_event, catalogue)
+        _install(batched, catalogue)
+
+        per_event._simulate()
+        batched._simulate()
+
+        assert int(batched.population_index) == int(per_event.population_index)
+        # The index alone cannot see this. A walk that stopped skipping would *generate* the
+        # finished events instead of stepping over them and still arrive at 4, so agreement on the
+        # index is satisfied by both the fixed and the broken path -- a mutation proved exactly that.
+        # What separates them is how many events each one actually produced.
+        assert len(batched._batch_injections) == 2, (
+            f"the batched path generated {len(batched._batch_injections)} events; the finished ones "
+            "were not skipped, so this test is not covering what it exists for"
+        )
+        assert len(per_event._batch_injections) == 2, (
+            f"the per-event path generated {len(per_event._batch_injections)} events; it agreed on "
+            "the index while doing different work"
+        )
+        assert int(batched.population_index) == 4
+
+
+class TestTheQueryAndGenerationCanDisagreeAboutTheBackend:
+    """A batched config with no ``waveform-backend`` asks LAL where a ripple buffer ends.
+
+    The batched path always generates with ripple; the adapter answering the placement query uses
+    the configured backend, which defaults to LAL. So in that configuration the tail that decides
+    whether an event is skipped describes a *different library's* buffer than the one produced.
+
+    Today that is safe only because LAL's buffer is the longer of the two, so the query overstates
+    the tail and the run errs toward claiming -- wasted work rather than deleted signal. Safe by
+    asymmetry, not by design, and nothing checked it. This is the check: if a change ever makes
+    ripple's tail the longer one, an event could be skipped while ripple is still producing it.
+    """
+
+    def test_the_answering_backend_never_understates_the_generating_one(self, tmp_path):
+        """The direction of the mismatch, which is the whole safety argument."""
+        pytest.importorskip("ripplegw", reason="the [jax] extra is not installed")
+        from gwmock_signal.waveform.backends.ripple import RippleBackend
+
+        orchestrator = _orchestrator(tmp_path, "batched", waveform_backend=None)
+        answered = orchestrator._post_coalescence_duration({**_SKIP_EVENT, "coa_time": _START + 4.0})
+
+        ripple = RippleBackend()
+        generated = ripple.post_coalescence_duration(
+            "IMRPhenomD",
+            _SAMPLING_FREQUENCY,
+            30.0,
+            mass1=_SKIP_EVENT["detector_frame_mass_1"],
+            mass2=_SKIP_EVENT["detector_frame_mass_2"],
+            distance=_SKIP_EVENT["distance"],
+            inclination=_SKIP_EVENT["inclination"],
+        )
+
+        assert answered is not None
+        assert generated is not None
+        assert answered >= generated, (
+            f"the query answers {answered} s but ripple generates {generated} s of tail: an event "
+            "could be skipped while ripple is still producing it"
+        )
