@@ -233,15 +233,21 @@ def fingerprint() -> dict[str, str]:
 
 
 def _jax_device() -> str:
-    """Return the JAX backend this run will generate on, or why there is none.
+    """Return the device this run generates on.
 
-    ``"none"`` when JAX is absent, which is a real configuration here: the matrix entries that do not
-    need `ripplegw` run without it, and CI has a cell with no `jax` extra at all.
+    The device, not JAX's availability -- a distinction a reviewer had to draw. With no JAX installed the
+    numerics still run on the CPU, on the same device the references were written on, and the entries
+    that need `ripplegw` are skipped rather than run differently. Reporting "none" there described the
+    library instead of the hardware, so CI's no-`jax` cell read as a foreign environment for every
+    reference and silenced the bit-mismatch note on entries that never touch JAX.
+
+    ``"unavailable"`` stays its own state, because that environment is *broken* rather than CPU-only: a
+    CUDA plugin that raises has JAX-using entries failing, not falling back.
     """
     try:
         import jax
     except ImportError:
-        return "none"
+        return "cpu"
     try:
         return str(jax.default_backend())
     except Exception:  # pragma: no cover - a broken backend must not fail the comparison

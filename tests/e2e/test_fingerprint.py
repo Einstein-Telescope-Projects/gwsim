@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import pytest
 
+from . import reference_values
 from .reference_values import fingerprint, same_environment
 
 pytestmark = pytest.mark.unit
@@ -78,14 +79,34 @@ class TestFingerprint:
         assert "device" in fingerprint()
 
     def test_the_device_is_one_of_the_states_the_docstring_names(self) -> None:
-        """`none` and `unavailable` are real states, not defensive decoration.
+        """`unavailable` is a real state, not defensive decoration.
 
         `unavailable` was written for a CUDA plugin that raises rather than falling back, and a real
         host produced exactly that: CUDA jaxlib installed, with cards below the compute capability
         current JAX supports.
         """
         device = fingerprint()["device"]
-        assert device in {"cpu", "gpu", "tpu", "none", "unavailable"}, device
+        assert device in {"cpu", "gpu", "tpu", "unavailable"}, device
+
+    def test_a_jax_less_environment_is_cpu_not_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Absent JAX still means the numerics ran on the CPU.
+
+        Reporting "none" described the library rather than the device, so CI's cell without the `jax`
+        extra read as a foreign environment against these CPU-written references -- silencing the
+        bit-mismatch note for the entries that never touch JAX in the first place. A reviewer drew the
+        distinction.
+        """
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _no_jax(name: str, *args: object, **kwargs: object) -> object:
+            if name == "jax":
+                raise ImportError("no jax here")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _no_jax)
+        assert reference_values._jax_device() == "cpu"
 
     def test_it_still_records_what_it_did_before(self) -> None:
         """The device is an addition; dropping a key would silently widen what compares equal."""
