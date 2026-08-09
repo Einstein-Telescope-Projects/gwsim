@@ -48,6 +48,39 @@ every machine, rather than one that is green only where the references happened 
 than on the data -- the reason sums were left out of the statistics in the first place, before it was
 added back to catch sign inversions. It stays as a diagnostic, where being sensitive is useful.
 
+**One reference, both devices -- and how that was established.** These references are written on a CPU,
+and the entries that generate through JAX (`execution: batched`, the ripple backend, the CW branch) run
+on a GPU wherever one is present. That makes "does the GPU still match?" a real question, and it is
+answered by replaying the matrix on a CUDA host rather than by argument:
+
+    # on a host with a CUDA-capable GPU and the `cuda` extra installed
+    uv run pytest -m e2e --no-cov tests/e2e/test_reference_values.py
+
+Done on 2026-08-09 against an RTX 5060 Ti (compute capability 12.0): **all nine runnable entries passed**
+against these CPU-written references, `argmax` included -- which is compared exactly, so the device
+difference moved no peak off its sample. An earlier measurement on an RTX 2080 Ti agreed. The delta
+itself was characterised separately as a global time shift of 2.3e-16 s, 3.16e-13 relative end to end.
+
+**Where the gate actually sits.** Two effects were measured against it, and it falls between them:
+
+===========================================================  ==========  =====================
+difference                                                   relative    against a 1e-06 gate
+===========================================================  ==========  =====================
+CPU to GPU, one Linux host                                   3.16e-13    passes, 3e6 to spare
+Linux/x86_64/py3.12 to Darwin/arm64/py3.13                   4.17e-06    **fails, by 4x**
+===========================================================  ==========  =====================
+
+So the tolerance is not simply loose: it admits the device difference and rejects a platform change. What
+it does *not* do is catch a GPU-specific regression smaller than about 1e-06, which is seven orders above
+the device difference -- passing the GPU replay says these references survive the device, not that the
+device is tightly watched.
+
+The macOS row is the reason this suite cannot be run green on an Apple machine against Linux-written
+references; it is a known gap rather than a fault in a particular entry.
+
+This check also cannot run in CI: GitHub-hosted runners have no GPU. Repeat it when the waveform path or
+the JAX dependency changes, rather than expecting it to guard every pull request.
+
 Note what the fingerprint deliberately does *not* include: package versions. A dependency bump
 changing a waveform is precisely what these references exist to surface, so putting versions in the
 gate would silently downgrade the very comparison that is wanted. Versions are recorded, and
