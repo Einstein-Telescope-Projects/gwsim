@@ -48,6 +48,41 @@ every machine, rather than one that is green only where the references happened 
 than on the data -- the reason sums were left out of the statistics in the first place, before it was
 added back to catch sign inversions. It stays as a diagnostic, where being sensitive is useful.
 
+**One reference, both devices -- and how that was established.** These references are written on a CPU,
+and the entries that generate through JAX (`execution: batched`, the ripple backend, the CW branch) run
+on a GPU wherever one is present. That makes "does the GPU still match?" a real question, and it is
+answered by replaying the matrix on a CUDA host rather than by argument:
+
+    # on a host with a CUDA-capable GPU and the `cuda` extra installed
+    uv run pytest -m e2e --no-cov tests/e2e/test_reference_values.py
+
+Done on 2026-08-09 against an RTX 5060 Ti (compute capability 12.0): **all eight stored references
+matched**, `argmax` included -- which is compared exactly, so the device difference moved no peak off its
+sample. (The run reports "9 passed, 1 skipped": eight reference comparisons, plus the separate test that
+every runnable entry has a reference, with the gengli entry skipped. An earlier draft of this paragraph
+read that as nine entries, which a reviewer corrected.) An earlier measurement on an RTX 2080 Ti agreed. The delta
+itself was characterised separately as a global time shift of 2.3e-16 s, 3.16e-13 relative end to end.
+
+**Where the gate actually sits.** Two effects were measured against it, and it falls between them:
+
+===========================================================  ==========  =====================
+difference                                                   relative    against a 1e-06 gate
+===========================================================  ==========  =====================
+CPU to GPU, one Linux host                                   3.16e-13    passes, 3e6 to spare
+Linux/x86_64/py3.12 to Darwin/arm64/py3.13                   4.17e-06    **fails, by 4x**
+===========================================================  ==========  =====================
+
+So the tolerance is not simply loose: it admits the device difference and rejects a platform change. What
+it does *not* do is catch a GPU-specific regression smaller than about 1e-06, which is seven orders above
+the device difference -- passing the GPU replay says these references survive the device, not that the
+device is tightly watched.
+
+The macOS row is the reason this suite cannot be run green on an Apple machine against Linux-written
+references; it is a known gap rather than a fault in a particular entry.
+
+This check also cannot run in CI: GitHub-hosted runners have no GPU. Repeat it when the waveform path or
+the JAX dependency changes, rather than expecting it to guard every pull request.
+
 Note what the fingerprint deliberately does *not* include: package versions. A dependency bump
 changing a waveform is precisely what these references exist to surface, so putting versions in the
 gate would silently downgrade the very comparison that is wanted. Versions are recorded, and
@@ -187,7 +222,61 @@ def fingerprint() -> dict[str, str]:
         "system": platform.system(),
         "machine": platform.machine(),
         "python": ".".join(str(part) for part in sys.version_info[:2]),
+        # The compute device, because two runs on one machine can differ by it alone. `execution:
+        # batched` generates through JAX, so the same host produces different last bits on its CPU and
+        # its GPU -- measured end to end at 3.16e-13 relative, a global time shift of 2.3e-16 s, which is
+        # benign and far inside `STATISTIC_TOLERANCE`. Without this the two runs fingerprint identically
+        # and the bit-mismatch note below blames "references written somewhere subtly different" for what
+        # is simply the other device.
+        "device": _jax_device(),
     }
+
+
+def _jax_device() -> str:
+    """Return the device this run generates on.
+
+    The device, not JAX's availability -- a distinction a reviewer had to draw. With no JAX installed the
+    numerics still run on the CPU, on the same device the references were written on, and the entries
+    that need `ripplegw` are skipped rather than run differently. Reporting "none" there described the
+    library instead of the hardware, so CI's no-`jax` cell read as a foreign environment for every
+    reference and silenced the bit-mismatch note on entries that never touch JAX.
+
+    ``"unavailable"`` stays its own state, because that environment is *broken* rather than CPU-only: a
+    CUDA plugin that raises has JAX-using entries failing, not falling back.
+    """
+    try:
+        import jax
+    except ImportError:
+        return "cpu"
+    try:
+        return str(jax.default_backend())
+    except Exception:  # pragma: no cover - a broken backend must not fail the comparison
+        # A CUDA plugin that cannot see a supported GPU raises rather than falling back, and that is
+        # worth recording as its own state instead of crashing a test run that would otherwise pass.
+        return "unavailable"
+
+
+def same_environment(stored: dict[str, str] | None, produced: dict[str, str] | None) -> bool:
+    """Whether two fingerprints describe the same numerical environment.
+
+    Every key, in both records. An earlier version compared only the keys the *stored* record carried, so
+    that references written before a key existed would keep behaving as they had -- and that defeated the
+    point of adding one: a CPU reference replayed on a GPU still counted as the same environment, and the
+    bit-mismatch note still blamed "references written somewhere subtly different" for the device. Both
+    reviewers caught it. A note that misattributes is worse than a note that is missing, and the
+    references now carry `device` anyway, so there is nothing to be compatible with.
+
+    Args:
+        stored: The fingerprint recorded with the reference, if any.
+        produced: The fingerprint of this run, if any.
+
+    Returns:
+        Whether the two describe the same environment. A reference with no fingerprint at all is not the
+        same environment as anything, since there is nothing to compare.
+    """
+    if not stored or not produced:
+        return False
+    return stored == produced
 
 
 def _environment() -> dict[str, str]:

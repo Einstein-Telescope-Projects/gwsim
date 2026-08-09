@@ -72,8 +72,10 @@ E2E_MATRIX: tuple[MatrixEntry, ...] = (
         covers=(
             "`execution: batched` -- a segment's events generated in one call through "
             "gwmock-signal's batched entry point, then converted back to per-event chunks. "
-            "Runs on whatever JAX backend is present, so this entry is CPU here; measured on an "
-            "RTX 2080 Ti, GPU and CPU agree far inside the gate. Needs `ripplegw`"
+            "Runs on whatever JAX backend is present, so this entry is CPU on a machine without one. "
+            "The references are device-independent by measurement, not by assumption: all eight stored "
+            "references were replayed on a CUDA host (RTX 5060 Ti) and matched, `argmax` included, which "
+            "is compared exactly. Needs `ripplegw`"
         ),
         requires=("ripplegw",),
     ),
