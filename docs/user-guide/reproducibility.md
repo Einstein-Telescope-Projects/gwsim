@@ -50,7 +50,7 @@ Consumers must reject unknown major versions.
     "outputs": [
         {
             "kind": "signal",
-            "path": "output/signal/E-ET1_SARD_STRAIN_BBH-1577491218-1024.gwf",
+            "path": "output/signal/E-ET1_SARD_STRAIN_BBH-1577491218-1024.hdf5",
             "channels": ["ET1_SARD:STRAIN"],
             "t0": 1577491218,
             "duration": 1024,

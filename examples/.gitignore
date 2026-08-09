@@ -1,6 +1,8 @@
 output/
 metadata/
 .gwsim_checkpoint/
+*.hdf5
+*.h5
 *.gwf
 *metadata.yaml
 *.npy

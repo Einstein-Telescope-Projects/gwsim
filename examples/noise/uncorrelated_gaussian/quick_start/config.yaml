@@ -23,7 +23,7 @@ orchestration:
             output_directory: signal
             file_name:
                 'E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration
-                }}.gwf'
+                }}.hdf5'
             arguments:
                 channel: '{{ detectors }}:STRAIN'
     noise:
@@ -36,6 +36,6 @@ orchestration:
             output_directory: noise
             file_name:
                 'E-{{ detectors }}_STRAIN_NOISE-{{ start_time }}-{{ duration
-                }}.gwf'
+                }}.hdf5'
             arguments:
                 channel: '{{ detectors }}:STRAIN'

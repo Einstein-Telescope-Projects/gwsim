@@ -29,6 +29,6 @@ orchestration:
             psd_file: ET_10_full_cryo_psd
         output:
             output_directory: noise
-            file_name: noise-{{ counter }}-{{ detectors }}.gwf
+            file_name: noise-{{ counter }}-{{ detectors }}.hdf5
             arguments:
                 channel: '{{ detectors }}:NOISE'

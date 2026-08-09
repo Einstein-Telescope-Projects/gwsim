@@ -13,7 +13,19 @@ import typer
 def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     file_names: Annotated[list[Path], typer.Argument(..., help="List of frame files to merge")],
     channel: Annotated[str, typer.Option("--channel", help="Channel name to merge")] = "STRAIN",
-    output: Annotated[str, typer.Option("--output", help="Output merged frame file name")] = "merged.gwf",
+    output: (
+        Annotated[
+            str,
+            typer.Option(
+                "--output",
+                help=(
+                    "Output file name. Its extension selects the format, as everywhere else in gwmock. "
+                    "Omit it to write 'merged' in the inputs' own format."
+                ),
+            ),
+        ]
+        | None
+    ) = None,
     output_channel: (
         Annotated[str, typer.Option("--output-channel", help="Channel name for the output file")] | None
     ) = None,
@@ -27,7 +39,8 @@ def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many
     Args:
         file_names (list[str]): List of frame files to merge.
         channel (str): Channel name to merge.
-        output (str): Output merged frame file name.
+        output (str | None): Output file name; its extension selects the format. ``None`` infers the
+            format from the inputs and writes ``merged`` with that extension.
         output_channel (str | None): Channel name for the output file. If None, use
         metadata (list[str] | None): List of metadata files corresponding to the frame files.
         author (str | None): Author of the merged file.
@@ -35,9 +48,13 @@ def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many
         force (bool): If True, bypass the requirement of providing metadata files.
 
     Raises:
-        ValueError: If metadata files are not provided and force is False.
+        ValueError: If metadata files are not provided and force is False, or if the format cannot be
+            inferred because the inputs do not agree on one.
     """
     import datetime
+
+    output = _resolve_output(output, file_names)
+
     import getpass
     from typing import cast
 
@@ -150,3 +167,41 @@ def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many
     else:
         typer.echo("No metadata provided for the source files.")
         typer.echo("No metadata file will be created for the merged file.")
+
+
+def _resolve_output(output: str | None, file_names: list[Path]) -> str:
+    """Return the output path, inferring the format from the inputs when none was given.
+
+    gwmock selects a format by file extension rather than by a flag, so ``--output`` carries the choice
+    and this only supplies a default. The default follows the inputs instead of a fixed format: merging
+    GWF frames for a pipeline that reads GWF should not quietly hand back HDF5 because HDF5 is what a run
+    writes now.
+
+    Mixed inputs raise rather than picking one. Merging a GWF and an HDF5 file is a coherent request with
+    two defensible answers, and guessing would silently drop half the caller's intent -- naming both
+    formats and asking for ``--output`` costs one line and cannot be wrong.
+
+    Args:
+        output: The ``--output`` value, or ``None``.
+        file_names: The inputs being merged.
+
+    Returns:
+        The output file name.
+
+    Raises:
+        ValueError: If no output was given and the inputs do not agree on a format.
+    """
+    if output is not None:
+        return output
+    suffixes = sorted({Path(name).suffix.lower() for name in file_names if Path(name).suffix})
+    if not suffixes:
+        raise ValueError(
+            "Cannot infer the output format: none of the input files has an extension. "
+            "Pass --output with the extension you want, for example --output merged.hdf5."
+        )
+    if len(suffixes) > 1:
+        raise ValueError(
+            f"Cannot infer the output format: the inputs are a mixture of {', '.join(suffixes)}. "
+            f"Pass --output with the extension you want, for example --output merged{suffixes[0]}."
+        )
+    return f"merged{suffixes[0]}"

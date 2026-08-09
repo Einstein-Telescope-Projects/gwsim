@@ -28,6 +28,6 @@ orchestration:
             output_directory: glitch
             file_name:
                 'E-{{ detectors }}_STRAIN_GLITCH-{{ start_time }}-{{ duration
-                }}.gwf'
+                }}.hdf5'
             arguments:
                 channel: '{{ detectors }}:STRAIN'

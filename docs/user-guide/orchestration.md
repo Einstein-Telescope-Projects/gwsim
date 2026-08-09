@@ -32,7 +32,7 @@ orchestration:
         detectors:
             - H1
         output:
-            file_name: signal-{{ counter }}.gwf
+            file_name: signal-{{ counter }}.hdf5
             arguments:
                 channel: H1:STRAIN
     noise:

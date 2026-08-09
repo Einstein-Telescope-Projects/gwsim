@@ -194,7 +194,7 @@ Validated SimulationPlan
 ```json
 {
   "last_completed_batch": 5,
-  "last_completed_file": "file.gwf",
+  "last_completed_file": "file.hdf5",
   "random_state": {...},
   "processed_samples": 5,
   "timestamp": "2025-01-01T12:00:00Z"
@@ -270,7 +270,7 @@ Batch iteration
     └── Update checkpoint
     ↓
 Output
-    - Data files (*.gwf)
+    - Data files (*.hdf5, *.gwf)
     - Metadata files (*.metadata.json)
     - Checkpoint file (.gwmock_checkpoint/simulation.checkpoint.json)
 ```

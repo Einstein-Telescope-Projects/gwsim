@@ -225,7 +225,11 @@ class SignalConfig(BaseModel):
     )
     output: SimulatorOutputConfig = Field(
         default_factory=lambda: SimulatorOutputConfig(
-            file_name="signal-{{ detectors }}-{{ start_time }}-{{ duration }}.gwf",
+            # HDF5 by default: it is the format gwmock produces, and the one its own tooling reads
+            # without a frame library. GWF remains fully supported and is selected the same way any
+            # format is, by naming it here -- it exists so other gravitational-wave pipelines can read
+            # what gwmock writes, not because a run needs it.
+            file_name="signal-{{ detectors }}-{{ start_time }}-{{ duration }}.hdf5",
             output_directory="signal",
             arguments={"channel": "{{ detectors }}:STRAIN"},
         ),
@@ -266,7 +270,8 @@ class NoiseAdapterConfig(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict, description="Arguments passed to the gwmock-noise adapter")
     output: SimulatorOutputConfig = Field(
         default_factory=lambda: SimulatorOutputConfig(
-            file_name="noise-{{ counter }}.gwf",
+            # HDF5 by default, as for signal output above.
+            file_name="noise-{{ counter }}.hdf5",
             output_directory="noise",
             arguments={"channel": "MOCK_NOISE"},
         ),

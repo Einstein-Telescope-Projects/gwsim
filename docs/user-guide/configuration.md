@@ -274,7 +274,7 @@ orchestration:
         output:
             file_name:
                 'E-{{ detectors }}_STRAIN_BBH-{{ start_time }}-{{ duration
-                }}.gwf'
+                }}.hdf5'
             arguments:
                 channel: '{{ detectors }}:STRAIN'
 
@@ -287,7 +287,7 @@ orchestration:
         output:
             file_name:
                 'E-{{ detectors }}_STRAIN_NOISE-{{ start_time }}-{{ duration
-                }}.gwf'
+                }}.hdf5'
             arguments:
                 channel: '{{ detectors }}:STRAIN'
 ```
@@ -427,7 +427,7 @@ orchestration:
         output:
             file_name:
                 'E-{{ detectors }}_STRAIN_NOISE-{{ start_time }}-{{ duration
-                }}.gwf'
+                }}.hdf5'
             arguments:
                 channel: '{{ detectors }}:STRAIN'
 ```
