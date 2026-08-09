@@ -73,9 +73,9 @@ E2E_MATRIX: tuple[MatrixEntry, ...] = (
             "`execution: batched` -- a segment's events generated in one call through "
             "gwmock-signal's batched entry point, then converted back to per-event chunks. "
             "Runs on whatever JAX backend is present, so this entry is CPU on a machine without one. "
-            "The references are device-independent by measurement, not by assumption: the whole matrix "
-            "was replayed on a CUDA host (RTX 5060 Ti) against these CPU-written references and every "
-            "entry passed, `argmax` included, which is compared exactly. Needs `ripplegw`"
+            "The references are device-independent by measurement, not by assumption: all eight stored "
+            "references were replayed on a CUDA host (RTX 5060 Ti) and matched, `argmax` included, which "
+            "is compared exactly. Needs `ripplegw`"
         ),
         requires=("ripplegw",),
     ),

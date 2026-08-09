@@ -56,9 +56,11 @@ answered by replaying the matrix on a CUDA host rather than by argument:
     # on a host with a CUDA-capable GPU and the `cuda` extra installed
     uv run pytest -m e2e --no-cov tests/e2e/test_reference_values.py
 
-Done on 2026-08-09 against an RTX 5060 Ti (compute capability 12.0): **all nine runnable entries passed**
-against these CPU-written references, `argmax` included -- which is compared exactly, so the device
-difference moved no peak off its sample. An earlier measurement on an RTX 2080 Ti agreed. The delta
+Done on 2026-08-09 against an RTX 5060 Ti (compute capability 12.0): **all eight stored references
+matched**, `argmax` included -- which is compared exactly, so the device difference moved no peak off its
+sample. (The run reports "9 passed, 1 skipped": eight reference comparisons, plus the separate test that
+every runnable entry has a reference, with the gengli entry skipped. An earlier draft of this paragraph
+read that as nine entries, which a reviewer corrected.) An earlier measurement on an RTX 2080 Ti agreed. The delta
 itself was characterised separately as a global time shift of 2.3e-16 s, 3.16e-13 relative end to end.
 
 **Where the gate actually sits.** Two effects were measured against it, and it falls between them:
@@ -251,22 +253,24 @@ def _jax_device() -> str:
 def same_environment(stored: dict[str, str] | None, produced: dict[str, str] | None) -> bool:
     """Whether two fingerprints describe the same numerical environment.
 
-    Compared over the keys the *stored* record carries, not over both. References written before a
-    fingerprint key existed would otherwise all read as "different environment" the moment one is added,
-    silencing the bit-mismatch note for every one of them until they are regenerated -- and regenerating
-    eight references to teach them a key they will get anyway on their next legitimate update is the
-    wrong trade. A reference that does record `device` is held to it.
+    Every key, in both records. An earlier version compared only the keys the *stored* record carried, so
+    that references written before a key existed would keep behaving as they had -- and that defeated the
+    point of adding one: a CPU reference replayed on a GPU still counted as the same environment, and the
+    bit-mismatch note still blamed "references written somewhere subtly different" for the device. Both
+    reviewers caught it. A note that misattributes is worse than a note that is missing, and the
+    references now carry `device` anyway, so there is nothing to be compatible with.
 
     Args:
         stored: The fingerprint recorded with the reference, if any.
         produced: The fingerprint of this run, if any.
 
     Returns:
-        Whether every key the reference recorded matches this run.
+        Whether the two describe the same environment. A reference with no fingerprint at all is not the
+        same environment as anything, since there is nothing to compare.
     """
     if not stored or not produced:
         return False
-    return all(produced.get(key) == value for key, value in stored.items())
+    return stored == produced
 
 
 def _environment() -> dict[str, str]:
