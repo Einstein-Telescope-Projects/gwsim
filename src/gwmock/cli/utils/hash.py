@@ -85,7 +85,27 @@ def _read_content_items(file_path: Path) -> list[tuple[str, dict, object]] | Non
         names: list[str] = []
         with h5py.File(file_path, "r") as handle:
             handle.visititems(lambda name, obj: names.append(name) if isinstance(obj, h5py.Dataset) else None)
-            return [(name, {}, handle[name][()]) for name in sorted(names)]
+            # The epoch, the sample interval and the length, exactly as the GWF branch above records
+            # them. Without these the digest saw only the samples, so an HDF5 file moved to a different
+            # GPS time -- or written at a different rate -- hashed identically to the original. Measured:
+            # both cases collided for `.hdf5` while `.gwf` distinguished them. That asymmetry did not
+            # matter while HDF5 was the secondary format; it does now that it is the one a run writes by
+            # default.
+            #
+            # gwpy stores them as the `x0` and `dx` dataset attributes. A dataset written by something
+            # else may carry neither, and then the entry is hashed on its samples alone as before -- the
+            # check is only as strong as what the writer recorded, which is why this reads attributes
+            # rather than asserting them.
+            items = []
+            for name in sorted(names):
+                dataset = handle[name]
+                meta: dict[str, object] = {"n": int(dataset.shape[0]) if dataset.shape else 0}
+                if "x0" in dataset.attrs:
+                    meta["t0"] = float(dataset.attrs["x0"])
+                if "dx" in dataset.attrs:
+                    meta["dt"] = float(dataset.attrs["dx"])
+                items.append((name, meta, dataset[()]))
+            return items
 
     if suffix == ".npy":
         import numpy as np
