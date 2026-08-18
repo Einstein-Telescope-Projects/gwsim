@@ -84,7 +84,7 @@ submitting a merge request—this guide will help you get started.
 
     # `run` also takes mutant-name globs, so a single module can be targeted; names are the
     # dotted module path plus the mutated function, as printed by `mutmut results`.
-    uv run mutmut run 'src.gwmock.cli.main.*'
+    uv run mutmut run 'gwmock.cli.main.*'
     ```
 
     A surviving mutant is a change to the source that no test noticed. Either add the test that
