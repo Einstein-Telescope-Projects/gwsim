@@ -177,6 +177,13 @@ pytest_add_cli_args_test_selection = ["tests/"]
 # excluded as well: a mutant is judged by the fast unit suite.
 pytest_add_cli_args = [
   "--override-ini=addopts=",
+  # `pythonpath = ["src"]` has to go too, and this one is load-bearing rather than a speed-up.
+  # mutmut puts `mutants/src` at the front of `sys.path` and deletes `src` from it, but pytest
+  # re-inserts its `pythonpath` entries when it builds its config, so the real `src` lands back in
+  # front of the mutated copy and every test imports unmutated code. mutmut then records no
+  # test for any function and reports the whole package as "no tests" -- 15556 of 15960 mutants
+  # never run. Clearing the ini leaves `mutants/src` as the only source on the path.
+  "--override-ini=pythonpath=",
   "-m",
   "not integration and not e2e and not slow",
 ]
