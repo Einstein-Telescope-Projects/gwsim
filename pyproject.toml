@@ -82,6 +82,7 @@ dev = [
   "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",
   "pytest-github-actions-annotate-failures>=0.4.2",
+  "mutmut>=3.7.0",
 ]
 docs = ["zensical>=0.0.54", "mkdocstrings-python>=2.0.5"]
 build = ["hatch>=1.18.0"]
@@ -161,6 +162,25 @@ markers = [
   # entries in tests/e2e/matrix.py actually execute rather than silently skipping.
   "e2e: end-to-end tests that run an example config through the CLI",
 ]
+
+[tool.mutmut]
+# mutmut copies the project into `mutants/` and mutates the copy, so the working tree is untouched.
+source_paths = ["src/gwmock"]
+# `tests/`, `pyproject.toml` and `uv.lock` are copied by default. `examples/` is not, and
+# tests/cli/utils/test_cli_utils_config.py walks the real examples tree, so it has to come along or
+# every mutant is judged against a suite that errors for reasons unrelated to the mutation.
+also_copy = ["examples/"]
+pytest_add_cli_args_test_selection = ["tests/"]
+# The default `addopts` turn on coverage, an XML report and a JUnit file. Under mutation testing
+# they cost more than the test run itself and the reports get overwritten once per mutant, so the
+# ini value is cleared and only the marker filter is restated. Integration, e2e and slow tests are
+# excluded as well: a mutant is judged by the fast unit suite.
+pytest_add_cli_args = [
+  "--override-ini=addopts=",
+  "-m",
+  "not integration and not e2e and not slow",
+]
+mutate_only_covered_lines = true
 
 [tool.ruff]
 line-length = 120 # Matches Black's default
