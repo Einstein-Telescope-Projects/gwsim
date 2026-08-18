@@ -180,7 +180,11 @@ pytest_add_cli_args = [
   "-m",
   "not integration and not e2e and not slow",
 ]
-mutate_only_covered_lines = true
+# `mutate_only_covered_lines` is deliberately left off. It would cut the mutant count, but its
+# coverage pass ends in `_unload_modules_not_in()`, which drops every module from `sys.modules`;
+# the next in-process pytest run then re-imports numpy and dies with
+# "ImportError: cannot load module more than once per process", because a C extension cannot be
+# initialised twice in one interpreter. Verified on beelink, 2026-08-18.
 
 [tool.ruff]
 line-length = 120 # Matches Black's default
