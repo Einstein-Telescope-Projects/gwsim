@@ -72,6 +72,24 @@ submitting a merge request—this guide will help you get started.
     uv run pytest
     ```
 
+    Mutation testing checks that the tests actually fail when the code is wrong. It mutates a copy of
+    the source under `mutants/` and is much slower than the unit suite, so run it on the code you
+    touched rather than the whole package:
+
+    ```shell
+    uv run mutmut run                     # whole package
+    uv run mutmut results                 # list surviving mutants
+    uv run mutmut show <mutant-name>      # diff of one survivor
+    uv run mutmut browse                  # interactive results browser
+
+    # `run` also takes mutant-name globs, so a single module can be targeted; names are the
+    # dotted module path plus the mutated function, as printed by `mutmut results`.
+    uv run mutmut run 'gwmock.cli.main.*'
+    ```
+
+    A surviving mutant is a change to the source that no test noticed. Either add the test that
+    catches it, or convince yourself the mutant is equivalent to the original.
+
 8. Open a Pull Request
 
     Clearly describe the motivation and scope of your change, especially how it impacts GW data simulation.
