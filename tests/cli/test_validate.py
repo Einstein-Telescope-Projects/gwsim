@@ -522,7 +522,7 @@ class TestValidateInputHandling:
         assert "Ignoring non-metadata file" not in captured.out
         assert "1/1 files passed validation" in captured.out
 
-    def test_a_directory_inside_the_metadata_directory_is_not_read_as_metadata(self, temp_dir, capsys):
+    def test_a_directory_inside_the_metadata_directory_is_not_read_as_metadata(self, temp_dir, capsys, caplog):
         """Only files are metadata; a directory whose name contains "metadata" is not."""
         output_file = temp_dir / "data.gwf"
         output_file.write_text("data")
@@ -543,5 +543,95 @@ class TestValidateInputHandling:
             validate_command([], metadata_paths=[str(metadata_dir)])
 
         captured = capsys.readouterr()
-        assert "Error loading metadata" not in captured.out
+        # A directory read as a metadata file fails to load, and that failure is logged.
+        assert "Error loading metadata" not in caplog.text
         assert "1/1 files passed validation" in captured.out
+
+
+@pytest.mark.usefixtures("wide_console")
+class TestValidateOutputLocationFromMetadata:
+    """Where the command looks for the outputs a metadata record describes.
+
+    The record states the output paths and the directory they are relative to,
+    under keys that changed across schema versions. Reading the wrong key sends
+    the lookup to a path that does not exist, which is reported as a missing file
+    -- indistinguishable, to a user, from an output that was never written.
+    """
+
+    def _write_output(self, temp_dir: Path) -> tuple[Path, str]:
+        """Write ``output/signal/data.gwf`` and return it with its hash."""
+        directory = temp_dir / "output" / "signal"
+        directory.mkdir(parents=True)
+        output_file = directory / "data.gwf"
+        output_file.write_text("data")
+        return output_file, compute_file_hash(output_file)
+
+    def test_the_outputs_list_carries_the_full_relative_path(self, temp_dir, capsys):
+        """``outputs[].path`` includes the sub-directory, and is joined to the working directory."""
+        output_file, file_hash = self._write_output(temp_dir)
+        metadata_file = _metadata_with(
+            temp_dir,
+            {
+                "outputs": [{"kind": "signal", "path": "output/signal/data.gwf", "sha256": file_hash}],
+                "config": {"globals": {"working-directory": str(temp_dir)}},
+            },
+        )
+
+        with patch("os.getcwd", return_value=str(temp_dir)):
+            validate_command([], metadata_paths=[str(metadata_file)])
+
+        captured = capsys.readouterr()
+        assert "File not found" not in captured.out
+        assert "1/1 files passed validation" in captured.out
+        assert output_file.exists()
+
+    def test_the_underscored_working_directory_spelling_is_accepted(self, temp_dir, capsys):
+        """Older records spell the same key with an underscore."""
+        _output_file, file_hash = self._write_output(temp_dir)
+        metadata_file = _metadata_with(
+            temp_dir,
+            {
+                "outputs": [{"kind": "signal", "path": "output/signal/data.gwf", "sha256": file_hash}],
+                "config": {"globals": {"working_directory": str(temp_dir)}},
+            },
+        )
+
+        with patch("os.getcwd", return_value=str(temp_dir)):
+            validate_command([], metadata_paths=[str(metadata_file)])
+
+        assert "1/1 files passed validation" in capsys.readouterr().out
+
+    def test_globals_are_read_from_the_config_block_before_the_legacy_key(self, temp_dir, capsys):
+        """A record carrying both blocks is described by its config block."""
+        _output_file, file_hash = self._write_output(temp_dir)
+        metadata_file = _metadata_with(
+            temp_dir,
+            {
+                "outputs": [{"kind": "signal", "path": "output/signal/data.gwf", "sha256": file_hash}],
+                "config": {"globals": {"working-directory": str(temp_dir)}},
+                # A stale legacy block pointing somewhere the output is not.
+                "globals_config": {"working-directory": str(temp_dir / "elsewhere")},
+            },
+        )
+
+        with patch("os.getcwd", return_value=str(temp_dir)):
+            validate_command([], metadata_paths=[str(metadata_file)])
+
+        assert "1/1 files passed validation" in capsys.readouterr().out
+
+    def test_a_legacy_record_uses_output_files_and_output_directory(self, temp_dir, capsys):
+        """With no ``outputs`` list the flat keys describe the outputs and their directory."""
+        output_file, file_hash = self._write_output(temp_dir)
+        metadata_file = _metadata_with(
+            temp_dir,
+            {
+                "output_files": ["data.gwf"],
+                "file_hashes": {"data.gwf": file_hash},
+                "globals_config": {"output_directory": str(output_file.parent)},
+            },
+        )
+
+        with patch("os.getcwd", return_value=str(temp_dir)):
+            validate_command([], metadata_paths=[str(metadata_file)])
+
+        assert "1/1 files passed validation" in capsys.readouterr().out
