@@ -36,11 +36,14 @@ def download_command(
         deposition_id = typer.prompt("Deposition ID (e.g., 123456)")
     if not filename:
         filename = typer.prompt("Filename to download")
-    if not output and filename:
+    # An explicit --output is the whole point of the option, so it cannot be the error case: the
+    # branches were the wrong way round, and `--output ./data.gwf` -- the form the docstring shows
+    # -- refused with "Output path must be specified" while omitting it was the only way through.
+    if not output:
+        if not filename:
+            console.print("[red]Error:[/red] Output path must be specified.")
+            raise typer.Exit(1)
         output = Path(filename)
-    else:
-        console.print("[red]Error:[/red] Output path must be specified.")
-        raise typer.Exit(1)
 
     client = get_zenodo_client(sandbox=sandbox, token=None)  # Downloads don't require auth
 

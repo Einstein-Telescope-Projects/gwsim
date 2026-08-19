@@ -71,7 +71,12 @@ def construct_numpy_array(loader: yaml.Loader, node: yaml.MappingNode) -> np.nda
     Returns:
         Numpy array.
     """
-    data = loader.construct_mapping(node)
+    # `deep=True` is load-bearing: without it PyYAML constructs the *values* of a mapping
+    # lazily, so a nested collection arrives as the empty container it will later be filled
+    # into. `shape` is the only nested value here, and it came back as `[]` -- every
+    # `!ndarray` document then failed with "cannot reshape array of size N into shape ()",
+    # whatever the array was.
+    data = loader.construct_mapping(node, deep=True)
     if data.get("encoding") != "base64":
         raise ValueError("Expected base64 encoding in YAML data")
     dtype = np.dtype(data["dtype"])

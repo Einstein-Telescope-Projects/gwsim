@@ -63,7 +63,9 @@ def handle_existing_file(dest_path: Path, overwrite: bool, allow_existing: bool 
     return None
 
 
-def download_file_with_lock(url: str, dest_path: Path | str, lock_path: Path | str, timeout: int) -> Path:
+def download_file_with_lock(
+    url: str, dest_path: Path | str, lock_path: Path | str, timeout: int, overwrite: bool = False
+) -> Path:
     """Download a file with a file lock to prevent concurrent downloads.
 
     Args:
@@ -71,6 +73,10 @@ def download_file_with_lock(url: str, dest_path: Path | str, lock_path: Path | s
         dest_path: The destination file path.
         lock_path: The path for the lock file.
         timeout: Timeout in seconds for acquiring the lock.
+        overwrite: Whether to download even if the file is already there. The existence check
+            inside the lock is how a process that waited for another one's download learns not to
+            repeat it -- so it has to be skipped when the caller asked for a fresh copy, or
+            ``overwrite=True`` returns the stale file it was told to replace.
 
     Returns:
         The path to the downloaded file.
@@ -79,7 +85,7 @@ def download_file_with_lock(url: str, dest_path: Path | str, lock_path: Path | s
     lock_path = Path(lock_path)
 
     with filelock.FileLock(lock_path, timeout=timeout):
-        if Path(dest_path).exists():
+        if not overwrite and Path(dest_path).exists():
             logger.info("File was downloaded by another process: %s", dest_path)
             return dest_path
 
@@ -137,7 +143,9 @@ def download_file(
 
     lock_path = dest_path.with_suffix(dest_path.suffix + ".lock")
     try:
-        dest_path = download_file_with_lock(url=url, dest_path=dest_path, lock_path=lock_path, timeout=timeout)
+        dest_path = download_file_with_lock(
+            url=url, dest_path=dest_path, lock_path=lock_path, timeout=timeout, overwrite=overwrite
+        )
     except filelock.Timeout as e:
         raise ValueError(f"Timeout waiting for download lock on {url}: {e}") from e
     except requests.RequestException as e:

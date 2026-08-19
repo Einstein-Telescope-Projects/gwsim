@@ -1,0 +1,266 @@
+"""``gwmock merge``: combining per-detector frame files into one, and vouching for the inputs.
+
+The command had no test at all. What it promises is worth pinning: it refuses to merge files it
+cannot verify against their metadata, it refuses to add series that do not describe the same
+stretch of time, the sum it writes is the sum of its inputs, and the merged file appears whole or
+not at all.
+"""
+
+from __future__ import annotations
+
+import getpass
+from pathlib import Path
+
+import numpy as np
+import pytest
+import yaml
+from gwpy.timeseries import TimeSeries
+
+from gwmock.cli.merge import merge_command
+from gwmock.cli.utils.hash import compute_file_hash
+
+pytestmark = pytest.mark.unit
+
+CHANNEL = "STRAIN"
+START = 1000000000
+RATE = 16
+
+
+def _frame(path: Path, values, *, start: float = START, rate: float = RATE) -> Path:
+    """Write one frame file holding *values* on ``CHANNEL``."""
+    series = TimeSeries(
+        np.asarray(values, dtype=float), sample_rate=rate, t0=start, channel=CHANNEL, name=CHANNEL
+    )
+    series.write(path)
+    return path
+
+
+def _metadata_for(path: Path, metadata_path: Path, *, digest: str | None = None) -> Path:
+    """Write the metadata file the command validates *path* against."""
+    hashes = {} if digest == "" else {path.name: digest or compute_file_hash(path)}
+    metadata_path.write_text(yaml.safe_dump({"file_hashes": hashes}))
+    return metadata_path
+
+
+@pytest.fixture
+def two_frames(tmp_path: Path):
+    first = _frame(tmp_path / "a.gwf", np.ones(RATE))
+    second = _frame(tmp_path / "b.gwf", 2 * np.ones(RATE))
+    return first, second
+
+
+class TestTheInputsAreVouchedFor:
+    def test_merging_without_metadata_is_refused(self, tmp_path: Path, two_frames) -> None:
+        """The default is to refuse: a merged frame with no provenance is what ``--force`` is for."""
+        with pytest.raises(ValueError, match="Metadata files must be provided unless --force is used"):
+            merge_command(list(two_frames), output=str(tmp_path / "merged.gwf"))
+
+    def test_a_metadata_file_per_frame_is_required(self, tmp_path: Path, two_frames) -> None:
+        first, _ = two_frames
+        with pytest.raises(ValueError, match="number of metadata files must match"):
+            merge_command(
+                list(two_frames),
+                output=str(tmp_path / "merged.gwf"),
+                metadata=[str(_metadata_for(first, tmp_path / "a.yaml"))],
+            )
+
+    def test_a_frame_absent_from_its_metadata_is_refused(self, tmp_path: Path, two_frames) -> None:
+        first, second = two_frames
+        metadata = [
+            str(_metadata_for(first, tmp_path / "a.yaml", digest="")),
+            str(_metadata_for(second, tmp_path / "b.yaml")),
+        ]
+        with pytest.raises(ValueError, match="No hash found in metadata for file a.gwf"):
+            merge_command(list(two_frames), output=str(tmp_path / "merged.gwf"), metadata=metadata)
+
+    def test_a_frame_that_does_not_match_its_recorded_hash_is_refused(self, tmp_path: Path, two_frames) -> None:
+        """The point of the check: a file edited or regenerated since the run that recorded it must
+        not be merged as if it were the original."""
+        first, second = two_frames
+        metadata = [
+            str(_metadata_for(first, tmp_path / "a.yaml", digest="sha256:" + "0" * 64)),
+            str(_metadata_for(second, tmp_path / "b.yaml")),
+        ]
+        with pytest.raises(ValueError, match="Hash mismatch for file a.gwf"):
+            merge_command(list(two_frames), output=str(tmp_path / "merged.gwf"), metadata=metadata)
+
+    def test_nothing_is_written_when_a_frame_fails_verification(self, tmp_path: Path, two_frames) -> None:
+        first, second = two_frames
+        output = tmp_path / "merged.gwf"
+        metadata = [
+            str(_metadata_for(first, tmp_path / "a.yaml", digest="sha256:" + "0" * 64)),
+            str(_metadata_for(second, tmp_path / "b.yaml")),
+        ]
+        with pytest.raises(ValueError):
+            merge_command(list(two_frames), output=str(output), metadata=metadata)
+        assert not output.exists()
+
+    def test_force_merges_without_any_metadata(self, tmp_path: Path, two_frames) -> None:
+        output = tmp_path / "merged.gwf"
+        merge_command(list(two_frames), output=str(output), force=True)
+        assert output.exists()
+
+    def test_force_skips_the_hash_check_it_would_otherwise_fail(self, tmp_path: Path, two_frames) -> None:
+        """``--force`` is documented as bypassing the metadata requirement, so a wrong hash must not
+        stop it either -- otherwise the flag cannot rescue a run whose metadata was lost."""
+        first, second = two_frames
+        metadata = [
+            str(_metadata_for(first, tmp_path / "a.yaml", digest="sha256:" + "0" * 64)),
+            str(_metadata_for(second, tmp_path / "b.yaml")),
+        ]
+        output = tmp_path / "merged.gwf"
+        merge_command(list(two_frames), output=str(output), metadata=metadata, force=True)
+        assert output.exists()
+
+
+class TestTheSeriesMustLineUp:
+    def test_a_different_start_time_is_refused(self, tmp_path: Path) -> None:
+        """Injecting a series that starts elsewhere would silently pad or shift the data."""
+        first = _frame(tmp_path / "a.gwf", np.ones(RATE))
+        second = _frame(tmp_path / "b.gwf", np.ones(RATE), start=START + 8)
+        with pytest.raises(ValueError, match="Start time mismatch"):
+            merge_command([first, second], output=str(tmp_path / "merged.gwf"), force=True)
+
+    def test_a_different_duration_is_refused(self, tmp_path: Path) -> None:
+        first = _frame(tmp_path / "a.gwf", np.ones(RATE))
+        second = _frame(tmp_path / "b.gwf", np.ones(RATE // 2))
+        with pytest.raises(ValueError, match="Duration mismatch"):
+            merge_command([first, second], output=str(tmp_path / "merged.gwf"), force=True)
+
+    def test_a_different_sampling_frequency_is_refused(self, tmp_path: Path) -> None:
+        first = _frame(tmp_path / "a.gwf", np.ones(RATE))
+        second = _frame(tmp_path / "b.gwf", np.ones(2 * RATE), rate=2 * RATE)
+        with pytest.raises(ValueError, match="Sampling frequency mismatch"):
+            merge_command([first, second], output=str(tmp_path / "merged.gwf"), force=True)
+
+    def test_the_first_file_sets_what_the_others_are_checked_against(self, tmp_path: Path) -> None:
+        """Three files, and it is the third that disagrees: the loop has to keep comparing against
+        the first rather than against its predecessor."""
+        first = _frame(tmp_path / "a.gwf", np.ones(RATE))
+        second = _frame(tmp_path / "b.gwf", np.ones(RATE))
+        third = _frame(tmp_path / "c.gwf", np.ones(RATE), start=START + 8)
+        with pytest.raises(ValueError, match="Start time mismatch"):
+            merge_command([first, second, third], output=str(tmp_path / "merged.gwf"), force=True)
+
+
+class TestWhatComesOut:
+    def test_the_merged_series_is_the_sum_of_the_inputs(self, tmp_path: Path, two_frames) -> None:
+        output = tmp_path / "merged.gwf"
+        merge_command(list(two_frames), output=str(output), force=True)
+        merged = TimeSeries.read(output, CHANNEL)
+        assert np.allclose(merged.value, 3.0, atol=0.0)
+
+    def test_three_files_are_all_added(self, tmp_path: Path) -> None:
+        files = [
+            _frame(tmp_path / "a.gwf", np.ones(RATE)),
+            _frame(tmp_path / "b.gwf", 2 * np.ones(RATE)),
+            _frame(tmp_path / "c.gwf", 4 * np.ones(RATE)),
+        ]
+        output = tmp_path / "merged.gwf"
+        merge_command(files, output=str(output), force=True)
+        assert np.allclose(TimeSeries.read(output, CHANNEL).value, 7.0, atol=0.0)
+
+    def test_a_single_file_is_copied_through_unchanged(self, tmp_path: Path) -> None:
+        first = _frame(tmp_path / "a.gwf", np.arange(RATE))
+        output = tmp_path / "merged.gwf"
+        merge_command([first], output=str(output), force=True)
+        assert np.allclose(TimeSeries.read(output, CHANNEL).value, np.arange(RATE), atol=0.0)
+
+    def test_the_time_axis_is_preserved(self, tmp_path: Path, two_frames) -> None:
+        output = tmp_path / "merged.gwf"
+        merge_command(list(two_frames), output=str(output), force=True)
+        merged = TimeSeries.read(output, CHANNEL)
+        assert merged.epoch.value == START
+        assert merged.sample_rate.value == RATE
+
+    def test_the_output_channel_can_be_renamed(self, tmp_path: Path, two_frames) -> None:
+        """A merged network stream is not the single-detector channel it came from."""
+        output = tmp_path / "merged.gwf"
+        merge_command(list(two_frames), output=str(output), output_channel="NETWORK_STRAIN", force=True)
+        assert TimeSeries.read(output, "NETWORK_STRAIN") is not None
+
+    def test_the_channel_is_left_alone_by_default(self, tmp_path: Path, two_frames) -> None:
+        output = tmp_path / "merged.gwf"
+        merge_command(list(two_frames), output=str(output), force=True)
+        assert TimeSeries.read(output, CHANNEL) is not None
+
+    def test_no_temporary_file_is_left_behind(self, tmp_path: Path, two_frames) -> None:
+        """Written to ``merged.tmp.gwf`` and renamed, so a crash mid-write cannot leave a file that
+        looks like a finished merge."""
+        output = tmp_path / "merged.gwf"
+        merge_command(list(two_frames), output=str(output), force=True)
+        assert not (tmp_path / "merged.tmp.gwf").exists()
+        assert sorted(p.name for p in tmp_path.glob("merged*")) == ["merged.gwf"]
+
+    def test_the_named_channel_is_the_one_that_is_read(self, tmp_path: Path) -> None:
+        """Two channels in one file: the merge must take the one it was asked for."""
+        path = tmp_path / "a.gwf"
+        wanted = TimeSeries(np.ones(RATE), sample_rate=RATE, t0=START, channel="WANTED", name="WANTED")
+        other = TimeSeries(9 * np.ones(RATE), sample_rate=RATE, t0=START, channel="OTHER", name="OTHER")
+        from gwpy.timeseries import TimeSeriesDict
+
+        TimeSeriesDict({"WANTED": wanted, "OTHER": other}).write(path)
+
+        output = tmp_path / "merged.gwf"
+        merge_command([path], channel="WANTED", output=str(output), force=True)
+        assert np.allclose(TimeSeries.read(output, "WANTED").value, 1.0, atol=0.0)
+
+
+class TestTheMergedMetadata:
+    @staticmethod
+    def _merge_with_metadata(tmp_path: Path, frames) -> Path:
+        metadata = [str(_metadata_for(path, tmp_path / f"{path.stem}.yaml")) for path in frames]
+        output = tmp_path / "merged.gwf"
+        merge_command(list(frames), output=str(output), metadata=metadata)
+        return output
+
+    def test_a_metadata_file_is_written_beside_the_merged_frame(self, tmp_path: Path, two_frames) -> None:
+        self._merge_with_metadata(tmp_path, two_frames)
+        assert (tmp_path / "merged.metadata.yaml").exists()
+
+    def test_it_records_every_source_file(self, tmp_path: Path, two_frames) -> None:
+        self._merge_with_metadata(tmp_path, two_frames)
+        record = yaml.safe_load((tmp_path / "merged.metadata.yaml").read_text())
+        assert record["type"] == "merged"
+        assert sorted(Path(name).name for name in record["source_files"]) == ["a.gwf", "b.gwf"]
+
+    def test_it_records_the_hash_of_what_it_wrote(self, tmp_path: Path, two_frames) -> None:
+        """The merged file's own digest, so the next consumer can verify it the way this command
+        verified its inputs."""
+        output = self._merge_with_metadata(tmp_path, two_frames)
+        record = yaml.safe_load((tmp_path / "merged.metadata.yaml").read_text())
+        assert record["output_files"] == [str(output)]
+        assert record["file_hashes"][str(output)] == compute_file_hash(output)
+
+    def test_the_author_defaults_to_the_user_running_it(self, tmp_path: Path, two_frames) -> None:
+        self._merge_with_metadata(tmp_path, two_frames)
+        record = yaml.safe_load((tmp_path / "merged.metadata.yaml").read_text())
+        assert record["author"] == getpass.getuser()
+
+    def test_a_given_author_and_email_are_recorded(self, tmp_path: Path, two_frames) -> None:
+        metadata = [str(_metadata_for(path, tmp_path / f"{path.stem}.yaml")) for path in two_frames]
+        output = tmp_path / "merged.gwf"
+        merge_command(
+            list(two_frames),
+            output=str(output),
+            metadata=metadata,
+            author="A Person",
+            email="person@example.invalid",
+        )
+        record = yaml.safe_load((tmp_path / "merged.metadata.yaml").read_text())
+        assert record["author"] == "A Person"
+        assert record["email"] == "person@example.invalid"
+
+    def test_it_records_when_and_with_what_versions(self, tmp_path: Path, two_frames) -> None:
+        self._merge_with_metadata(tmp_path, two_frames)
+        record = yaml.safe_load((tmp_path / "merged.metadata.yaml").read_text())
+        assert record["timestamp"].endswith("+00:00"), "the timestamp has to carry its time zone"
+        assert record["versions"], "the dependency versions are what make the merge reproducible"
+
+    def test_no_metadata_file_is_written_for_a_forced_merge(self, tmp_path: Path, two_frames) -> None:
+        merge_command(list(two_frames), output=str(tmp_path / "merged.gwf"), force=True)
+        assert not (tmp_path / "merged.metadata.yaml").exists()
+
+    def test_no_temporary_metadata_file_is_left_behind(self, tmp_path: Path, two_frames) -> None:
+        self._merge_with_metadata(tmp_path, two_frames)
+        assert not (tmp_path / "merged.metadata.tmp").exists()

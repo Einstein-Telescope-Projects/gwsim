@@ -21,7 +21,11 @@ def get_deposition_id_from_doi(doi: str) -> tuple[str, bool]:
     returns:
         A tuple containing the deposition ID and a boolean indicating if it's from sandbox.
     """
-    parts = doi.split(".")
+    # Split once from the right. A Zenodo DOI is `<prefix>.<record id>` where the prefix itself
+    # contains a dot -- `10.5281/zenodo` for production, `10.5072/zenodo` for the sandbox -- so
+    # splitting on every dot put "10" in `parts[0]` and no DOI ever matched either prefix: the
+    # function raised "Invalid Zenodo DOI" for every input, including the two forms it documents.
+    parts = doi.rsplit(".", 1)
     deposition_id = parts[1]
     if parts[0] == "10.5072/zenodo":
         sandbox = True

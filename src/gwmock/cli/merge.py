@@ -107,7 +107,12 @@ def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many
     # The write function is suffix sensitive, so we prepend a .tmp to the original suffix
     temp_output = Path(output).with_suffix(".tmp" + Path(output).suffix)
     if output_channel is not None:
+        # Both, because they are read by different things. gwpy's frame writer takes the channel
+        # name in the output file from `name`; `channel` carries the metadata a later reader sees
+        # attached to the series. Setting only `channel` -- which is what this did -- left the file
+        # holding the *input* channel name, so `--output-channel` renamed nothing.
         frame_data.channel = output_channel
+        frame_data.name = output_channel
     frame_data.write(temp_output)
     temp_output.rename(output)
 
@@ -124,7 +129,11 @@ def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many
             with metadata_file.open("r", encoding="utf-8") as f:
                 file_metadata = yaml.safe_load(f)
 
-            merged_metadata["source_files"][file_name] = file_metadata
+            # Keyed by the path as a string: `file_names` holds `Path` objects, and `safe_dump`
+            # has no representer for one, so a `Path` key made the dump below raise
+            # `RepresenterError` -- every merge that was given metadata (that is, every merge not
+            # forced past the check above) failed after writing the merged frame.
+            merged_metadata["source_files"][str(file_name)] = file_metadata
 
         if author is None:
             author = getpass.getuser()
