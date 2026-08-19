@@ -37,6 +37,26 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import tqdm
+
+# Whether pytest is running under mutmut at all, in any of its phases. Distinct from
+# `_active_mutant()` below, which is only true in a worker: this one is also true in the parent,
+# and the parent is where the fork happens.
+_UNDER_MUTMUT = "MUTANT_UNDER_TEST" in os.environ
+
+if _UNDER_MUTMUT:
+    # Stop tqdm starting its monitor thread. This is the difference between a mutation run that
+    # finishes and one that stalls: mutmut forks a worker per mutant, and a fork leaves the child
+    # with one thread but with every lock in whatever state it was in. tqdm's monitor thread takes
+    # tqdm's write lock periodically, so a worker forked at the wrong instant inherits that lock
+    # held by a thread that no longer exists, and blocks forever the first time the code under test
+    # opens a progress bar -- with no CPU, and past the reach of the per-test budget below, because
+    # the block is inside a lock acquisition rather than in bytecode. Observed as workers alive for
+    # 25 minutes at 0% CPU with two threads, their captured output ending at a bar stuck on 0%.
+    # `monitor_interval = 0` is tqdm's documented way to disable that thread; the bars still work.
+    # Set at import so the *parent* never starts one either, since that is the thread that is
+    # inherited.
+    tqdm.tqdm.monitor_interval = 0
 
 # mutmut reuses MUTANT_UNDER_TEST for its own phases. None of these run a mutant, so none of
 # them should be constrained: the stats phase legitimately runs the whole suite instrumented,
