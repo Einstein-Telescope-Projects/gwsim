@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from gwmock.cli.utils import config_editor
 from gwmock.cli.utils.config_editor import ConfigEditorApp
+from gwmock.cli.utils.config_state import SECTION_EXTRA, SECTION_KEYS
 
 
 @pytest.fixture
@@ -239,3 +241,104 @@ class TestConfigEditorWithLoad:
         async with app.run_test() as pilot:
             await pilot.pause()
             assert app._state.get("noise", "psd") == "startup_psd"
+
+
+class TestSuggestions:
+    """The completion engine behind the command input.
+
+    ``_get_suggestions`` decides what the editor offers for a half-typed command.
+    It is pure, so it is exercised directly rather than through the TUI: a wrong
+    branch here shows up as a menu that is merely unhelpful, never as an error.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _fixed_discovery(self, monkeypatch):
+        """Pin the discovery helpers so a suggestion list is exactly checkable."""
+        for name, values in {
+            "discover_psds": ["psd-a", "psd-b"],
+            "discover_geometries": ["ET", "CE"],
+            "discover_glitch_models": ["blip", "koi_fish"],
+            "discover_source_types": ["bbh", "bns"],
+            "discover_waveform_models": ["IMRPhenomD", "TaylorF2"],
+        }.items():
+            monkeypatch.setattr(config_editor, name, lambda values=values: list(values))
+
+    @pytest.mark.parametrize("text", ["", "   ", "\t"])
+    def test_nothing_typed_suggests_nothing(self, app, text: str):
+        """An empty input has no prefix to complete."""
+        assert app._get_suggestions(text) == []
+
+    def test_a_bare_word_suggests_commands_case_insensitively(self, app):
+        """Typing without the leading slash still completes command names."""
+        assert app._get_suggestions("NOI") == ["noise"]
+
+    def test_a_lone_slash_suggests_every_command(self, app):
+        """The slash alone offers the full command list, sorted."""
+        suggestions = app._get_suggestions("/")
+
+        assert suggestions == sorted(app._handlers.keys())
+
+    def test_a_command_prefix_is_filtered(self, app):
+        """A partial command name narrows the list to that prefix."""
+        assert app._get_suggestions("/noi") == ["noise"]
+
+    def test_a_completed_command_suggests_its_keys(self, app):
+        """The trailing space marks the command as finished, so keys come next."""
+        suggestions = app._get_suggestions("/noise ")
+
+        assert suggestions == list(SECTION_KEYS["noise"].keys()) + [e[0] for e in SECTION_EXTRA.get("noise", [])]
+
+    def test_a_key_prefix_is_filtered_against_keys_and_extras(self, app):
+        """Without a trailing space the second word completes a key name."""
+        assert app._get_suggestions("/noise ps") == ["psd"]
+
+    def test_an_unknown_section_suggests_nothing(self, app):
+        """A command that owns no keys has nothing to offer for its arguments."""
+        assert app._get_suggestions("/help x") == []
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            # Without the trailing space the command name itself is still being typed.
+            ("/template", ["template"]),
+            ("/template ", ["noise", "signal", "glitch"]),
+            ("/template s", ["signal"]),
+            ("/template G", ["glitch"]),
+            ("/generate-script", ["generate-script"]),
+            ("/generate-script ", ["slurm", "local"]),
+            ("/generate-script s", ["slurm"]),
+            # The script kind is the last argument, so nothing follows it.
+            ("/generate-script slurm ", []),
+        ],
+    )
+    def test_commands_with_a_fixed_argument_list(self, app, text: str, expected: list[str]):
+        """``/template`` and ``/generate-script`` complete from their own fixed lists."""
+        assert app._get_suggestions(text) == expected
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("/noise psd ", ["psd-a", "psd-b"]),
+            ("/noise detectors ", ["ET", "CE"]),
+            ("/signal detectors ", ["ET", "CE"]),
+            ("/noise glitch add", ["blip", "koi_fish"]),
+            ("/signal source-type ", ["bbh", "bns"]),
+            ("/signal waveform-model ", ["IMRPhenomD", "TaylorF2"]),
+            ("/population source-type ", ["bbh", "bns"]),
+            ("/population backend ", ["file", "cbc_prior", "bbh", "bns_prior", "nsbh_prior"]),
+            ("/globals total-duration ", ["1 day", "6 hours", "1 hour", "3600"]),
+            # A key with no value suggestions offers nothing rather than the key list again.
+            ("/noise seed ", []),
+        ],
+    )
+    def test_value_suggestions_per_key(self, app, text: str, expected: list[str]):
+        """Each key that has known values completes from its own source."""
+        assert app._get_suggestions(text) == expected
+
+    def test_a_glitch_value_is_only_suggested_after_add(self, app):
+        """``glitch remove`` takes an index, not a model name."""
+        assert app._get_suggestions("/noise glitch remove") == []
+
+    def test_psd_values_are_not_offered_for_another_section(self, app):
+        """``psd`` is a noise key; the same word elsewhere is not a PSD."""
+        assert app._get_suggestions("/signal psd ") == []
