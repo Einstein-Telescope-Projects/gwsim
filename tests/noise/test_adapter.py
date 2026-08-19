@@ -196,14 +196,17 @@ class TestNoiseAdapter:
             output_directory=tmp_path,
             output_prefix="noise-0",
             output_format="gwf",
-            gps_start=100.5,
+            # A whole second: gwmock-noise rejects a fractional gps_start for gwf, because the
+            # artifact name carries the time as an integer and two runs whose times round alike
+            # would compose one name.
+            gps_start=100.0,
             channel="MOCK_NOISE",
             seed=7,
         )
 
         assert adapter.expected_output_paths(config=config) == [
-            tmp_path / "noise-0_H-H1:MOCK_NOISE_100p5-4.gwf",
-            tmp_path / "noise-0_L-L1:MOCK_NOISE_100p5-4.gwf",
+            tmp_path / "noise-0_H-H1:MOCK_NOISE_100-4.gwf",
+            tmp_path / "noise-0_L-L1:MOCK_NOISE_100-4.gwf",
         ]
 
     def test_multisegment_outputs_match_single_long_run_with_stateful_backend(self, tmp_path: Path):
@@ -247,7 +250,7 @@ class TestNoiseAdapter:
             output_directory=tmp_path,
             output_prefix="noise-0",
             output_format="gwf",
-            gps_start=100.5,
+            gps_start=100.0,
             channel="STRAIN_NOISE",
             channels={"H1": "H1:STRAIN_NOISE", "L1": "L1:STRAIN_NOISE"},
             seed=7,
@@ -256,8 +259,8 @@ class TestNoiseAdapter:
         assert config.output.channel == "STRAIN_NOISE"
         assert config.output.channels == {"H1": "H1:STRAIN_NOISE", "L1": "L1:STRAIN_NOISE"}
         assert adapter.expected_output_paths(config=config) == [
-            tmp_path / "noise-0_H-H1:STRAIN_NOISE_100p5-4.gwf",
-            tmp_path / "noise-0_L-L1:STRAIN_NOISE_100p5-4.gwf",
+            tmp_path / "noise-0_H-H1:STRAIN_NOISE_100-4.gwf",
+            tmp_path / "noise-0_L-L1:STRAIN_NOISE_100-4.gwf",
         ]
 
 
@@ -901,7 +904,10 @@ class TestWriteChunkFrameOutput:
             output_directory=output_directory,
             output_prefix="noise-0",
             output_format="gwf",
-            gps_start=100.5,
+            # A whole second: gwmock-noise rejects a fractional gps_start for gwf, because the
+            # artifact name carries the time as an integer and two runs whose times round alike
+            # would compose one name.
+            gps_start=100.0,
             channel="MOCK_NOISE",
             seed=7,
         )
@@ -919,7 +925,7 @@ class TestWriteChunkFrameOutput:
         assert call["detectors"] == ["H1", "L1"]
         # The chunk is replayed as-is; re-seeding would regenerate different noise.
         assert call["seed"] is None
-        assert call["gps_start"] == 100.5
+        assert call["gps_start"] == 100.0
         assert call["output_dir"] == output_directory
         assert call["prefix"] == "noise-0"
         assert result.output_paths == {
@@ -941,6 +947,8 @@ class TestWriteChunkFrameOutput:
             output_directory=tmp_path / "run" / "npy",
             output_prefix="noise-0",
             output_format="npy",
+            # A fractional start is fine here: the NumPy artifact name carries no time, so
+            # gwmock-noise only requires whole seconds for gwf.
             gps_start=100.5,
             channel="MOCK_NOISE",
             seed=7,
@@ -1051,3 +1059,30 @@ class TestRunArgumentHandOff:
                 output_format="npy",
                 gps_start=100.0,
             )
+
+
+class TestFrameTimeToken:
+    """The time token in a frame filename.
+
+    It mirrors gwmock-noise's own naming, so the two must agree or gwmock predicts
+    output paths that the writer never creates. Since gwmock-noise began rejecting
+    a fractional gps_start for gwf, the fractional branch is no longer reachable
+    through a validated config, and is pinned directly here instead.
+    """
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (100.0, "100"),
+            (0.0, "0"),
+            (1234567890.0, "1234567890"),
+            # A non-integer time keeps its fraction, with the point spelled "p".
+            (100.5, "100p5"),
+            (1.25, "1p25"),
+            # Trailing zeros are trimmed rather than padded out to six places.
+            (2.100000, "2p1"),
+        ],
+    )
+    def test_the_token_for_a_time(self, value: float, expected: str):
+        """A whole second is an integer; a fraction keeps only its significant digits."""
+        assert noise_adapter._format_frame_time_token(value) == expected
