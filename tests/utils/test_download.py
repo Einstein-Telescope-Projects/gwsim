@@ -333,3 +333,73 @@ class TestTheSuffixWhenTheUrlHasNone:
         mock_response.headers = {"Content-Type": "text/plain; charset=utf-8"}
         mocker.patch("gwmock.utils.download.requests.get", return_value=mock_response)
         assert download_file("https://example.com/data", outdir=temp_dir).suffix == ".txt"
+
+
+class TestAnInterruptedOverwrite:
+    """A failed overwrite must not destroy the file it was replacing.
+
+    ``overwrite=True`` is the only path that writes over an existing file, so it is the only one
+    where a stream that dies part-way can lose data. The download is staged next to the target and
+    moved into place once every chunk has arrived.
+    """
+
+    @staticmethod
+    def _failing_response(mocker, chunks):
+        response = MagicMock(spec=requests.Response)
+        response.status_code = 200
+        response.headers = {"Content-Type": "application/octet-stream"}
+        response.raise_for_status.return_value = None
+        response.iter_content = MagicMock(return_value=iter(chunks))
+        response.__enter__ = MagicMock(return_value=response)
+        response.__exit__ = MagicMock(return_value=None)
+        return mocker.patch("gwmock.utils.download.requests.get", return_value=response)
+
+    @staticmethod
+    def _files_ignoring_the_lock(directory):
+        """The lock file is the download's own bookkeeping and outlives the transfer."""
+        return sorted(p.name for p in directory.iterdir() if p.suffix != ".lock")
+
+    @staticmethod
+    def _dying_chunks():
+        yield b"partial"
+        raise requests.ConnectionError("connection reset mid-transfer")
+
+    def test_the_previous_file_survives_a_stream_that_dies(self, temp_dir, mocker):
+        dest_path = temp_dir / "file.txt"
+        dest_path.write_text("the good copy")
+        self._failing_response(mocker, self._dying_chunks())
+
+        with pytest.raises(ValueError, match="Failed to download file"):
+            download_file("https://example.com/file.txt", outdir=temp_dir, overwrite=True)
+
+        assert dest_path.read_text() == "the good copy"
+
+    def test_no_partial_file_is_left_behind(self, temp_dir, mocker):
+        """Not even under another name: a stray staging file is the next run's mystery."""
+        dest_path = temp_dir / "file.txt"
+        dest_path.write_text("the good copy")
+        self._failing_response(mocker, self._dying_chunks())
+
+        with pytest.raises(ValueError, match="Failed to download file"):
+            download_file("https://example.com/file.txt", outdir=temp_dir, overwrite=True)
+
+        assert self._files_ignoring_the_lock(temp_dir) == ["file.txt"]
+
+    def test_a_first_download_that_dies_leaves_nothing(self, temp_dir, mocker):
+        self._failing_response(mocker, self._dying_chunks())
+
+        with pytest.raises(ValueError, match="Failed to download file"):
+            download_file("https://example.com/file.txt", outdir=temp_dir)
+
+        assert self._files_ignoring_the_lock(temp_dir) == []
+
+    def test_a_successful_overwrite_still_replaces_the_file(self, temp_dir, mocker):
+        dest_path = temp_dir / "file.txt"
+        dest_path.write_text("the old copy")
+        self._failing_response(mocker, [b"test ", b"data"])
+
+        result = download_file("https://example.com/file.txt", outdir=temp_dir, overwrite=True)
+
+        assert result == dest_path
+        assert dest_path.read_text() == "test data"
+        assert self._files_ignoring_the_lock(temp_dir) == ["file.txt"]

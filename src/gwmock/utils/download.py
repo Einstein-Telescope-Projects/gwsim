@@ -98,8 +98,19 @@ def download_file_with_lock(
                 dest_path = dest_path.with_suffix(guessed_ext)
 
             Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
-            with Path(dest_path).open("wb") as f:
-                f.writelines(response.iter_content(chunk_size=8192))
+            # Staged beside the target and moved into place once every chunk has arrived. Opening
+            # `dest_path` directly truncates it before the first chunk, so a stream that dies
+            # part-way through an `overwrite=True` download would destroy the copy it was replacing
+            # and leave a partial file that the next run cannot tell from a complete one.
+            staging_path = dest_path.with_suffix(dest_path.suffix + ".part")
+            try:
+                with staging_path.open("wb") as f:
+                    f.writelines(response.iter_content(chunk_size=8192))
+                staging_path.replace(dest_path)
+            finally:
+                # A no-op once the rename has happened; the cleanup that matters is the failure
+                # path, including an interrupt.
+                staging_path.unlink(missing_ok=True)
 
         logger.info("File downloaded successfully to: %s", dest_path)
     return dest_path

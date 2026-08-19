@@ -214,8 +214,17 @@ class TestTheDoiParser:
             get_deposition_id_from_doi("10.5281/ZENODO.42")
 
     def test_a_doi_with_no_dot_after_the_prefix_is_not_a_doi(self):
-        with pytest.raises((ValueError, IndexError)):
+        with pytest.raises(ValueError, match="Invalid Zenodo DOI"):
             get_deposition_id_from_doi("10.5281/zenodo")
+
+    @pytest.mark.parametrize("doi", ["10", "zenodo", "", "10.5281/zenodo.", ".", "10.5281/zenodo.."])
+    def test_a_malformed_doi_is_refused_rather_than_half_read(self, doi):
+        """Both halves have to be present and non-empty. A string with no dot used to raise
+        `IndexError` from the tuple unpacking, and a trailing dot returned an *empty* deposition id
+        against a matching prefix -- which the caller then puts in a URL and asks Zenodo for
+        nothing."""
+        with pytest.raises(ValueError, match="Invalid Zenodo DOI"):
+            get_deposition_id_from_doi(doi)
 
 
 class TestWhatEachCallSends:
