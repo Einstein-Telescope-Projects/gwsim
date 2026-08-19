@@ -28,9 +28,7 @@ RATE = 16
 
 def _frame(path: Path, values, *, start: float = START, rate: float = RATE) -> Path:
     """Write one frame file holding *values* on ``CHANNEL``."""
-    series = TimeSeries(
-        np.asarray(values, dtype=float), sample_rate=rate, t0=start, channel=CHANNEL, name=CHANNEL
-    )
+    series = TimeSeries(np.asarray(values, dtype=float), sample_rate=rate, t0=start, channel=CHANNEL, name=CHANNEL)
     series.write(path)
     return path
 
@@ -70,7 +68,7 @@ class TestTheInputsAreVouchedFor:
             str(_metadata_for(first, tmp_path / "a.yaml", digest="")),
             str(_metadata_for(second, tmp_path / "b.yaml")),
         ]
-        with pytest.raises(ValueError, match="No hash found in metadata for file a.gwf"):
+        with pytest.raises(ValueError, match=r"No hash found in metadata for file a\.gwf"):
             merge_command(list(two_frames), output=str(tmp_path / "merged.gwf"), metadata=metadata)
 
     def test_a_frame_that_does_not_match_its_recorded_hash_is_refused(self, tmp_path: Path, two_frames) -> None:
@@ -81,7 +79,7 @@ class TestTheInputsAreVouchedFor:
             str(_metadata_for(first, tmp_path / "a.yaml", digest="sha256:" + "0" * 64)),
             str(_metadata_for(second, tmp_path / "b.yaml")),
         ]
-        with pytest.raises(ValueError, match="Hash mismatch for file a.gwf"):
+        with pytest.raises(ValueError, match=r"Hash mismatch for file a\.gwf"):
             merge_command(list(two_frames), output=str(tmp_path / "merged.gwf"), metadata=metadata)
 
     def test_nothing_is_written_when_a_frame_fails_verification(self, tmp_path: Path, two_frames) -> None:
@@ -91,7 +89,7 @@ class TestTheInputsAreVouchedFor:
             str(_metadata_for(first, tmp_path / "a.yaml", digest="sha256:" + "0" * 64)),
             str(_metadata_for(second, tmp_path / "b.yaml")),
         ]
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Hash mismatch"):
             merge_command(list(two_frames), output=str(output), metadata=metadata)
         assert not output.exists()
 

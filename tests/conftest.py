@@ -31,13 +31,22 @@ these guards exist to remove.
 from __future__ import annotations
 
 import os
-import resource
 import signal
 from pathlib import Path
 from typing import Any
 
 import pytest
 import tqdm
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - Unix-only, and this file is imported by every run
+    resource = None  # type: ignore[assignment]
+
+#: Whether this platform can interrupt a running test on a timer at all. `SIGALRM`, `setitimer` and
+#: `ITIMER_REAL` are absent on Windows, and this module is imported by every ordinary pytest run --
+#: mutation or not -- so neither guard below may be reached through a bare attribute access.
+_TIMER_AVAILABLE = hasattr(signal, "SIGALRM") and hasattr(signal, "setitimer")
 
 # Whether pytest is running under mutmut at all, in any of its phases. Distinct from
 # `_active_mutant()` below, which is only true in a worker: this one is also true in the parent,
@@ -126,7 +135,7 @@ def _address_space_in_use() -> int:
 
 def _apply_memory_limit() -> None:
     global _memory_limit_applied  # noqa: PLW0603
-    if _memory_limit_applied or _MEMORY_HEADROOM_GB <= 0 or _active_mutant() is None:
+    if resource is None or _memory_limit_applied or _MEMORY_HEADROOM_GB <= 0 or _active_mutant() is None:
         return
     in_use = _address_space_in_use()
     if not in_use:  # pragma: no cover - without a baseline any ceiling would be a guess
@@ -155,7 +164,7 @@ def pytest_configure(config: Any) -> None:
 
 def pytest_runtest_logstart(nodeid: str, location: Any) -> None:
     """Arm the per-test budget. Covers setup and teardown as well as the call."""
-    if _TEST_TIMEOUT_S <= 0 or _active_mutant() is None:
+    if not _TIMER_AVAILABLE or _TEST_TIMEOUT_S <= 0 or _active_mutant() is None:
         return
     _apply_memory_limit()
     signal.signal(signal.SIGALRM, _on_timeout)
@@ -164,7 +173,7 @@ def pytest_runtest_logstart(nodeid: str, location: Any) -> None:
 
 def pytest_runtest_logfinish(nodeid: str, location: Any) -> None:
     """Disarm the budget so it cannot fire between tests."""
-    if _TEST_TIMEOUT_S <= 0 or _active_mutant() is None:
+    if not _TIMER_AVAILABLE or _TEST_TIMEOUT_S <= 0 or _active_mutant() is None:
         return
     signal.setitimer(signal.ITIMER_REAL, 0)
 
