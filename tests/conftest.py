@@ -53,7 +53,7 @@ _TEST_TIMEOUT_S = float(os.environ.get("GWMOCK_MUTATION_TEST_TIMEOUT", "10"))
 #: How much *more* address space a mutant's test process may claim than it starts with, in GiB.
 #: Relative rather than absolute because a mutmut worker is forked from a parent that has already
 #: run the whole suite once, so it inherits a large mapping before it runs a line: the suite peaks
-#: at 8.6 GiB of address space (VmPeak, measured over a full run) against 2.2 GiB of resident
+#: at 8.4 GiB of address space (VmPeak, measured over a full run) against 2.2 GiB of resident
 #: memory, and an absolute ceiling anywhere near the first number would fail legitimate tests.
 #: 8 GiB of growth is several times what any single test needs and a small fraction of the 57 GB
 #: the runaway mutants reached before the kernel stepped in.
@@ -180,7 +180,7 @@ def _isolated_working_directory(request: pytest.FixtureRequest, tmp_path_factory
     ``tests/e2e`` is left alone: those tests drive whole example configurations and are not part of
     the unit run this guards, so they keep whatever working directory the caller chose.
     """
-    if "e2e" in Path(str(request.node.fspath)).parts:
+    if "e2e" in request.path.parts:
         yield
         return
     previous = Path.cwd()
