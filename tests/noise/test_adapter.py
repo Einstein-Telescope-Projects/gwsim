@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
+import pytest
 
 from gwmock.noise import NoiseAdapter
 from gwmock.noise import adapter as noise_adapter
@@ -194,14 +196,17 @@ class TestNoiseAdapter:
             output_directory=tmp_path,
             output_prefix="noise-0",
             output_format="gwf",
-            gps_start=100.5,
+            # A whole second: gwmock-noise rejects a fractional gps_start for gwf, because the
+            # artifact name carries the time as an integer and two runs whose times round alike
+            # would compose one name.
+            gps_start=100.0,
             channel="MOCK_NOISE",
             seed=7,
         )
 
         assert adapter.expected_output_paths(config=config) == [
-            tmp_path / "noise-0_H-H1:MOCK_NOISE_100p5-4.gwf",
-            tmp_path / "noise-0_L-L1:MOCK_NOISE_100p5-4.gwf",
+            tmp_path / "noise-0_H-H1:MOCK_NOISE_100-4.gwf",
+            tmp_path / "noise-0_L-L1:MOCK_NOISE_100-4.gwf",
         ]
 
     def test_multisegment_outputs_match_single_long_run_with_stateful_backend(self, tmp_path: Path):
@@ -245,7 +250,7 @@ class TestNoiseAdapter:
             output_directory=tmp_path,
             output_prefix="noise-0",
             output_format="gwf",
-            gps_start=100.5,
+            gps_start=100.0,
             channel="STRAIN_NOISE",
             channels={"H1": "H1:STRAIN_NOISE", "L1": "L1:STRAIN_NOISE"},
             seed=7,
@@ -254,8 +259,8 @@ class TestNoiseAdapter:
         assert config.output.channel == "STRAIN_NOISE"
         assert config.output.channels == {"H1": "H1:STRAIN_NOISE", "L1": "L1:STRAIN_NOISE"}
         assert adapter.expected_output_paths(config=config) == [
-            tmp_path / "noise-0_H-H1:STRAIN_NOISE_100p5-4.gwf",
-            tmp_path / "noise-0_L-L1:STRAIN_NOISE_100p5-4.gwf",
+            tmp_path / "noise-0_H-H1:STRAIN_NOISE_100-4.gwf",
+            tmp_path / "noise-0_L-L1:STRAIN_NOISE_100-4.gwf",
         ]
 
 
@@ -435,3 +440,649 @@ class TestGlitchPopulationUrlResolution:
         )
 
         assert received["glitches"][0]["population_file"] == str(local)
+
+
+TEST_LOW_FREQUENCY_CUTOFF = 7.5
+TEST_HIGH_FREQUENCY_CUTOFF = 99.0
+
+
+class _RecordingSimulator:
+    """Base for the recording stand-ins below."""
+
+    def generate(self, duration, sampling_frequency, detectors, seed=None):
+        """Return one zero chunk so a recorded simulator can still be streamed."""
+        _ = seed
+        n_samples = round(duration * sampling_frequency)
+        return {detector: np.zeros(n_samples) for detector in detectors}
+
+
+class FakeCorrelatedSimulator(_RecordingSimulator):
+    """Stand-in for ``CorrelatedNoiseSimulator`` that records its arguments.
+
+    Every parameter is keyword-only and has no default, so dropping one from the
+    call site is a ``TypeError`` rather than a silently different simulator.
+    """
+
+    def __init__(
+        self,
+        *,
+        psd_files,
+        csd_files,
+        detectors,
+        duration,
+        sampling_frequency,
+        seed,
+        low_frequency_cutoff,
+        high_frequency_cutoff,
+    ) -> None:
+        self.kwargs = {
+            "psd_files": psd_files,
+            "csd_files": csd_files,
+            "detectors": detectors,
+            "duration": duration,
+            "sampling_frequency": sampling_frequency,
+            "seed": seed,
+            "low_frequency_cutoff": low_frequency_cutoff,
+            "high_frequency_cutoff": high_frequency_cutoff,
+        }
+
+
+class FakeColoredSimulator(_RecordingSimulator):
+    """Stand-in for ``ColoredNoiseSimulator`` that records its arguments."""
+
+    def __init__(
+        self,
+        *,
+        psd_file,
+        psd_schedule,
+        detectors,
+        duration,
+        sampling_frequency,
+        seed,
+        low_frequency_cutoff,
+        high_frequency_cutoff,
+    ) -> None:
+        self.kwargs = {
+            "psd_file": psd_file,
+            "psd_schedule": psd_schedule,
+            "detectors": detectors,
+            "duration": duration,
+            "sampling_frequency": sampling_frequency,
+            "seed": seed,
+            "low_frequency_cutoff": low_frequency_cutoff,
+            "high_frequency_cutoff": high_frequency_cutoff,
+        }
+
+
+class FakeSpectralLineSimulator(_RecordingSimulator):
+    """Stand-in for ``SpectralLineSimulator`` that records its arguments."""
+
+    def __init__(self, *, lines, detectors, duration, sampling_frequency, seed) -> None:
+        self.kwargs = {
+            "lines": lines,
+            "detectors": detectors,
+            "duration": duration,
+            "sampling_frequency": sampling_frequency,
+            "seed": seed,
+        }
+
+
+class FakeZeroNoiseSimulator(_RecordingSimulator):
+    """Stand-in for ``_ZeroNoiseSimulator`` that records its arguments."""
+
+    def __init__(self, *, detectors, duration, sampling_frequency, seed) -> None:
+        self.kwargs = {
+            "detectors": detectors,
+            "duration": duration,
+            "sampling_frequency": sampling_frequency,
+            "seed": seed,
+        }
+
+
+class FakeAddLines(_RecordingSimulator):
+    """Stand-in for ``AddLines`` that records the wrapped simulator and lines."""
+
+    def __init__(self, base, lines) -> None:
+        self.base = base
+        self.lines = lines
+
+
+class FakeInjectGlitches(_RecordingSimulator):
+    """Stand-in for ``InjectGlitches`` that records the wrapped simulator and models."""
+
+    def __init__(self, base, models) -> None:
+        self.base = base
+        self.models = models
+
+
+@pytest.fixture
+def recorded_simulators(monkeypatch):
+    """Replace the gwmock-noise simulators the adapter builds with recording fakes.
+
+    The adapter mirrors gwmock-noise's own backend selection, so what is under test
+    here is which class it picks and what it passes -- not what those classes then
+    compute. Recording fakes make both observable, and their argument-less-free
+    signatures turn a dropped argument into a failure instead of a default.
+    """
+    monkeypatch.setattr(noise_adapter, "CorrelatedNoiseSimulator", FakeCorrelatedSimulator)
+    monkeypatch.setattr(noise_adapter, "ColoredNoiseSimulator", FakeColoredSimulator)
+    monkeypatch.setattr(noise_adapter, "SpectralLineSimulator", FakeSpectralLineSimulator)
+    monkeypatch.setattr(noise_adapter, "_ZeroNoiseSimulator", FakeZeroNoiseSimulator)
+    monkeypatch.setattr(noise_adapter, "AddLines", FakeAddLines)
+    monkeypatch.setattr(noise_adapter, "InjectGlitches", FakeInjectGlitches)
+
+
+def _configure(adapter, **overrides):
+    """Call ``_configure_default_stream_backend`` with every argument spelled out."""
+    arguments = {
+        "chunk_duration": TEST_DURATION,
+        "sampling_frequency": TEST_SAMPLING_FREQUENCY,
+        "detectors": ["E1", "E2"],
+        "seed": TEST_SEED,
+        "psd_file": None,
+        "psd_schedule": None,
+        "psd_files": None,
+        "csd_files": None,
+        "low_frequency_cutoff": TEST_LOW_FREQUENCY_CUTOFF,
+        "high_frequency_cutoff": TEST_HIGH_FREQUENCY_CUTOFF,
+        "spectral_lines": None,
+        "glitches": None,
+    }
+    arguments.update(overrides)
+    return adapter._configure_default_stream_backend(**arguments)
+
+
+@pytest.mark.usefixtures("recorded_simulators")
+class TestDefaultStreamBackendSelection:
+    """Which simulator the streaming path builds, and with which arguments.
+
+    This mirrors gwmock-noise's backend selection by hand, so a wrong branch or a
+    dropped argument produces a stream that runs and returns plausible noise --
+    the wrong noise. Nothing downstream raises, which is why the selection and the
+    argument hand-off are pinned here rather than inferred from a generated chunk.
+    """
+
+    def test_psd_files_build_a_correlated_simulator_with_every_argument(self):
+        """``psd_files`` selects the correlated simulator and forwards each argument."""
+        adapter = NoiseAdapter.from_backend()
+
+        simulator = _configure(
+            adapter,
+            psd_files={"E1": "e1.txt", "E2": "e2.txt"},
+            csd_files={"E2-E1": "e1e2.txt"},
+        )
+
+        assert isinstance(simulator, FakeCorrelatedSimulator)
+        assert simulator.kwargs == {
+            "psd_files": {"E1": Path("e1.txt"), "E2": Path("e2.txt")},
+            # Keys are normalized to sorted detector-pair tuples.
+            "csd_files": {("E1", "E2"): Path("e1e2.txt")},
+            "detectors": ["E1", "E2"],
+            "duration": TEST_DURATION,
+            "sampling_frequency": TEST_SAMPLING_FREQUENCY,
+            "seed": TEST_SEED,
+            "low_frequency_cutoff": TEST_LOW_FREQUENCY_CUTOFF,
+            "high_frequency_cutoff": TEST_HIGH_FREQUENCY_CUTOFF,
+        }
+
+    def test_csd_files_alone_still_build_a_correlated_simulator(self):
+        """CSD files without PSD files select the correlated simulator with an empty PSD map."""
+        adapter = NoiseAdapter.from_backend()
+
+        simulator = _configure(adapter, csd_files={"E1-E2": "e1e2.txt"})
+
+        assert isinstance(simulator, FakeCorrelatedSimulator)
+        assert simulator.kwargs["psd_files"] == {}
+        assert simulator.kwargs["csd_files"] == {("E1", "E2"): Path("e1e2.txt")}
+
+    def test_psd_file_builds_a_colored_simulator_with_every_argument(self):
+        """A single PSD file selects the colored simulator and forwards each argument."""
+        adapter = NoiseAdapter.from_backend()
+
+        simulator = _configure(adapter, psd_file="psd.txt")
+
+        assert isinstance(simulator, FakeColoredSimulator)
+        assert simulator.kwargs == {
+            "psd_file": Path("psd.txt"),
+            "psd_schedule": None,
+            "detectors": ["E1", "E2"],
+            "duration": TEST_DURATION,
+            "sampling_frequency": TEST_SAMPLING_FREQUENCY,
+            "seed": TEST_SEED,
+            "low_frequency_cutoff": TEST_LOW_FREQUENCY_CUTOFF,
+            "high_frequency_cutoff": TEST_HIGH_FREQUENCY_CUTOFF,
+        }
+
+    def test_psd_schedule_alone_builds_a_colored_simulator(self):
+        """A PSD schedule without a PSD file still selects the colored simulator."""
+        adapter = NoiseAdapter.from_backend()
+
+        simulator = _configure(adapter, psd_schedule=[(0.0, "early.txt"), (4.0, "late.txt")])
+
+        assert isinstance(simulator, FakeColoredSimulator)
+        assert simulator.kwargs["psd_file"] is None
+        assert simulator.kwargs["psd_schedule"] == [(0.0, Path("early.txt")), (4.0, Path("late.txt"))]
+
+    def test_no_noise_inputs_leave_the_upstream_default_in_place(self):
+        """With nothing to configure the adapter builds no simulator of its own."""
+        adapter = NoiseAdapter.from_backend()
+
+        assert _configure(adapter) is None
+
+    def test_spectral_lines_alone_build_a_spectral_line_simulator(self):
+        """Lines without a PSD source select the line-only simulator."""
+        adapter = NoiseAdapter.from_backend()
+
+        simulator = _configure(adapter, spectral_lines=[{"frequency": 60.0, "amplitude": 1e-23}])
+
+        assert isinstance(simulator, FakeSpectralLineSimulator)
+        assert simulator.kwargs["detectors"] == ["E1", "E2"]
+        assert simulator.kwargs["duration"] == TEST_DURATION
+        assert simulator.kwargs["sampling_frequency"] == TEST_SAMPLING_FREQUENCY
+        assert simulator.kwargs["seed"] == TEST_SEED
+        assert [line.frequency for line in simulator.kwargs["lines"]] == [60.0]
+
+    def test_spectral_lines_wrap_an_existing_simulator(self):
+        """With a PSD source present the lines are added on top of it, not instead of it."""
+        adapter = NoiseAdapter.from_backend()
+
+        simulator = _configure(
+            adapter,
+            psd_file="psd.txt",
+            spectral_lines=[{"frequency": 60.0, "amplitude": 1e-23}],
+        )
+
+        assert isinstance(simulator, FakeAddLines)
+        assert isinstance(simulator.base, FakeColoredSimulator)
+        assert [line.frequency for line in simulator.lines] == [60.0]
+
+    def test_empty_spectral_lines_are_rejected(self):
+        """An empty list is a config mistake, not "no lines"."""
+        adapter = NoiseAdapter.from_backend()
+
+        with pytest.raises(ValueError, match=r"^spectral_lines must contain at least one spectral line\.$"):
+            _configure(adapter, spectral_lines=[])
+
+    def test_glitches_alone_are_injected_into_zero_noise(self):
+        """Glitches without a noise source are injected into a zero-noise stream."""
+        adapter = NoiseAdapter.from_backend()
+
+        simulator = _configure(adapter, glitches=[_blip_glitch_dict()])
+
+        assert isinstance(simulator, FakeInjectGlitches)
+        assert isinstance(simulator.base, FakeZeroNoiseSimulator)
+        assert simulator.base.kwargs == {
+            "detectors": ["E1", "E2"],
+            "duration": TEST_DURATION,
+            "sampling_frequency": TEST_SAMPLING_FREQUENCY,
+            "seed": TEST_SEED,
+        }
+        assert simulator.models == adapter._glitch_models
+
+    def test_glitches_wrap_an_existing_simulator(self):
+        """With a PSD source present the glitches are injected into it."""
+        adapter = NoiseAdapter.from_backend()
+
+        simulator = _configure(adapter, psd_file="psd.txt", glitches=[_blip_glitch_dict()])
+
+        assert isinstance(simulator, FakeInjectGlitches)
+        assert isinstance(simulator.base, FakeColoredSimulator)
+        assert len(simulator.models) == 1
+
+    def test_empty_glitches_are_rejected(self):
+        """An empty list is a config mistake, not "no glitches"."""
+        adapter = NoiseAdapter.from_backend()
+
+        with pytest.raises(ValueError, match=r"^glitches must contain at least one glitch model\.$"):
+            _configure(adapter, glitches=[])
+
+    def test_a_reused_adapter_forgets_the_previous_stream_glitch_models(self):
+        """A later glitch-free stream must not report the earlier stream's models."""
+        adapter = NoiseAdapter.from_backend()
+        _configure(adapter, glitches=[_blip_glitch_dict()])
+        assert adapter.resolved_config()["glitches"]
+
+        _configure(adapter, psd_file="psd.txt")
+
+        assert adapter._glitch_models is None
+        assert adapter.resolved_config() == {}
+
+
+class TestBuildComponents:
+    """The flat-field to component-list translation.
+
+    ``_build_components`` decides which upstream simulator each legacy field maps to
+    and under which option name. An option written under the wrong key is dropped
+    silently by the upstream config rather than rejected, so the exact option
+    mapping is asserted here.
+    """
+
+    def test_psd_files_become_a_correlated_component(self):
+        """PSD and CSD files map to one correlated component carrying both cutoffs."""
+        components = noise_adapter._build_components(
+            psd_file=None,
+            psd_schedule=None,
+            psd_files={"E1": Path("e1.txt")},
+            csd_files={"E1-E2": Path("e1e2.txt")},
+            low_frequency_cutoff=TEST_LOW_FREQUENCY_CUTOFF,
+            high_frequency_cutoff=TEST_HIGH_FREQUENCY_CUTOFF,
+            spectral_lines=None,
+            glitches=None,
+        )
+
+        assert len(components) == 1
+        assert components[0].simulator == "correlated"
+        assert components[0].options == {
+            "psd_files": {"E1": Path("e1.txt")},
+            "csd_files": {"E1-E2": Path("e1e2.txt")},
+            "low_frequency_cutoff": TEST_LOW_FREQUENCY_CUTOFF,
+            "high_frequency_cutoff": TEST_HIGH_FREQUENCY_CUTOFF,
+        }
+
+    def test_an_absent_high_frequency_cutoff_is_left_out(self):
+        """``None`` means "no cutoff", which upstream expresses as an absent option."""
+        components = noise_adapter._build_components(
+            psd_file=None,
+            psd_schedule=None,
+            psd_files={"E1": Path("e1.txt")},
+            csd_files=None,
+            low_frequency_cutoff=TEST_LOW_FREQUENCY_CUTOFF,
+            high_frequency_cutoff=None,
+            spectral_lines=None,
+            glitches=None,
+        )
+
+        assert components[0].options == {
+            "psd_files": {"E1": Path("e1.txt")},
+            "low_frequency_cutoff": TEST_LOW_FREQUENCY_CUTOFF,
+        }
+
+    def test_a_psd_file_becomes_a_colored_component(self):
+        """A single PSD file (or a schedule) maps to one colored component."""
+        components = noise_adapter._build_components(
+            psd_file=Path("psd.txt"),
+            psd_schedule=[(0.0, Path("late.txt"))],
+            psd_files=None,
+            csd_files=None,
+            low_frequency_cutoff=TEST_LOW_FREQUENCY_CUTOFF,
+            high_frequency_cutoff=TEST_HIGH_FREQUENCY_CUTOFF,
+            spectral_lines=None,
+            glitches=None,
+        )
+
+        assert len(components) == 1
+        assert components[0].simulator == "colored"
+        assert components[0].options == {
+            "psd_file": Path("psd.txt"),
+            "psd_schedule": [(0.0, Path("late.txt"))],
+            "low_frequency_cutoff": TEST_LOW_FREQUENCY_CUTOFF,
+            "high_frequency_cutoff": TEST_HIGH_FREQUENCY_CUTOFF,
+        }
+
+    def test_lines_and_glitches_append_their_own_components(self):
+        """Lines and glitches are components in their own right, after the noise source."""
+        components = noise_adapter._build_components(
+            psd_file=Path("psd.txt"),
+            psd_schedule=None,
+            psd_files=None,
+            csd_files=None,
+            low_frequency_cutoff=TEST_LOW_FREQUENCY_CUTOFF,
+            high_frequency_cutoff=None,
+            spectral_lines=["line"],
+            glitches=["glitch"],
+        )
+
+        assert [component.simulator for component in components] == ["colored", "spectral_lines", "glitches"]
+        assert components[1].options == {"lines": ["line"]}
+        assert components[2].options == {"models": ["glitch"]}
+
+    def test_no_noise_fields_produce_no_components(self):
+        """Nothing configured means nothing to translate."""
+        assert (
+            noise_adapter._build_components(
+                psd_file=None,
+                psd_schedule=None,
+                psd_files=None,
+                csd_files=None,
+                low_frequency_cutoff=TEST_LOW_FREQUENCY_CUTOFF,
+                high_frequency_cutoff=None,
+                spectral_lines=None,
+                glitches=None,
+            )
+            == []
+        )
+
+
+class FakeFrameWriter:
+    """Stand-in for ``FrameWriter`` that records how the adapter drives it."""
+
+    calls: ClassVar[list[dict]] = []
+
+    def __init__(self, simulator, *, gps_start, output_dir, channel, channels, prefix) -> None:
+        self.record = {
+            "simulator": simulator,
+            "gps_start": gps_start,
+            "output_dir": output_dir,
+            "channel": channel,
+            "channels": channels,
+            "prefix": prefix,
+        }
+
+    def write(self, *, duration, sampling_frequency, detectors, seed):
+        """Record the write arguments and return one path per detector."""
+        self.record.update(
+            duration=duration,
+            sampling_frequency=sampling_frequency,
+            detectors=detectors,
+            seed=seed,
+        )
+        FakeFrameWriter.calls.append(self.record)
+        return {detector: self.record["output_dir"] / f"{detector}.gwf" for detector in detectors}
+
+
+class TestWriteChunkFrameOutput:
+    """How ``write_chunk`` hands a chunk to the frame writer.
+
+    The GWF path is selected by an exact format string and then replays the chunk
+    through gwmock-noise's ``FrameWriter``. Getting the duration or the detector
+    list wrong there writes frames that are readable but describe the wrong data,
+    so the arguments are pinned rather than inferred from the file names.
+    """
+
+    def test_gwf_output_drives_the_frame_writer_with_the_config(self, monkeypatch, tmp_path: Path):
+        """The frame writer receives the config's duration, rate, detectors and naming."""
+        FakeFrameWriter.calls = []
+        monkeypatch.setattr(noise_adapter, "FrameWriter", FakeFrameWriter)
+        adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
+        # A directory that does not exist yet, so a write that fails to create
+        # parents fails loudly instead of writing into a stale directory.
+        output_directory = tmp_path / "run" / "frames"
+        config = adapter.build_config(
+            detectors=["H1", "L1"],
+            duration=4.0,
+            sampling_frequency=8.0,
+            output_directory=output_directory,
+            output_prefix="noise-0",
+            output_format="gwf",
+            # A whole second: gwmock-noise rejects a fractional gps_start for gwf, because the
+            # artifact name carries the time as an integer and two runs whose times round alike
+            # would compose one name.
+            gps_start=100.0,
+            channel="MOCK_NOISE",
+            seed=7,
+        )
+
+        result = adapter.write_chunk(
+            config=config,
+            chunk={"H1": np.zeros(32), "L1": np.ones(32)},
+        )
+
+        assert output_directory.is_dir()
+        assert len(FakeFrameWriter.calls) == 1
+        call = FakeFrameWriter.calls[0]
+        assert call["duration"] == 4.0
+        assert call["sampling_frequency"] == 8.0
+        assert call["detectors"] == ["H1", "L1"]
+        # The chunk is replayed as-is; re-seeding would regenerate different noise.
+        assert call["seed"] is None
+        assert call["gps_start"] == 100.0
+        assert call["output_dir"] == output_directory
+        assert call["prefix"] == "noise-0"
+        assert result.output_paths == {
+            "H1": output_directory / "H1.gwf",
+            "L1": output_directory / "L1.gwf",
+        }
+        # The writer replays the chunk it was given, not a freshly generated one.
+        assert np.array_equal(call["simulator"].generate(4.0, 8.0, ["L1"])["L1"], np.ones(32))
+
+    def test_a_non_gwf_format_never_reaches_the_frame_writer(self, monkeypatch, tmp_path: Path):
+        """Only the exact string "gwf" selects frames; anything else is written as NumPy."""
+        FakeFrameWriter.calls = []
+        monkeypatch.setattr(noise_adapter, "FrameWriter", FakeFrameWriter)
+        adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
+        config = adapter.build_config(
+            detectors=["H1"],
+            duration=4.0,
+            sampling_frequency=8.0,
+            output_directory=tmp_path / "run" / "npy",
+            output_prefix="noise-0",
+            output_format="npy",
+            # A fractional start is fine here: the NumPy artifact name carries no time, so
+            # gwmock-noise only requires whole seconds for gwf.
+            gps_start=100.5,
+            channel="MOCK_NOISE",
+            seed=7,
+        )
+
+        result = adapter.write_chunk(config=config, chunk={"H1": np.arange(32, dtype=float)})
+
+        assert FakeFrameWriter.calls == []
+        assert result.output_paths["H1"] == tmp_path / "run" / "npy" / "noise-0_H1.npy"
+
+
+class TestRunArgumentHandOff:
+    """What ``run`` hands to ``build_config``, and which backend path it takes.
+
+    ``run`` forwards eighteen arguments; a dropped one becomes a default (no
+    spectral lines, no CSD files, a 2 Hz cutoff) and the batch still runs and still
+    writes plausible noise. The config the backend receives is therefore compared
+    against an independently built one rather than spot-checked.
+    """
+
+    def _run_arguments(self, tmp_path: Path) -> dict:
+        """Return one call's worth of arguments with every optional field set."""
+        return {
+            "detectors": ["H1", "L1"],
+            "duration": 4.0,
+            "sampling_frequency": 8.0,
+            "output_directory": tmp_path,
+            "output_prefix": "noise-0",
+            "output_format": "npy",
+            "gps_start": 100.0,
+            "channel": "OTHER_NOISE",
+            "channels": {"H1": "H1:STRAIN_NOISE"},
+            "seed": 7,
+            "psd_file": "psd.txt",
+            "psd_schedule": [(0.0, "late.txt")],
+            "psd_files": {"H1": "h1.txt"},
+            "csd_files": {"H1-L1": "h1l1.txt"},
+            "low_frequency_cutoff": TEST_LOW_FREQUENCY_CUTOFF,
+            "high_frequency_cutoff": TEST_HIGH_FREQUENCY_CUTOFF,
+            "spectral_lines": [{"frequency": 60.0, "amplitude": 1e-23}],
+            "glitches": [_blip_glitch_dict()],
+        }
+
+    def test_every_argument_reaches_the_backend_config(self, tmp_path: Path):
+        """The config the backend runs is the one those arguments describe."""
+        backend = FakeNoiseBackend()
+        adapter = NoiseAdapter.from_backend(backend)
+        arguments = self._run_arguments(tmp_path)
+
+        adapter.run(**arguments)
+
+        assert backend.run_calls == [adapter.build_config(**arguments)]
+
+    def test_channel_and_cutoff_defaults(self, tmp_path: Path):
+        """Omitting the channel and the low-frequency cutoff picks the documented defaults."""
+        backend = FakeNoiseBackend()
+        adapter = NoiseAdapter.from_backend(backend)
+        arguments = self._run_arguments(tmp_path)
+        del arguments["channel"]
+        del arguments["low_frequency_cutoff"]
+
+        adapter.run(**arguments)
+
+        config = backend.run_calls[0]
+        assert config.output.channel == "MOCK_NOISE"
+        cutoffs = [
+            component.options["low_frequency_cutoff"]
+            for component in config.components
+            if "low_frequency_cutoff" in component.options
+        ]
+        assert cutoffs == [2.0]
+
+    def test_a_protocol_backend_without_run_generates_and_writes(self, tmp_path: Path):
+        """A backend that only satisfies the protocol is driven through generate()."""
+        adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
+
+        result = adapter.run(
+            detectors=["H1", "L1"],
+            duration=4.0,
+            sampling_frequency=8.0,
+            output_directory=tmp_path,
+            output_prefix="noise-0",
+            output_format="npy",
+            gps_start=100.0,
+            seed=7,
+        )
+
+        assert result.output_paths == {
+            "H1": tmp_path / "noise-0_H1.npy",
+            "L1": tmp_path / "noise-0_L1.npy",
+        }
+        assert np.load(result.output_paths["H1"]).shape == (32,)
+
+    def test_a_backend_that_is_neither_is_rejected(self, tmp_path: Path):
+        """An object with no run() and no protocol support cannot be used."""
+        adapter = NoiseAdapter(backend=object())
+
+        with pytest.raises(
+            TypeError,
+            match=r"^Noise backend must expose run\(\) or satisfy the gwmock_noise NoiseSimulator protocol\.$",
+        ):
+            adapter.run(
+                detectors=["H1"],
+                duration=4.0,
+                sampling_frequency=8.0,
+                output_directory=tmp_path,
+                output_prefix="noise-0",
+                output_format="npy",
+                gps_start=100.0,
+            )
+
+
+class TestFrameTimeToken:
+    """The time token in a frame filename.
+
+    It mirrors gwmock-noise's own naming, so the two must agree or gwmock predicts
+    output paths that the writer never creates. Since gwmock-noise began rejecting
+    a fractional gps_start for gwf, the fractional branch is no longer reachable
+    through a validated config, and is pinned directly here instead.
+    """
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (100.0, "100"),
+            (0.0, "0"),
+            (1234567890.0, "1234567890"),
+            # A non-integer time keeps its fraction, with the point spelled "p".
+            (100.5, "100p5"),
+            (1.25, "1p25"),
+            # Trailing zeros are trimmed rather than padded out to six places.
+            (2.100000, "2p1"),
+        ],
+    )
+    def test_the_token_for_a_time(self, value: float, expected: str):
+        """A whole second is an integer; a fraction keeps only its significant digits."""
+        assert noise_adapter._format_frame_time_token(value) == expected
