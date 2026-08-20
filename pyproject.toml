@@ -191,6 +191,27 @@ pytest_add_cli_args = [
   "-m",
   "not integration and not e2e and not slow",
 ]
+# How long a worker may live: `(estimated_test_time + timeout_constant) * timeout_multiplier`.
+#
+# The defaults (1.0 and 15.0) put that between 15 s and 25 minutes for this suite, and the whole
+# range is wrong, because `estimated_test_time` comes from the *instrumented* stats run: mutmut
+# records a trampoline hit for every call through mutated code, which makes the estimate ~40x the
+# real cost (its three slowest tests are recorded at 31 s each against 0.8 s measured with
+# `--durations`). So the estimate already exceeds the real time on its own, and multiplying it by
+# 15 buys nothing but a worker that sits for minutes.
+#
+# Measured against the other end: replaying the heaviest mutants one at a time -- 144 and 159
+# associated tests -- takes 40 s and 50 s, against estimates of 36 s and 47 s. Doubling the
+# estimate therefore keeps more than 2x headroom over anything that terminates, and the constant
+# sets the floor for a mutant whose tests are instantaneous (20 s, against a per-test budget of
+# 10 s in `tests/conftest.py`, so a non-terminating mutant is still caught by the failing test
+# rather than by this).
+#
+# The reason to bound it at all: a worker that deadlocks on a lock inherited from the fork cannot
+# be interrupted from Python -- it is blocked in a lock acquisition rather than in bytecode -- so
+# this budget is the only thing that reaps it, and at the default it reaped them 25 minutes later.
+timeout_constant = 10.0
+timeout_multiplier = 2.0
 # `mutate_only_covered_lines` is deliberately left off. It would cut the mutant count, but its
 # coverage pass ends in `_unload_modules_not_in()`, which drops every module from `sys.modules`;
 # the next in-process pytest run then re-imports numpy and dies with
