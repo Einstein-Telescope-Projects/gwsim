@@ -109,6 +109,21 @@ class TestTheShapesItRefuses:
         with pytest.raises(ValueError, match="not ahead of"):
             choose_version(current="v0.13.2", proposed="v0.12.0")
 
+    @pytest.mark.parametrize("version", ["v01.0.0", "v0.01.0", "v0.0.01", "v1.0.\u0660", "v\u0660.\u0661.\u0662"])
+    def test_a_non_canonical_number_is_refused(self, version: str) -> None:
+        """Leading zeroes and non-ASCII digits are not release numbers, wherever they appear.
+
+        Both used to pass. The old digit class was Unicode-aware and `int()` reads those digits
+        happily, so a tag whose last component is an Arabic-Indic digit (U+0667) parsed as a
+        version. That matters on the untouched path, which returns the proposal verbatim:
+        `git check-ref-format` accepts such a ref name, so the release would have published it.
+        Strictness about the shape has to include the digits.
+        """
+        with pytest.raises(ValueError, match="could not read"):
+            choose_version(current=version, proposed="v9.9.9")
+        with pytest.raises(ValueError, match="could not read"):
+            choose_version(current="v0.1.0", proposed=version)
+
     def test_the_same_version_is_refused(self) -> None:
         """A release that does not move the version has nothing to release."""
         with pytest.raises(ValueError, match="not ahead of"):

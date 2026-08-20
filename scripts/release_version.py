@@ -35,7 +35,12 @@ import sys
 #: A release tag: an optional `v`, then exactly three dot-separated numbers. Deliberately strict --
 #: pre-release and build metadata are not used by this project's tags, and a tag shape nobody expected
 #: is a reason to stop the release rather than to guess at it.
-_VERSION = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+#:
+#: `[0-9]` rather than `\d`, and no leading zeroes. Both matter on the untouched path, which returns
+#: the proposal verbatim: `\d` is Unicode-aware and `int()` reads those digits too, so a tag ending in
+#: an Arabic-Indic digit (U+0667) parsed cleanly, `git check-ref-format` accepts it as a ref name, and
+#: the release would have published it. `v01.12.0` is the same story with an ASCII digit nobody meant.
+_VERSION = re.compile(r"^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
 
 def _parse(version: str, *, described_as: str) -> tuple[int, int, int]:
