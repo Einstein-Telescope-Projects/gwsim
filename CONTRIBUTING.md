@@ -99,6 +99,26 @@ submitting a merge request—this guide will help you get started.
     `GWMOCK_MUTMUT_FORK_SAFE_WORKERS=0` to go back to mutmut's own in-process workers -- useful
     for measuring the difference, not for a run whose numbers you intend to quote.
 
+    Pass `--max-children 1` for any score you intend to quote:
+
+    ```bash
+    uv run mutmut run 'gwmock.simulator.*' --max-children 1
+    ```
+
+    Workers all run pytest from the same `mutants/` directory, and a test that fails for any
+    reason while a mutant is active is recorded as that mutant being caught -- nothing checks the
+    mutation caused the failure. So a test that races another worker over a file it writes into
+    the working directory, or that times out because the machine is busy, reports a kill it did
+    not earn. The error only ever goes one way, so a parallel run gives an upper bound on the
+    kill count rather than a measurement of it.
+
+    Measured over `gwmock.simulator.*`, 306 mutants: two workers flip exactly one verdict
+    against a serial run (204 killed / 102 survived becomes 205 / 101). One in 306 sounds
+    tolerable until you notice that two is the mildest setting there is and `mutmut run`
+    defaults to one worker per core -- on a 20-mutant sample where the serial answer is 0
+    killed and 20 survived, sixteen workers reported 18 killed. Serial costs a few seconds per
+    mutant, which is the price of a number you can quote.
+
 8. Open a Pull Request
 
     Clearly describe the motivation and scope of your change, especially how it impacts GW data simulation.
