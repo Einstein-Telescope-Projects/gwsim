@@ -90,6 +90,15 @@ submitting a merge request—this guide will help you get started.
     A surviving mutant is a change to the source that no test noticed. Either add the test that
     catches it, or convince yourself the mutant is equivalent to the original.
 
+    Each mutant is tested in a freshly started interpreter. mutmut runs the suite in its own
+    process before it starts, and then `fork()`s one worker per mutant; a worker forked out of a
+    process that has already started a native thread pool inherits its locks held by threads that
+    no longer exist and deadlocks on the first one it needs. `tests/mutmut_fork_safety.py` makes
+    the worker `exec` itself instead, which costs about a second of imports per mutant and is why
+    a mutant no longer reports a timeout it never earned. Set
+    `GWMOCK_MUTMUT_FORK_SAFE_WORKERS=0` to go back to mutmut's own in-process workers -- useful
+    for measuring the difference, not for a run whose numbers you intend to quote.
+
 8. Open a Pull Request
 
     Clearly describe the motivation and scope of your change, especially how it impacts GW data simulation.
