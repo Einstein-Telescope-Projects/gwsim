@@ -98,7 +98,11 @@ Releases are scheduled and automated rather than ad hoc:
 - **Versioning** — versions are derived from git tags via
   `uv-dynamic-versioning`; there is no hand-edited version string. Pull request
   titles follow Conventional Commits (enforced by a PR-title check), which
-  drives the version bump and the changelog.
+  drives the version bump and the changelog. While the package is pre-1.0, a
+  breaking change bumps the **minor** rather than the major, because `1.x`
+  declares a stable API: `scripts/release_version.py` applies that rule to the
+  proposal `git-cliff` makes. Dispatching `scheduled_release.yml` with
+  `allow_major_bump` releases `1.0.0` when it is meant.
 - **Changelog** — generated with [git-cliff](https://git-cliff.org/) from the
   commit history. A rolling **draft release** on the
   [GitHub Releases page](https://github.com/Leuven-Gravity-Institute/gwmock/releases)

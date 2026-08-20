@@ -4,6 +4,17 @@ on:
     schedule:
         - cron: '0 0 * * 2'
     workflow_dispatch:
+        inputs:
+            allow_major_bump:
+                description:
+                    'Let a breaking change bump 0.x.y into 1.0.0. Off by
+                    default: while the package is pre-1.0 a breaking change
+                    bumps the minor instead, because 1.x declares a stable API.
+                    Has no effect once the current major is >= 1, where a major
+                    bump is enforced anyway.'
+                required: false
+                default: false
+                type: boolean
 
 permissions:
     contents: write
@@ -57,12 +68,38 @@ jobs:
 
             - name: Bump version and push tag
               id: tag_version
+              env:
+                  # The flag itself, or empty, so the shell never has to interpret a truth value.
+                  # The `inputs` context keeps a typed boolean as a boolean, so this expression is
+                  # sound; `github.event.inputs` would have handed over the *string* `false`, which is
+                  # truthy in a shell test and would have passed `--allow-major-bump` on every run that
+                  # left it off. Resolving it here rather than in `run:` keeps that distinction from
+                  # mattering. On a `schedule` event `inputs` is absent, which is falsy -- the default.
+                  ALLOW_MAJOR_BUMP:
+                      ${{ inputs.allow_major_bump && '--allow-major-bump' || ''
+                      }}
               run: |
+                  set -euo pipefail
                   PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "none")
                   if [ "$PREVIOUS_TAG" = "none" ]; then
                     NEW_TAG="v0.1.0"
                   else
-                    NEW_TAG=$(uv run --frozen git-cliff --bumped-version --config cliff.toml 2>/dev/null)
+                    # git-cliff proposes; `release_version.py` decides. git-cliff's default sends a
+                    # breaking change straight to the next major, which is right once an API has been
+                    # promised and wrong before: at v0.13.2 it answers v1.0.0, publishing a stable-API
+                    # claim as a side effect of an ordinary change. While the major is 0 that is
+                    # demoted to a minor bump unless this run was dispatched with allow_major_bump. At
+                    # 1.x and above the proposal is taken unchanged.
+                    #
+                    # The `2>/dev/null` that used to wrap this call is gone deliberately: it hid
+                    # git-cliff failing, and an empty NEW_TAG would then have been tagged as the empty
+                    # string.
+                    PROPOSED_TAG=$(uv run --frozen git-cliff --bumped-version --config cliff.toml)
+                    NEW_TAG=$(uv run --frozen python scripts/release_version.py \
+                      --current "$PREVIOUS_TAG" \
+                      --proposed "$PROPOSED_TAG" \
+                      ${ALLOW_MAJOR_BUMP})
+                    echo "git-cliff proposed $PROPOSED_TAG; releasing $NEW_TAG"
                   fi
                   if ! git rev-parse "$NEW_TAG" >/dev/null 2>&1; then
                     echo "Creating annotated tag $NEW_TAG"

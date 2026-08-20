@@ -69,6 +69,21 @@ class _ExecCalledError(Exception):
         self.env = env
 
 
+@pytest.fixture(autouse=True)
+def _loaded_mutmut_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stand in for the config a real mutmut driver has already loaded.
+
+    ``mutmut``'s ``Config`` resolves ``pyproject.toml`` against the working directory and caches
+    it. A driver loads it at startup, so the code under test only ever gets a cache hit -- but a
+    test runs in a working directory of its own (see ``tests/conftest.py``), where there is no
+    config to find. Stubbing it keeps these tests independent of where they are run from instead
+    of relying on some earlier test having warmed the cache.
+    """
+    from mutmut.configuration import Config
+
+    monkeypatch.setattr(Config, "get", staticmethod(lambda: types.SimpleNamespace(debug=False)))
+
+
 @pytest.fixture
 def fake_execve(monkeypatch: pytest.MonkeyPatch) -> None:
     def _execve(path: str, argv: list[str], env: dict[str, str]) -> None:
@@ -211,6 +226,7 @@ def test_build_worker_pytest_args_matches_mutmuts_own_composition() -> None:
 def test_build_worker_pytest_args_honours_mutmut_debug(monkeypatch: pytest.MonkeyPatch) -> None:
     from mutmut.configuration import Config
 
+    # Overrides the autouse stub above, which reports debug off.
     monkeypatch.setattr(Config, "get", staticmethod(lambda: types.SimpleNamespace(debug=True)))
 
     assert build_worker_pytest_args(_StubRunner(), [])[0] == "-vv"

@@ -90,34 +90,41 @@ submitting a merge request—this guide will help you get started.
     A surviving mutant is a change to the source that no test noticed. Either add the test that
     catches it, or convince yourself the mutant is equivalent to the original.
 
-    Each mutant is tested in a freshly started interpreter. mutmut runs the suite in its own
-    process before it starts, and then `fork()`s one worker per mutant; a worker forked out of a
-    process that has already started a native thread pool inherits its locks held by threads that
-    no longer exist and deadlocks on the first one it needs. `tests/mutmut_fork_safety.py` makes
-    the worker `exec` itself instead, which costs about a second of imports per mutant and is why
-    a mutant no longer reports a timeout it never earned. Set
+    Two of the verdicts are weaker than they look, and `tests/conftest.py` has a guard rail for
+    each. `timeout` means mutmut's own wall-clock limit expired, so no test asserted anything --
+    the limit is derived from the _instrumented_ stats run and can be minutes, and a single mutant
+    that never returns holds a worker for all of it. `segfault` covers the `SIGKILL` the kernel
+    sends a process that exhausts memory as well as an actual `SIGSEGV`, which is a very different
+    diagnosis. So, while a mutant is under test and only then, the suite:
+
+    - fails the running test if it produces no result within ten seconds;
+    - caps how much address space the worker may add, so a mutant that allocates without bound
+      fails with `MemoryError` rather than being killed by the kernel -- taking whatever else is
+      running on the machine with it;
+    - appends every firing to `mutants/mutation-guard.log`, so a kill that only happened because
+      the code stopped returning stays distinguishable from one an assertion made.
+
+    Both budgets are settable, and `0` switches either off:
+    `GWMOCK_MUTATION_TEST_TIMEOUT` (seconds per test) and
+    `GWMOCK_MUTATION_MEMORY_HEADROOM_GB`.
+
+    Every test also runs in a working directory of its own. mutmut runs one worker per core and
+    they all share `mutants/` as their working directory, so anything the code under test resolves
+    against a relative path -- `.gwmock_checkpoints/` for a simulation, the current directory for a
+    download -- collides between workers and makes unrelated mutants look caught.
+
+    A fourth thing the harness does needs no verdict of its own, because it removes a failure
+    that reaches no test at all. mutmut runs the suite in its own process before it tests
+    anything, then `fork()`s one worker per mutant out of that same interpreter; a worker forked
+    from a process that has already started a native thread pool inherits its mutexes held by
+    threads that no longer exist, and blocks forever on the first one it needs. Neither budget
+    above can fire, because the block is inside a lock acquisition rather than in bytecode.
+    Disabling tqdm's monitor thread removes one such lock and was measured not to be enough --
+    the same mutants still hung with the Eigen, OpenMP and BLAS thread counts all pinned to one.
+    So `tests/mutmut_fork_safety.py` gives the worker a process that inherited nothing: it
+    `exec`s a fresh interpreter, at a cost of a few seconds of imports per mutant. Set
     `GWMOCK_MUTMUT_FORK_SAFE_WORKERS=0` to go back to mutmut's own in-process workers -- useful
     for measuring the difference, not for a run whose numbers you intend to quote.
-
-    Pass `--max-children 1` for any score you intend to quote:
-
-    ```bash
-    uv run mutmut run 'gwmock.simulator.*' --max-children 1
-    ```
-
-    Workers all run pytest from the same `mutants/` directory, and a test that fails for any
-    reason while a mutant is active is recorded as that mutant being caught -- nothing checks the
-    mutation caused the failure. So a test that races another worker over a file it writes into
-    the working directory, or that times out because the machine is busy, reports a kill it did
-    not earn. The error only ever goes one way, so a parallel run gives an upper bound on the
-    kill count rather than a measurement of it.
-
-    Measured over `gwmock.simulator.*`, 306 mutants: two workers flip exactly one verdict
-    against a serial run (204 killed / 102 survived becomes 205 / 101). One in 306 sounds
-    tolerable until you notice that two is the mildest setting there is and `mutmut run`
-    defaults to one worker per core -- on a 20-mutant sample where the serial answer is 0
-    killed and 20 survived, sixteen workers reported 18 killed. Serial costs a few seconds per
-    mutant, which is the price of a number you can quote.
 
 8. Open a Pull Request
 
