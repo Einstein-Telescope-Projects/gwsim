@@ -113,6 +113,19 @@ submitting a merge request—this guide will help you get started.
     against a relative path -- `.gwmock_checkpoints/` for a simulation, the current directory for a
     download -- collides between workers and makes unrelated mutants look caught.
 
+    A fourth thing the harness does needs no verdict of its own, because it removes a failure
+    that reaches no test at all. mutmut runs the suite in its own process before it tests
+    anything, then `fork()`s one worker per mutant out of that same interpreter; a worker forked
+    from a process that has already started a native thread pool inherits its mutexes held by
+    threads that no longer exist, and blocks forever on the first one it needs. Neither budget
+    above can fire, because the block is inside a lock acquisition rather than in bytecode.
+    Disabling tqdm's monitor thread removes one such lock and was measured not to be enough --
+    the same mutants still hung with the Eigen, OpenMP and BLAS thread counts all pinned to one.
+    So `tests/mutmut_fork_safety.py` gives the worker a process that inherited nothing: it
+    `exec`s a fresh interpreter, at a cost of a few seconds of imports per mutant. Set
+    `GWMOCK_MUTMUT_FORK_SAFE_WORKERS=0` to go back to mutmut's own in-process workers -- useful
+    for measuring the difference, not for a run whose numbers you intend to quote.
+
 8. Open a Pull Request
 
     Clearly describe the motivation and scope of your change, especially how it impacts GW data simulation.
