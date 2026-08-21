@@ -21,6 +21,7 @@ from tests import mutmut_fork_safety
 from tests.mutmut_fork_safety import (
     DISABLED_VALUES,
     DRIVER_PHASES,
+    ENV_BASELINE_VMSIZE,
     ENV_CWD,
     ENV_ENABLED,
     ENV_PYTEST_ARGS,
@@ -30,6 +31,7 @@ from tests.mutmut_fork_safety import (
     WORKER_BOOTSTRAP,
     WORKER_BOOTSTRAP_FAILURE_EXIT_CODE,
     build_worker_pytest_args,
+    driver_address_space_in_use,
     exec_mutant_worker,
     install_fork_safe_mutant_workers,
     install_if_mutmut_driver,
@@ -255,6 +257,37 @@ def test_worker_environment_describes_the_run(
     # mutmut sets this in the forked child before handing over; the worker needs it to
     # know which mutant to activate.
     assert env["MUTANT_UNDER_TEST"] == "pkg.mod.xǁfǁ__mutmut_1"
+
+
+def test_the_worker_is_told_the_address_space_the_driver_had(fake_execve: None) -> None:
+    """The memory ceiling in ``tests/conftest.py`` is relative to what is already mapped.
+
+    A forked worker started life holding the driver's mapping; one that ``exec``s a fresh
+    interpreter does not, so without this the same arithmetic yields a fraction of the intended
+    ceiling and XLA aborts instead of the test failing.
+    """
+    with pytest.raises(_ExecCalledError) as excinfo:
+        exec_mutant_worker(_StubRunner(), mutant_name="pkg.mod.xǁfǁ__mutmut_1", tests=[])
+
+    assert int(excinfo.value.env[ENV_BASELINE_VMSIZE]) == pytest.approx(driver_address_space_in_use(), rel=0.25)
+
+
+def test_the_baseline_is_omitted_rather_than_sent_as_zero(fake_execve: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """ "Unknown" must not reach the worker looking like "nothing mapped".
+
+    A zero would be indistinguishable from a real reading of zero and would reinstate the tight
+    ceiling this exists to avoid; an absent variable makes the worker fall back to its own size.
+    """
+    monkeypatch.setattr(mutmut_fork_safety, "driver_address_space_in_use", lambda: 0)
+
+    with pytest.raises(_ExecCalledError) as excinfo:
+        exec_mutant_worker(_StubRunner(), mutant_name="pkg.mod.xǁfǁ__mutmut_1", tests=[])
+
+    assert ENV_BASELINE_VMSIZE not in excinfo.value.env
+
+
+def test_driver_address_space_is_a_real_reading() -> None:
+    assert driver_address_space_in_use() > 0
 
 
 def test_a_worker_that_cannot_exec_does_not_look_like_a_killed_mutant(

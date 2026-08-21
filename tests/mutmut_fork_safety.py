@@ -71,10 +71,12 @@ import json
 import os
 import sys
 import traceback
+from pathlib import Path
 from typing import Any
 
 __all__ = [
     "build_worker_pytest_args",
+    "driver_address_space_in_use",
     "exec_mutant_worker",
     "install_fork_safe_mutant_workers",
     "install_if_mutmut_driver",
@@ -87,6 +89,10 @@ ENV_PYTEST_ARGS = "GWMOCK_MUTMUT_WORKER_PYTEST_ARGS"
 ENV_ROOT = "GWMOCK_MUTMUT_WORKER_ROOT"
 ENV_CWD = "GWMOCK_MUTMUT_WORKER_CWD"
 ENV_DEBUG = "GWMOCK_MUTMUT_WORKER_DEBUG"
+
+#: The driver's virtual size, handed to the worker so a *relative* memory ceiling means the same
+#: thing after ``exec`` as it did after ``fork``. See :func:`driver_address_space_in_use`.
+ENV_BASELINE_VMSIZE = "GWMOCK_MUTMUT_WORKER_BASELINE_VMSIZE"
 
 #: Set to a false-ish value to send mutant runs back through mutmut's own in-process
 #: fork. Only useful for measuring the difference the fresh interpreter makes -- a
@@ -149,6 +155,31 @@ raise SystemExit(pytest.main(pytest_args))
 """
 
 
+def driver_address_space_in_use() -> int:
+    """This process's virtual size in bytes, or 0 if ``/proc`` is not readable.
+
+    Read in the driver and handed to the worker, because ``tests/conftest.py`` caps a mutant's
+    address space at *its own current size plus a headroom*. That form was chosen when the worker
+    was a ``fork`` of a driver that had already run the whole suite, so it started life holding
+    the suite's peak mapping and the headroom was added on top of it. A worker that ``exec``s a
+    fresh interpreter starts with almost nothing mapped, so the identical arithmetic yields a far
+    tighter ceiling -- tight enough that XLA calls ``abort()`` when it cannot reserve, which mutmut
+    files under a verdict of its own and which hides the mutant's real fate. Measured: 18 of the
+    306 ``gwmock.simulator.*`` mutants came back that way, and every one of them reached an
+    ordinary verdict with the cap switched off.
+
+    Passing the driver's figure keeps the ceiling anchored to the same thing it was always
+    anchored to, without either side hard-coding a number that would go stale as the suite grows.
+    """
+    try:
+        for line in Path("/proc/self/status").read_text(encoding="utf-8").splitlines():
+            if line.startswith("VmSize:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):  # pragma: no cover - not Linux, or no procfs
+        return 0
+    return 0
+
+
 def _mutmut_debug() -> bool:
     """Whether mutmut is in debug mode.
 
@@ -192,6 +223,12 @@ def exec_mutant_worker(runner: Any, *, mutant_name: str, tests: list[str]) -> No
     env[ENV_PYTEST_ARGS] = json.dumps(build_worker_pytest_args(runner, tests))
     env[ENV_ROOT] = root
     env[ENV_CWD] = os.path.join(root, MUTANTS_DIR)
+    # Read before `exec`, while this process still has the mapping a forked worker would have
+    # inherited. Omitted rather than sent as 0 when /proc is unreadable, so the worker falls back
+    # to its own size instead of treating "unknown" as "nothing mapped".
+    baseline = driver_address_space_in_use()
+    if baseline:
+        env[ENV_BASELINE_VMSIZE] = str(baseline)
     if _mutmut_debug():
         env[ENV_DEBUG] = "1"
 

@@ -47,7 +47,7 @@ from typing import Any
 import pytest
 import tqdm
 
-from tests.mutmut_fork_safety import install_if_mutmut_driver
+from tests.mutmut_fork_safety import ENV_BASELINE_VMSIZE, install_if_mutmut_driver
 
 try:
     import resource
@@ -140,6 +140,26 @@ def _record(kind: str, mutant: str, nodeid: str) -> None:
         pass
 
 
+def _inherited_baseline() -> int:
+    """The address space this worker would have started with had it been forked, in bytes.
+
+    The ceiling below is *relative*: headroom on top of what the process already has mapped. That
+    was written when a worker was a ``fork`` of a driver that had already run the whole suite, so
+    "already mapped" meant the suite's peak and the headroom was genuine slack on top. Workers now
+    ``exec`` a fresh interpreter instead (see ``tests/mutmut_fork_safety.py``), which maps almost
+    nothing before it runs a line, so the same arithmetic would yield a fraction of the intended
+    ceiling and abort legitimate tests inside XLA rather than failing them.
+
+    The driver therefore hands its own figure across ``exec``, and the ceiling stays anchored to
+    what it was always anchored to. 0 when the variable is absent -- an ordinary ``fork``, or a
+    platform without ``/proc`` -- which leaves the original behaviour untouched.
+    """
+    try:
+        return int(os.environ.get(ENV_BASELINE_VMSIZE, "0"))
+    except ValueError:  # pragma: no cover - only a corrupted environment gets here
+        return 0
+
+
 def _address_space_in_use() -> int:
     """The process's current virtual size in bytes, or 0 if /proc is not readable."""
     try:
@@ -155,7 +175,7 @@ def _apply_memory_limit() -> None:
     global _memory_limit_applied  # noqa: PLW0603
     if resource is None or _memory_limit_applied or _MEMORY_HEADROOM_GB <= 0 or _active_mutant() is None:
         return
-    in_use = _address_space_in_use()
+    in_use = max(_address_space_in_use(), _inherited_baseline())
     if not in_use:  # pragma: no cover - without a baseline any ceiling would be a guess
         return
     limit = in_use + int(_MEMORY_HEADROOM_GB * 1024**3)
