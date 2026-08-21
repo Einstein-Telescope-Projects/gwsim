@@ -801,11 +801,11 @@ release = [
 requires-dist = [
     { name = "filelock", specifier = ">=3.16.0" },
     { name = "gwmock-noise", specifier = ">=0.11.0" },
-    { name = "gwmock-pop", specifier = ">=0.11.6" },
-    { name = "gwmock-signal", specifier = ">=0.16.1" },
-    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'cuda'", specifier = ">=0.16.1" },
-    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'jax'", specifier = ">=0.16.1" },
-    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.16.1" },
+    { name = "gwmock-pop", specifier = ">=0.11.7" },
+    { name = "gwmock-signal", specifier = ">=0.16.2" },
+    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'cuda'", specifier = ">=0.16.2" },
+    { name = "gwmock-signal", extras = ["jax"], marker = "extra == 'jax'", specifier = ">=0.16.2" },
+    { name = "gwmock-signal", extras = ["sgwb"], marker = "extra == 'sgwb'", specifier = ">=0.16.2" },
     { name = "h5py", specifier = ">=3.12.1" },
     { name = "jax", extras = ["cuda12"], marker = "extra == 'cuda'", specifier = ">=0.11.0" },
     { name = "psutil", specifier = ">=6.1.0" },
@@ -853,7 +853,7 @@ wheels = [
 
 [[package]]
 name = "gwmock-pop"
-version = "0.11.6"
+version = "0.11.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -864,14 +864,14 @@ dependencies = [
     { name = "ruyaml" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/73/c7/1e00b4d4e32998bdfe3f906662ec4e45ce528972409d271f3002ee176986/gwmock_pop-0.11.6.tar.gz", hash = "sha256:ad6ec356b843481c76a048f4477d969da11e33e629712e7e3011b1950460a5a1", size = 253942, upload-time = "2026-08-11T01:45:55.248Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/ab/b44c0e9649a2d13e182bcc898df7e1c62574808bf2705a92e1fa884e9f3e/gwmock_pop-0.11.7.tar.gz", hash = "sha256:b7d1f79b31f5682870b4ede58876a3164fb302fd71977e0c83df6c7c04a7e068", size = 256000, upload-time = "2026-08-18T01:14:49.83Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1c/f1/cf5ec1184eca4abbaeab8f19d448acb67b72db86c6f1c8ada007999364ff/gwmock_pop-0.11.6-py3-none-any.whl", hash = "sha256:e5ecb0a1449efcbd63207a36e4b9cef135f8170a703092f9353eff489a5f1014", size = 105730, upload-time = "2026-08-11T01:45:53.971Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/93/2990b9b47c08e853ffbba15614b0ff0dbf82743aaaee5aa2f0a4ea6c4501/gwmock_pop-0.11.7-py3-none-any.whl", hash = "sha256:817f5c4bb651acda03dfc1289e08058e4df7740c5e297f8803b815883f370b43", size = 105730, upload-time = "2026-08-18T01:14:48.746Z" },
 ]
 
 [[package]]
 name = "gwmock-signal"
-version = "0.16.1"
+version = "0.16.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "gwpy" },
@@ -879,9 +879,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/13/e9/4bd2e1fb9a223b4022ac92fb059936d65dadf3dc3751d33838ebbcca699d/gwmock_signal-0.16.1.tar.gz", hash = "sha256:db926ffea99f5b62a43142b461ee8a66c8b8d71edbc527bc84a541979dfd7bd6", size = 483195, upload-time = "2026-08-11T02:05:48.142Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ae/ff/8d9c55cf4ced1cf5fa5a32b536f3997c9f352ed9af54cf14a70daeaad5e2/gwmock_signal-0.16.2.tar.gz", hash = "sha256:c042cc49aef221b5e8cbde92932b8d1bf309371aae30535e9b89ce94c3ab036d", size = 490254, upload-time = "2026-08-18T01:31:32.42Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5b/eb/d42425b73de6264bb7ec1b124cb245d1b179b06e3790ccaaf5efd603bd9f/gwmock_signal-0.16.1-py3-none-any.whl", hash = "sha256:fcecc0b3218c1427ef3eb5e80f7dbab064bb451c3f9e7cecdca27f06cd92f3d1", size = 179550, upload-time = "2026-08-11T02:05:46.741Z" },
+    { url = "https://files.pythonhosted.org/packages/36/f5/292e93fb40d0b3213d4a56c7472f937f700abf746a893353460fed589f75/gwmock_signal-0.16.2-py3-none-any.whl", hash = "sha256:48337a61db0f76a98081e6b0b9e91b7fd0a1d2e51cf29ff242421ab91e70dafb", size = 179551, upload-time = "2026-08-18T01:31:31.121Z" },
 ]
 
 [package.optional-dependencies]
