@@ -2,16 +2,16 @@
   "environment": {
     "astropy": "8.0.1",
     "astropy-iers-data": "0.2026.8.3.0.53.6",
-    "gwmock": "0.12.0.post28+148c143",
-    "gwmock-noise": "0.10.0",
-    "gwmock-pop": "0.11.4",
-    "gwmock-signal": "0.13.0",
+    "gwmock": "0.13.0.post32+63f59b7",
+    "gwmock-noise": "0.11.0",
+    "gwmock-pop": "0.11.5",
+    "gwmock-signal": "0.16.0",
     "jax": "0.11.0",
     "jaxlib": "0.11.0",
     "lalsuite": "7.26.15",
     "numpy": "2.5.1",
     "pyerfa": "2.0.1.5",
-    "ripplegw": "0.3.1.dev3",
+    "ripplegw": "0.3.1",
     "scipy": "1.18.0"
   },
   "fingerprint": {
@@ -22,9 +22,9 @@
   },
   "label": "noise/uncorrelated_gaussian/et_triangle_sardinia",
   "outputs": {
-    "output/noise/E-ET1_SARD_STRAIN_NOISE-1577491218-4.gwf": {
+    "output/noise/E-ET1_SARD_STRAIN_NOISE-1577491218-4.hdf5": {
       "argmax": 1333,
-      "content_hash": "sha256:6bc3af6caa761a83c4c2777f9fbb73bde8acb9161749acca854e71971d798bdd",
+      "content_hash": "sha256:b7349cc4767ad20f35b7b7c5410ebbf9a441f69a7755eecbb8ea55609549c1f1",
       "mean": -1.7311486471113757e-25,
       "n": 4096,
       "nonzero": 4096,
@@ -32,9 +32,9 @@
       "rms": 3.692291377131024e-23,
       "signed_peak": 1.2374761556611555e-22
     },
-    "output/noise/E-ET1_SARD_STRAIN_NOISE-1577491222-4.gwf": {
+    "output/noise/E-ET1_SARD_STRAIN_NOISE-1577491222-4.hdf5": {
       "argmax": 204,
-      "content_hash": "sha256:13c39129dc398bf97bafedff2b18e0102b05615683a214f2f9b31b7b75945e93",
+      "content_hash": "sha256:d31110bfba14af2b969a34e2e34563da1f230cbde53a6b625b6187b0513639a2",
       "mean": -4.18055648670967e-25,
       "n": 4096,
       "nonzero": 4096,
@@ -42,9 +42,9 @@
       "rms": 5.248688522915776e-23,
       "signed_peak": -2.0345572910553258e-22
     },
-    "output/noise/E-ET1_SARD_STRAIN_NOISE-1577491226-4.gwf": {
+    "output/noise/E-ET1_SARD_STRAIN_NOISE-1577491226-4.hdf5": {
       "argmax": 2001,
-      "content_hash": "sha256:55a886c5ed0143eef2c3136629ba447ba61fc376b2dfbea18d56a3b4ff2f6fd2",
+      "content_hash": "sha256:97b95d30a51f0ac67d66e47bd8cfa5bb7306b61e1c243f598823b7e0b3ac64e8",
       "mean": 1.3408189878152185e-24,
       "n": 4096,
       "nonzero": 4096,
@@ -52,9 +52,9 @@
       "rms": 4.0165607408473736e-23,
       "signed_peak": 1.3603692109048568e-22
     },
-    "output/noise/E-ET2_SARD_STRAIN_NOISE-1577491218-4.gwf": {
+    "output/noise/E-ET2_SARD_STRAIN_NOISE-1577491218-4.hdf5": {
       "argmax": 1850,
-      "content_hash": "sha256:4bc21b50795e25d85b2374353157e3fba23c360ebad49675b5937636890e7997",
+      "content_hash": "sha256:96291d89625b415e248eeadd4d566e125d7a1454f381f046c19b71319804cf77",
       "mean": -5.148526928913194e-25,
       "n": 4096,
       "nonzero": 4096,
@@ -62,9 +62,9 @@
       "rms": 5.338079661920768e-23,
       "signed_peak": 1.7077067895293085e-22
     },
-    "output/noise/E-ET2_SARD_STRAIN_NOISE-1577491222-4.gwf": {
+    "output/noise/E-ET2_SARD_STRAIN_NOISE-1577491222-4.hdf5": {
       "argmax": 2663,
-      "content_hash": "sha256:f1f43964dbc1ee99a94f9782739b22a18343299f9cf129c6cdca98070c307140",
+      "content_hash": "sha256:58e82dd0e605d2e8aa737a49b59600940bb8b51100002e09e27ea756bc846454",
       "mean": -7.136667168491174e-25,
       "n": 4096,
       "nonzero": 4096,
@@ -72,9 +72,9 @@
       "rms": 3.8724211241142747e-23,
       "signed_peak": -1.3164104003111345e-22
     },
-    "output/noise/E-ET2_SARD_STRAIN_NOISE-1577491226-4.gwf": {
+    "output/noise/E-ET2_SARD_STRAIN_NOISE-1577491226-4.hdf5": {
       "argmax": 542,
-      "content_hash": "sha256:afe9e7145a03bf5392212351b608edcd3e491535c0dcdff2ea6072b9bb2f72a5",
+      "content_hash": "sha256:c9fec90ca781c9868c7934d85f470f526a885f850406a2fad2db21f35ece684d",
       "mean": -4.700814749807264e-25,
       "n": 4096,
       "nonzero": 4096,
@@ -82,9 +82,9 @@
       "rms": 4.285229457927625e-23,
       "signed_peak": -1.3126608491617345e-22
     },
-    "output/noise/E-ET3_SARD_STRAIN_NOISE-1577491218-4.gwf": {
+    "output/noise/E-ET3_SARD_STRAIN_NOISE-1577491218-4.hdf5": {
       "argmax": 978,
-      "content_hash": "sha256:3afb1e55969bf4885a02fbaeffedd04370b1dc927d075845b581b837604805ab",
+      "content_hash": "sha256:d170a856619fccaba27caf21889431c049abfa50c1bdee941c69b5313e6555d2",
       "mean": -2.3485411067569452e-25,
       "n": 4096,
       "nonzero": 4096,
@@ -92,9 +92,9 @@
       "rms": 6.19962915064736e-23,
       "signed_peak": 1.6361910355844335e-22
     },
-    "output/noise/E-ET3_SARD_STRAIN_NOISE-1577491222-4.gwf": {
+    "output/noise/E-ET3_SARD_STRAIN_NOISE-1577491222-4.hdf5": {
       "argmax": 2962,
-      "content_hash": "sha256:0fba179d6f770486df8d0bc3fbc6d5f117b3c6995b70b3b8b878d1bd73b67a2e",
+      "content_hash": "sha256:e019d5f5603db9893dcb1bbcf51ab9bd687a28c77485a206911701e9221b829b",
       "mean": -5.116476960699835e-25,
       "n": 4096,
       "nonzero": 4096,
@@ -102,9 +102,9 @@
       "rms": 4.7487584613155167e-23,
       "signed_peak": -1.4993790206817366e-22
     },
-    "output/noise/E-ET3_SARD_STRAIN_NOISE-1577491226-4.gwf": {
+    "output/noise/E-ET3_SARD_STRAIN_NOISE-1577491226-4.hdf5": {
       "argmax": 3598,
-      "content_hash": "sha256:f6996f9c989e9eee23f5f2b99e5c38141af4833184d37a2718715f19d58b4d07",
+      "content_hash": "sha256:cfe619ce0de1f1715dacf44eea345b569ef313253bf7821d6f2ec04da96fc188",
       "mean": -1.1377406026675563e-24,
       "n": 4096,
       "nonzero": 4096,
