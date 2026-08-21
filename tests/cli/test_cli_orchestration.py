@@ -738,7 +738,7 @@ def test_infer_noise_format_invalid_suffix_in_list_raises(tmp_path: Path):
     """_infer_noise_output_format rejects a list entry with an unsupported extension."""
     config = _fake_orchestration_config(tmp_path, source_type="bbh")
     orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
-    with pytest.raises(ValueError, match=r"must end with \.npy or \.gwf"):
+    with pytest.raises(ValueError, match=r"must end with \.npy, \.gwf, \.hdf5, or \.h5"):
         orchestrator._infer_noise_output_format(["noise-H1.wav", "noise-L1.wav"])
 
 
@@ -746,8 +746,42 @@ def test_infer_noise_format_mixed_suffixes_raises(tmp_path: Path):
     """_infer_noise_output_format rejects a list that mixes .npy and .gwf entries."""
     config = _fake_orchestration_config(tmp_path, source_type="bbh")
     orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
-    with pytest.raises(ValueError, match="same extension"):
+    with pytest.raises(ValueError, match="same format"):
         orchestrator._infer_noise_output_format(["noise-H1.npy", "noise-L1.gwf"])
+
+
+def test_infer_noise_format_accepts_hdf5(tmp_path: Path):
+    """.hdf5 is a noise output format, not just a signal one.
+
+    Both halves of a run are configured the same way, by naming the file, so a template the signal side
+    accepts and the noise side refuses is a run that cannot be configured coherently.
+    """
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    assert orchestrator._infer_noise_output_format("noise-0.hdf5") == "hdf5"
+
+
+def test_infer_noise_format_folds_h5_into_hdf5(tmp_path: Path):
+    """`.h5` is the same format under a shorter name, as it is for signal output."""
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    assert orchestrator._infer_noise_output_format("noise-0.h5") == "hdf5"
+    assert orchestrator._infer_noise_output_format(["noise-H1.h5", "noise-L1.hdf5"]) == "hdf5"
+
+
+def test_infer_noise_format_accepts_the_shipped_default(tmp_path: Path):
+    """The default noise file_name must be a template the noise path can actually run.
+
+    This is the whole reason the item exists: the default moved to `.hdf5` for both halves of a run, but
+    only the signal half had ever been taught to read that extension, so an unmodified configuration
+    raised "Noise output templates must end with .npy or .gwf" before it wrote anything. A default that
+    the code refuses is worse than a wrong default, and nothing failed until a run was attempted.
+    """
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    orchestrator = AdapterOrchestrator.from_config(config.orchestration, config.globals.simulator_arguments)
+    shipped = NoiseAdapterConfig().output.file_name
+
+    assert orchestrator._infer_noise_output_format(shipped) == "hdf5"
 
 
 def test_expand_noise_output_paths_list_duplicate_paths_raises(tmp_path: Path):

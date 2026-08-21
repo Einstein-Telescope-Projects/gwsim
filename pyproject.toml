@@ -40,7 +40,7 @@ dependencies = [
   # ascension by 2030. It changes continuous-wave output, which is why the bump landed with
   # regenerated e2e references rather than inside this change.
   "gwmock-signal>=0.16.0",
-  "gwmock-noise>=0.10.1",
+  "gwmock-noise>=0.11.0",
   "gwmock-pop>=0.11.5",
   "typer>=0.19.0",         # Literal-type CLI options; the SPEC 0 floor (0.13) predates them
   "tqdm>=4.67.0",

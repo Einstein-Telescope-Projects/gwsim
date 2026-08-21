@@ -39,7 +39,7 @@ orchestration:
         arguments:
             seed: 7
         output:
-            file_name: noise-{{ counter }}.npy
+            file_name: noise-{{ counter }}.hdf5
 ```
 
 Signal-only SGWB example:
