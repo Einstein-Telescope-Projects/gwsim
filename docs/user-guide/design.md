@@ -54,7 +54,7 @@ Batch loop
     ├─ write .metadata.json provenance record  (cli/utils/metadata.py)
     └─ update checkpoint
     ▼
-output/*.gwf  +  metadata/*.metadata.json  +  resource_usage_summary.json
+output/*.hdf5 +  metadata/*.metadata.json  +  resource_usage_summary.json
 ```
 
 Three orchestration mechanisms are worth understanding in the source:

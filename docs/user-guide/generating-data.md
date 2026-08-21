@@ -328,7 +328,7 @@ orchestration:
             output_directory: noise
             file_name:
                 'E-{{ detectors }}_STRAIN_CORRELATED-NOISE-{{ start_time }}-{{
-                duration }}.gwf'
+                duration }}.hdf5'
             arguments:
                 channel: '{{ detectors }}:STRAIN'
 ```

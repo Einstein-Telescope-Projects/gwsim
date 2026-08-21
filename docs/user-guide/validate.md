@@ -15,7 +15,7 @@ gwmock validate [OPTIONS] PATHS...
 
 `PATHS` can be any mix of:
 
-- Individual output files (`.gwf`, etc.)
+- Individual output files (`.hdf5`, etc.)
 - Individual metadata files (`.metadata.json` or `.metadata.yaml`)
 - Directories — scanned automatically for both file types
 
@@ -32,7 +32,7 @@ gwmock validate output/ metadata/
 gwmock finds the corresponding metadata files automatically:
 
 ```bash
-gwmock validate output/noise/E-ET1_SARD_STRAIN_NOISE-1577491218-1024.gwf output/signal/E-ET1_SARD_STRAIN_BBH-1577491218-1024.gwf
+gwmock validate output/noise/E-ET1_SARD_STRAIN_NOISE-1577491218-1024.hdf5 output/signal/E-ET1_SARD_STRAIN_BBH-1577491218-1024.hdf5
 ```
 
 ### Validate from metadata files directly

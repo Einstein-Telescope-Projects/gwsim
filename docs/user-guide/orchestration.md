@@ -32,14 +32,14 @@ orchestration:
         detectors:
             - H1
         output:
-            file_name: signal-{{ counter }}.gwf
+            file_name: signal-{{ counter }}.hdf5
             arguments:
                 channel: H1:STRAIN
     noise:
         arguments:
             seed: 7
         output:
-            file_name: noise-{{ counter }}.npy
+            file_name: noise-{{ counter }}.hdf5
 ```
 
 Signal-only SGWB example:

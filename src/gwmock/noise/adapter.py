@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+import h5py
 import numpy as np
 from gwmock_noise import (
     AddLines,
@@ -29,25 +30,12 @@ from gwmock_noise import (
 )
 from gwmock_noise.gaussian import normalize_spectral_lines
 from gwmock_noise.glitches import normalize_glitch_models
+from gwmock_noise.output.frame import compose_frame_name, format_time_token
 
 from gwmock.utils.download import download_file
 
-_SUPPORTED_OUTPUT_FORMATS = {"npy", "gwf"}
+_SUPPORTED_OUTPUT_FORMATS = {"npy", "gwf", "hdf5"}
 _DETECTOR_PAIR_SIZE = 2
-
-
-def _format_frame_time_token(value: float) -> str:
-    """Match gwmock-noise frame filename token formatting.
-
-    Args:
-        value: The value to format.
-
-    Returns:
-        The formatted value.
-    """
-    if float(value).is_integer():
-        return str(int(value))
-    return f"{value:.6f}".rstrip("0").rstrip(".").replace(".", "p")
 
 
 def _frame_channel_name(detector: str, channel: str) -> str:
@@ -71,21 +59,70 @@ def _frame_artifact_name(
     gps_start: float,
     duration: float,
 ) -> str:
-    """Return the GWF filename used by gwmock-noise ``FrameWriter``.
+    """Return the GWF filename gwmock-noise's ``FrameWriter`` writes for one detector's chunk.
+
+    Delegates rather than composing the name here. This used to hold its own copy of the rule, and the
+    copy drifted twice at once: gwmock-noise now drops the channel's ``IFO:`` prefix from the name,
+    because a colon made every frame unwritable on Windows, and it refuses a fractional second rather
+    than encoding it as ``100p5``, because two epochs that round alike composed one name and the second
+    run overwrote the first. Neither change reached this function, so it promised ``H-H1:MOCK_NOISE_...``
+    for a file the backend wrote as ``H-H1_MOCK_NOISE_...`` -- a path that never existed.
+
+    The point of the function is to say what the backend will write, so the backend's own composer is
+    the only thing that can answer it.
 
     Args:
         detector: The detector name.
         channel: The full channel name (e.g. ``H1:MOCK_NOISE``).
         prefix: The prefix.
-        gps_start: The GPS start time.
-        duration: The duration.
+        gps_start: The GPS start time, which must be a whole second.
+        duration: The duration, which must be a whole second.
 
     Returns:
         The GWF filename.
+
+    Raises:
+        ValueError: If the epoch or the duration is not a whole number of seconds.
     """
-    start_token = _format_frame_time_token(gps_start)
-    duration_token = _format_frame_time_token(duration)
-    name = f"{detector[0]}-{channel}_{start_token}-{duration_token}.gwf"
+    return compose_frame_name(
+        detector=detector,
+        channel=channel,
+        gps_start=gps_start,
+        duration=duration,
+        prefix=prefix,
+    )
+
+
+def _hdf5_artifact_name(*, detector: str, prefix: str, gps_start: float, duration: float) -> str:
+    """Return the HDF5 filename gwmock-noise writes for one detector's chunk.
+
+    Named for the detector rather than the channel -- ``H-H1_1000000000-4.hdf5`` -- because the dataset
+    inside carries the channel, so one detector writes one file. That is gwmock-noise's rule, not a
+    choice made here, and `expected_output_paths` has to agree with it or it would promise a path the
+    backend does not write.
+
+    The epoch and duration tokens come from gwmock-noise's own ``format_time_token`` for the same reason
+    ``_frame_artifact_name`` above delegates: a second expression for one name drifts from the first, and
+    the copy this module used to keep had already drifted. Upstream refuses a fractional second there,
+    because encoding it to six decimals gave two epochs a microsecond apart the same token and the second
+    run silently overwrote the first; calling upstream means this name cannot acquire that bug on its own.
+
+    Only the template is written out here, because gwmock-noise composes the HDF5 name inside its
+    simulator with no public function to call.
+
+    Args:
+        detector: The detector, whose first character is the site letter.
+        prefix: The output prefix, or the empty string.
+        gps_start: The epoch of the chunk, which must be a whole second.
+        duration: The duration of the chunk, which must be a whole second.
+
+    Returns:
+        The HDF5 filename.
+
+    Raises:
+        ValueError: If the epoch or the duration is not a whole number of seconds.
+    """
+    name = f"{detector[0]}-{detector}_{format_time_token(gps_start)}-{format_time_token(duration)}.hdf5"
     return f"{prefix}_{name}" if prefix else name
 
 
@@ -318,7 +355,7 @@ class NoiseAdapter:
         sampling_frequency: float,
         output_directory: str | Path,
         output_prefix: str,
-        output_format: Literal["npy", "gwf"],
+        output_format: Literal["npy", "gwf", "hdf5"],
         gps_start: float,
         channel: str = "MOCK_NOISE",
         channels: dict[str, str] | None = None,
@@ -456,7 +493,7 @@ class NoiseAdapter:
         sampling_frequency: float,
         output_directory: str | Path,
         output_prefix: str,
-        output_format: Literal["npy", "gwf"],
+        output_format: Literal["npy", "gwf", "hdf5"],
         gps_start: float,
         channel: str = "MOCK_NOISE",
         channels: dict[str, str] | None = None,
@@ -538,6 +575,17 @@ class NoiseAdapter:
                 / (f"{config.output.prefix}_{detector}.npy" if config.output.prefix else f"{detector}.npy")
                 for detector in config.detectors
             ]
+        if config.output.format == "hdf5":
+            return [
+                config.output.directory
+                / _hdf5_artifact_name(
+                    detector=detector,
+                    prefix=config.output.prefix,
+                    gps_start=config.output.gps_start,
+                    duration=config.duration,
+                )
+                for detector in config.detectors
+            ]
         return [
             config.output.directory
             / _frame_artifact_name(
@@ -580,6 +628,8 @@ class NoiseAdapter:
                 detectors=config.detectors,
                 seed=None,
             )
+        elif config.output.format == "hdf5":
+            output_paths = self._write_hdf5_chunk(config=config, chunk_by_detector=chunk_by_detector)
         else:
             output_paths = {}
             for detector, strain in chunk_by_detector.items():
@@ -588,6 +638,51 @@ class NoiseAdapter:
                 np.save(output_path, strain)
                 output_paths[detector] = output_path
         return SimulationResult(output_paths=output_paths, config=config)
+
+    def _write_hdf5_chunk(self, *, config: NoiseConfig, chunk_by_detector: dict[str, np.ndarray]) -> dict[str, Path]:
+        """Write one chunk as HDF5, laid out as gwmock-noise's own HDF5 writer lays it out.
+
+        One file per detector, holding one dataset named for the resolved channel, carrying the grid as
+        the ``x0``/``dx`` attributes gwpy reads. The layout is copied deliberately rather than delegated:
+        this method exists because the chunk is already in hand, so there is no backend run to delegate
+        to -- but a file written here and a file written by the backend are the same artifact under the
+        same name, so they have to be the same shape inside as well.
+
+        Written uncompressed, as the backend writes it. Strain is Gaussian, so its mantissa is very close
+        to incompressible and there is little to buy: measured over a 134 MB segment, gzip level 4 -- the
+        level gwpy's own HDF5 writer applies unless told otherwise -- made the file 4.1% smaller and took
+        39x as long to write (0.07 s to 2.74 s). Raising the level to 9 changed neither number.
+
+        Args:
+            config: The noise config, providing the epoch, the grid and the naming.
+            chunk_by_detector: One strain array per detector.
+
+        Returns:
+            The path written for each detector.
+        """
+        output_paths: dict[str, Path] = {}
+        for detector, strain in chunk_by_detector.items():
+            channel = (
+                config.output.channels[detector]
+                if config.output.channels and detector in config.output.channels
+                else _frame_channel_name(detector, config.output.channel)
+            )
+            output_path = config.output.directory / _hdf5_artifact_name(
+                detector=detector,
+                prefix=config.output.prefix,
+                gps_start=config.output.gps_start,
+                duration=config.duration,
+            )
+            with h5py.File(output_path, "w") as handle:
+                dataset = handle.create_dataset(channel, data=np.asarray(strain, dtype=float))
+                dataset.attrs["x0"] = float(config.output.gps_start)
+                dataset.attrs["dx"] = 1.0 / float(config.sampling_frequency)
+                dataset.attrs["xunit"] = "s"
+                dataset.attrs["channel"] = channel
+                dataset.attrs["name"] = channel
+                dataset.attrs["unit"] = "strain"
+            output_paths[detector] = output_path
+        return output_paths
 
     def _normalize_chunk(self, *, chunk: Mapping[str, np.ndarray], detectors: Sequence[str]) -> dict[str, np.ndarray]:
         """Validate and normalize one upstream chunk.

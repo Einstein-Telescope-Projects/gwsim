@@ -1438,14 +1438,16 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
         for i, detector in enumerate(noise_detectors):
             output_path = output_paths[i] if len(output_paths) > 1 else output_paths[0]
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            if output_format == "gwf":
+            if output_format in {"gwf", "hdf5"}:
                 channel_id = channels_dict[detector] if channels_dict is not None else f"{detector}:{channel_str}"
                 gwpy_ts = GWpyTimeSeries(
                     np.asarray(chunk[detector], dtype=float),
                     t0=gps_start,
                     sample_rate=float(self.sampling_frequency.value),
                 )
-                DetectorStrainStack.from_mapping([channel_id], {channel_id: gwpy_ts}).write(output_path, format="gwf")
+                DetectorStrainStack.from_mapping([channel_id], {channel_id: gwpy_ts}).write(
+                    output_path, format=output_format
+                )
             else:
                 np.save(output_path, chunk[detector])
             output_paths_by_detector[detector] = output_path
@@ -1506,16 +1508,32 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
             raise ValueError("Signal output files must end with .gwf, .hdf5, .h5, .npy, or .txt.")
         return cast(Literal["gwf", "hdf5", "npy", "txt"], suffix)
 
-    def _infer_noise_output_format(self, file_name_template: str | list[str]) -> Literal["npy", "gwf"]:
+    def _infer_noise_output_format(self, file_name_template: str | list[str]) -> Literal["npy", "gwf", "hdf5"]:
+        """Return the noise output format named by the file_name template's extension.
+
+        `.h5` folds into `hdf5` here as it does on the signal side, so the two halves of one run answer
+        the same question the same way: a template is not a different format for being spelled with the
+        shorter extension.
+
+        Args:
+            file_name_template: The configured noise file_name, one template or one per detector.
+
+        Returns:
+            The format the extension names.
+
+        Raises:
+            ValueError: If the template list is empty, names an unsupported extension, or -- given one
+                template per detector -- does not name a single format for all of them.
+        """
         names = list(file_name_template) if isinstance(file_name_template, list) else [file_name_template]
         if not names:
             raise ValueError("Noise file_name list must contain at least one entry.")
-        suffixes = {Path(name).suffix.lower().lstrip(".") for name in names}
-        if not suffixes <= {"npy", "gwf"}:
-            raise ValueError("Noise output templates must end with .npy or .gwf.")
+        suffixes = {"hdf5" if (s := Path(name).suffix.lower().lstrip(".")) == "h5" else s for name in names}
+        if not suffixes <= {"npy", "gwf", "hdf5"}:
+            raise ValueError("Noise output templates must end with .npy, .gwf, .hdf5, or .h5.")
         if len(suffixes) != 1:
-            raise ValueError("All noise file_name entries must use the same extension (.npy or .gwf).")
-        return cast(Literal["npy", "gwf"], suffixes.pop())
+            raise ValueError("All noise file_name entries must use the same format (.npy, .gwf, or .hdf5/.h5).")
+        return cast(Literal["npy", "gwf", "hdf5"], suffixes.pop())
 
     def _expand_noise_output_paths(self, file_name_template: str | list[str]) -> list[Path]:
         """Expand the noise file_name template to one output path per detector."""

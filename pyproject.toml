@@ -40,10 +40,11 @@ dependencies = [
   # ascension by 2030. It changes continuous-wave output, which is why the bump landed with
   # regenerated e2e references rather than inside this change.
   "gwmock-signal>=0.16.2",
-  # 0.11.0 refuses a fractional `gps_start` when the output format is `gwf`. The frame filename
-  # carries the time as an integer, so below this floor two runs whose start times round to the
-  # same second compose one filename and the second silently overwrites the first. The floor makes
-  # the refusal reachable rather than leaving it to whichever version happens to resolve.
+  # 0.11.0 refuses a fractional `gps_start` when the output format is `gwf`, and is the first release
+  # whose noise output config admits `hdf5`. The frame filename carries the time as an integer, so
+  # below this floor two runs whose start times round to the same second compose one filename and the
+  # second silently overwrites the first. The floor makes the refusal reachable rather than leaving it
+  # to whichever version happens to resolve.
   "gwmock-noise>=0.11.0",
   "gwmock-pop>=0.11.7",
   "typer>=0.19.0",        # Literal-type CLI options; the SPEC 0 floor (0.13) predates them

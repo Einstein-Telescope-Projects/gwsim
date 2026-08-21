@@ -103,11 +103,11 @@ Upload your simulation outputs and metadata:
 
 ```bash
 # Single file
-gwmock repository upload 123456 --file simulation_output.gwf
+gwmock repository upload 123456 --file simulation_output.hdf5
 
 # Multiple files
 gwmock repository upload 123456 \
-  --file simulation_output.gwf \
+  --file simulation_output.hdf5 \
   --file metadata.yaml \
   --file config.yaml
 ```
@@ -123,7 +123,7 @@ gwmock repository upload 123456 \
 ```shell
 Uploading 3 file(s) to deposition 123456...
 Uploading ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
-✓ simulation_output.gwf (245.50 MB)
+✓ simulation_output.hdf5 (245.50 MB)
 ✓ metadata.yaml (0.05 MB)
 ✓ config.yaml (0.02 MB)
 Next: gwmock repository update <id> --metadata-file <file>
@@ -207,7 +207,7 @@ Share the DOI: `10.5281/zenodo.123456`
 Download files (anyone can do this without a token):
 
 ```bash
-gwmock repository download 123456 --file simulation_output.gwf --output ./data.gwf
+gwmock repository download 123456 --file simulation_output.hdf5 --output ./data.hdf5
 ```
 
 ## Advanced Usage
@@ -223,7 +223,7 @@ gwmock repository create \
   --sandbox
 
 # Upload files
-gwmock repository upload 123456 --file data.gwf --sandbox
+gwmock repository upload 123456 --file data.hdf5 --sandbox
 
 # Publish to sandbox
 gwmock repository publish 123456 --sandbox
@@ -280,13 +280,13 @@ Download files from any published record using the deposition ID:
 ```bash
 # Download a file
 gwmock repository download 123456 \
-  --file simulation_output.gwf \
-  --output ./downloaded_data.gwf
+  --file simulation_output.hdf5 \
+  --output ./downloaded_data.hdf5
 
 # Specify file size for faster timeout tuning
 gwmock repository download 123456 \
-  --file large_dataset.gwf \
-  --output ./large_dataset.gwf \
+  --file large_dataset.hdf5 \
+  --output ./large_dataset.hdf5 \
   --file-size-mb 5000
 ```
 
@@ -369,7 +369,7 @@ export ZENODO_SANDBOX_API_TOKEN="your_sandbox_token"
 MB). For very large files (> 10 GB), you can manually specify:
 
 ```bash
-gwmock repository upload 123456 --file huge_file.gwf
+gwmock repository upload 123456 --file huge_file.hdf5
 ```
 
 The retry logic with exponential backoff will automatically retry on transient

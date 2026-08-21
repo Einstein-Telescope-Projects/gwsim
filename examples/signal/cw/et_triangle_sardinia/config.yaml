@@ -83,6 +83,7 @@ orchestration:
         output:
             output_directory: signal
             file_name:
-                'E-{{ detectors }}_STRAIN_CW-{{ start_time }}-{{ duration }}.gwf'
+                'E-{{ detectors }}_STRAIN_CW-{{ start_time }}-{{ duration
+                }}.hdf5'
             arguments:
                 channel: '{{ detectors }}:STRAIN'

@@ -2,8 +2,8 @@
   "environment": {
     "astropy": "8.0.1",
     "astropy-iers-data": "0.2026.8.3.0.53.6",
-    "gwmock": "0.13.0.post23+6044248",
-    "gwmock-noise": "0.10.1",
+    "gwmock": "0.13.0.post32+63f59b7",
+    "gwmock-noise": "0.11.0",
     "gwmock-pop": "0.11.5",
     "gwmock-signal": "0.16.0",
     "jax": "0.11.0",
@@ -22,9 +22,9 @@
   },
   "label": "signal/cw/et_triangle_sardinia",
   "outputs": {
-    "output/signal/E-ET1_SARD_STRAIN_CW-1419724816-8.gwf": {
+    "output/signal/E-ET1_SARD_STRAIN_CW-1419724816-8.hdf5": {
       "argmax": 1165,
-      "content_hash": "sha256:4f347f9919f1d6aae1b13f50b5f72e7331403b18df892c324641825ea975b54a",
+      "content_hash": "sha256:8c3269e6d54b030476032c3f495fdf9d097f0794937a4c1dfebdecc387553c4f",
       "mean": -4.113951223045172e-29,
       "n": 2048,
       "nonzero": 2048,
@@ -32,9 +32,9 @@
       "rms": 4.318350442512096e-25,
       "signed_peak": 8.681129022047634e-25
     },
-    "output/signal/E-ET1_SARD_STRAIN_CW-1419724824-8.gwf": {
+    "output/signal/E-ET1_SARD_STRAIN_CW-1419724824-8.hdf5": {
       "argmax": 141,
-      "content_hash": "sha256:c0d058de74c0f6e752ad407dfa479f6b3a16f3dff4925ea139005de83bcd7d58",
+      "content_hash": "sha256:cb72484829f9e42f7b2bad517c14ae3f6bfe581c625fa20f2c50fdc2e2d6f312",
       "mean": -3.8454189171388483e-29,
       "n": 2048,
       "nonzero": 2048,
@@ -42,9 +42,9 @@
       "rms": 4.317823002304504e-25,
       "signed_peak": 8.6700946864139e-25
     },
-    "output/signal/E-ET2_SARD_STRAIN_CW-1419724816-8.gwf": {
+    "output/signal/E-ET2_SARD_STRAIN_CW-1419724816-8.hdf5": {
       "argmax": 1827,
-      "content_hash": "sha256:8fdd2a52c75712698a14d3aba78fd8b6559d8c24f4d1b1a58602acc6c142d71f",
+      "content_hash": "sha256:c0be04ee0d14325537f25e8da00ecc6eb5cbd377bf864c61d6945ae7f2d5e782",
       "mean": 6.412414727277242e-30,
       "n": 2048,
       "nonzero": 2048,
@@ -52,9 +52,9 @@
       "rms": 3.3269977853623663e-25,
       "signed_peak": 6.403914071661634e-25
     },
-    "output/signal/E-ET2_SARD_STRAIN_CW-1419724824-8.gwf": {
+    "output/signal/E-ET2_SARD_STRAIN_CW-1419724824-8.hdf5": {
       "argmax": 1827,
-      "content_hash": "sha256:c9318d91d43a91fbdc3ee6ff5f91fb42f7e34dcbb33dc8ca9e676243452b6a05",
+      "content_hash": "sha256:66e68365549b65c116c89ca82b7ea918368384745d3bb4ec577f80c6b90f8214",
       "mean": 3.836043818123109e-30,
       "n": 2048,
       "nonzero": 2048,
@@ -62,9 +62,9 @@
       "rms": 3.326297376071223e-25,
       "signed_peak": 6.439857730741399e-25
     },
-    "output/signal/E-ET3_SARD_STRAIN_CW-1419724816-8.gwf": {
+    "output/signal/E-ET3_SARD_STRAIN_CW-1419724816-8.hdf5": {
       "argmax": 94,
-      "content_hash": "sha256:1243db03015d05f1366695e7105b9ba8e7ac264546298ccc9a73dc4f781987d5",
+      "content_hash": "sha256:44962f847df2bc26ddfc24d469802ebe2b8e7baa7271102d8c29f34962567304",
       "mean": 3.497234354929469e-29,
       "n": 2048,
       "nonzero": 2048,
@@ -72,9 +72,9 @@
       "rms": 4.300666384145504e-25,
       "signed_peak": 8.045951405148767e-25
     },
-    "output/signal/E-ET3_SARD_STRAIN_CW-1419724824-8.gwf": {
+    "output/signal/E-ET3_SARD_STRAIN_CW-1419724824-8.hdf5": {
       "argmax": 1849,
-      "content_hash": "sha256:1977bca172c1733fd0786bb7260cc120526893abaa729c2f1a2a407b59b314a9",
+      "content_hash": "sha256:8a46102e43f7d56f94fc6b6c37c28ff12135bc2345275a9f65842f3bfb31d53e",
       "mean": 3.486630424899423e-29,
       "n": 2048,
       "nonzero": 2048,

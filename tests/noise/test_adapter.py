@@ -187,7 +187,12 @@ class TestNoiseAdapter:
         assert np.array_equal(np.load(result.output_paths["L1"]), np.arange(32, dtype=float) + 1.0)
 
     def test_expected_output_paths_for_gwf(self, tmp_path: Path):
-        """GWF expected paths should match gwmock-noise FrameWriter naming."""
+        """GWF expected paths should match gwmock-noise FrameWriter naming.
+
+        The name carries the channel without its ``IFO:`` prefix. A colon is reserved on NTFS, so a
+        frame named with one was unwritable on Windows, and gwmock-noise drops it -- which this
+        predicted a path for without following.
+        """
         adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
         config = adapter.build_config(
             detectors=["H1", "L1"],
@@ -205,8 +210,8 @@ class TestNoiseAdapter:
         )
 
         assert adapter.expected_output_paths(config=config) == [
-            tmp_path / "noise-0_H-H1:MOCK_NOISE_100-4.gwf",
-            tmp_path / "noise-0_L-L1:MOCK_NOISE_100-4.gwf",
+            tmp_path / "noise-0_H-H1_MOCK_NOISE_100-4.gwf",
+            tmp_path / "noise-0_L-L1_MOCK_NOISE_100-4.gwf",
         ]
 
     def test_multisegment_outputs_match_single_long_run_with_stateful_backend(self, tmp_path: Path):
@@ -259,8 +264,8 @@ class TestNoiseAdapter:
         assert config.output.channel == "STRAIN_NOISE"
         assert config.output.channels == {"H1": "H1:STRAIN_NOISE", "L1": "L1:STRAIN_NOISE"}
         assert adapter.expected_output_paths(config=config) == [
-            tmp_path / "noise-0_H-H1:STRAIN_NOISE_100-4.gwf",
-            tmp_path / "noise-0_L-L1:STRAIN_NOISE_100-4.gwf",
+            tmp_path / "noise-0_H-H1_STRAIN_NOISE_100-4.gwf",
+            tmp_path / "noise-0_L-L1_STRAIN_NOISE_100-4.gwf",
         ]
 
 
@@ -1061,28 +1066,171 @@ class TestRunArgumentHandOff:
             )
 
 
-class TestFrameTimeToken:
-    """The time token in a frame filename.
+class TestTheNameMatchesWhatTheBackendWrites:
+    """gwmock predicts each artifact's path before the backend writes it, so the two must agree.
 
-    It mirrors gwmock-noise's own naming, so the two must agree or gwmock predicts
-    output paths that the writer never creates. Since gwmock-noise began rejecting
-    a fractional gps_start for gwf, the fractional branch is no longer reachable
-    through a validated config, and is pinned directly here instead.
+    This replaces a test that pinned the *token formatter* gwmock kept as a mirror of gwmock-noise's.
+    Pinning the mirror could only ever confirm the mirror still did what it used to do -- it could not
+    notice gwmock-noise doing something else, which is exactly what happened twice over: the channel's
+    `IFO:` prefix was dropped from the name, and a fractional second became a refusal rather than a
+    `100p5` token. `expected_output_paths` went on predicting `H-H1:MOCK_NOISE_100-4.gwf` for a file
+    written as `H-H1_MOCK_NOISE_100-4.gwf`, and no test failed.
+
+    So the assertion is against the real backend rather than against a second statement of its rule.
     """
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            (100.0, "100"),
-            (0.0, "0"),
-            (1234567890.0, "1234567890"),
-            # A non-integer time keeps its fraction, with the point spelled "p".
-            (100.5, "100p5"),
-            (1.25, "1p25"),
-            # Trailing zeros are trimmed rather than padded out to six places.
-            (2.100000, "2p1"),
-        ],
-    )
-    def test_the_token_for_a_time(self, value: float, expected: str):
-        """A whole second is an integer; a fraction keeps only its significant digits."""
-        assert noise_adapter._format_frame_time_token(value) == expected
+    @pytest.mark.parametrize("output_format", ["gwf", "hdf5"])
+    def test_the_predicted_paths_are_the_paths_written(self, tmp_path: Path, output_format: str):
+        """Whatever `expected_output_paths` promises, `run` puts a file there."""
+        adapter = NoiseAdapter.from_backend(None)
+        arguments = {
+            "detectors": ["H1", "L1"],
+            "duration": 4.0,
+            "sampling_frequency": 256.0,
+            "output_directory": tmp_path / output_format,
+            "output_prefix": "noise-0",
+            "output_format": output_format,
+            "gps_start": 100.0,
+            "channel": "MOCK_NOISE",
+            "seed": 5,
+        }
+
+        predicted = sorted(adapter.expected_output_paths(config=adapter.build_config(**arguments)))
+        written = sorted(adapter.run(**arguments).output_paths.values())
+
+        assert predicted == written
+        assert all(path.exists() for path in predicted)
+
+
+class TestHdf5Output:
+    """Writing noise as HDF5, which is what a run's default configuration now asks for.
+
+    gwmock-noise gained an HDF5 writer, and gwmock has to agree with it on two things: the name of the
+    file and the shape of what is inside. Both are asserted against the real backend rather than against
+    a second copy of the rule written here, because a copy is what already drifted for GWF -- this module
+    predicted `H-H1:MOCK_NOISE_100-4.gwf` for a file the backend wrote as `H-H1_MOCK_NOISE_100-4.gwf`.
+    """
+
+    def test_expected_output_paths_for_hdf5(self, tmp_path: Path):
+        """The HDF5 artifact is named for the detector; the channel lives in the dataset instead."""
+        adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
+        config = adapter.build_config(
+            detectors=["H1", "L1"],
+            duration=4.0,
+            sampling_frequency=8.0,
+            output_directory=tmp_path,
+            output_prefix="noise-0",
+            output_format="hdf5",
+            gps_start=100.0,
+            channel="MOCK_NOISE",
+            seed=7,
+        )
+
+        assert adapter.expected_output_paths(config=config) == [
+            tmp_path / "noise-0_H-H1_100-4.hdf5",
+            tmp_path / "noise-0_L-L1_100-4.hdf5",
+        ]
+
+    def test_write_chunk_persists_hdf5_outputs(self, tmp_path: Path):
+        """A chunk written as HDF5 lands at the promised path and reads back as the samples given.
+
+        Read back through gwpy rather than through h5py: the value of writing HDF5 is that the rest of
+        gwmock, and anything downstream, can open it as a time series without a frame library.
+        """
+        from gwpy.timeseries import TimeSeries
+
+        adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
+        config = adapter.build_config(
+            detectors=["H1", "L1"],
+            duration=4.0,
+            sampling_frequency=8.0,
+            output_directory=tmp_path,
+            output_prefix="",
+            output_format="hdf5",
+            gps_start=100.0,
+            channel="MOCK_NOISE",
+            seed=7,
+        )
+
+        result = adapter.write_chunk(
+            config=config,
+            chunk={"H1": np.arange(32, dtype=float), "L1": np.arange(32, dtype=float) + 1.0},
+        )
+
+        assert sorted(result.output_paths.values()) == sorted(adapter.expected_output_paths(config=config))
+        series = TimeSeries.read(str(result.output_paths["H1"]), format="hdf5")
+        assert np.array_equal(series.value, np.arange(32, dtype=float))
+        assert series.t0.value == 100.0
+        assert series.sample_rate.value == 8.0
+        assert str(series.channel) == "H1:MOCK_NOISE"
+
+    def test_the_grid_is_recorded_so_a_moved_segment_is_a_different_file(self, tmp_path: Path):
+        """The epoch has to reach the file, not just the file name.
+
+        gwmock's content hash reads the grid from the dataset's own attributes, so a writer that omits
+        them makes two segments at different GPS times hash alike -- and the run's identity check then
+        cannot tell a segment written for the wrong epoch from the right one.
+        """
+        from gwmock.cli.utils.hash import compute_content_hash
+
+        adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
+        samples = np.arange(32, dtype=float)
+
+        def written(directory: Path, gps_start: float) -> Path:
+            directory.mkdir(parents=True, exist_ok=True)
+            config = adapter.build_config(
+                detectors=["H1"],
+                duration=4.0,
+                sampling_frequency=8.0,
+                output_directory=directory,
+                output_prefix="",
+                output_format="hdf5",
+                gps_start=gps_start,
+                channel="MOCK_NOISE",
+                seed=7,
+            )
+            return adapter.write_chunk(config=config, chunk={"H1": samples}).output_paths["H1"]
+
+        original = compute_content_hash(written(tmp_path / "a", 100.0))
+        moved = compute_content_hash(written(tmp_path / "b", 612.0))
+
+        assert original is not None
+        assert original != moved
+
+    def test_gwmock_writes_the_layout_the_backend_writes(self, tmp_path: Path):
+        """gwmock's own HDF5 writer and gwmock-noise's must produce the same artifact.
+
+        `write_chunk` composes the file itself because the samples are already in hand and there is no
+        backend run left to delegate to. That makes two writers for one artifact, so this pins them
+        together: same name, same dataset, same attributes. Run against the real `DefaultNoiseSimulator`,
+        since a fake backend could only repeat whatever this module believes.
+        """
+        import h5py
+
+        real = NoiseAdapter.from_backend(None)
+        arguments = {
+            "detectors": ["H1"],
+            "duration": 4.0,
+            "sampling_frequency": 256.0,
+            "output_prefix": "",
+            "output_format": "hdf5",
+            "gps_start": 100.0,
+            "channel": "MOCK_NOISE",
+            "seed": 11,
+        }
+
+        backend_path = next(iter(real.run(output_directory=tmp_path / "backend", **arguments).output_paths.values()))
+        config = real.build_config(output_directory=tmp_path / "gwmock", **arguments)
+        (tmp_path / "gwmock").mkdir(parents=True, exist_ok=True)
+        gwmock_path = real.write_chunk(config=config, chunk={"H1": np.zeros(1024)}).output_paths["H1"]
+
+        assert backend_path.name == gwmock_path.name
+
+        def layout(path: Path) -> tuple[list[str], dict[str, object]]:
+            with h5py.File(path, "r") as handle:
+                names: list[str] = []
+                handle.visititems(lambda name, obj: names.append(name) if isinstance(obj, h5py.Dataset) else None)
+                dataset = handle[names[0]]
+                return names, {key: dataset.attrs[key] for key in sorted(dataset.attrs)}
+
+        assert layout(backend_path) == layout(gwmock_path)

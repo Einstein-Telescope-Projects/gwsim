@@ -41,6 +41,6 @@ orchestration:
             output_directory: signal
             file_name:
                 'E-{{ detectors }}_STRAIN_BNS-{{ start_time }}-{{ duration
-                }}.gwf'
+                }}.hdf5'
             arguments:
                 channel: '{{ detectors }}:STRAIN'
