@@ -4,6 +4,7 @@ Unit tests for configuration utilities.
 
 from __future__ import annotations
 
+import re
 import tempfile
 import warnings
 from pathlib import Path
@@ -807,3 +808,127 @@ def test_get_examples_dir_discovers_examples():
     for rel_path in expected_files:
         full_path = examples_dir / rel_path
         assert full_path.exists(), f"Expected example file not found: {full_path}"
+
+
+class TestSavingConfigsDefensively:
+    """The defaults and the failure paths of ``save_config``.
+
+    Every test above passes ``overwrite`` and ``backup`` explicitly, so the values a caller gets
+    when it says nothing -- refuse to clobber, and keep a copy when told to clobber -- were not
+    pinned by anything.
+    """
+
+    @staticmethod
+    def _config() -> Config:
+        return Config(globals=GlobalsConfig(working_directory="."), orchestration=_orchestration_config())
+
+    def test_an_existing_file_is_refused_by_default(self, tmp_path: Path) -> None:
+        """Refusing is the default because the file a user points at is usually one they wrote."""
+        path = tmp_path / "config.yaml"
+        path.write_text("old content")
+        with pytest.raises(FileExistsError, match="Use overwrite=True"):
+            save_config(path, self._config())
+        assert path.read_text() == "old content"
+
+    def test_the_refusal_names_the_file(self, tmp_path: Path) -> None:
+        path = tmp_path / "config.yaml"
+        path.touch()
+        with pytest.raises(FileExistsError, match=re.escape("config.yaml")):
+            save_config(path, self._config())
+
+    def test_overwriting_keeps_a_copy_by_default(self, tmp_path: Path) -> None:
+        """The backup is the only thing standing between ``--overwrite`` and a lost config."""
+        path = tmp_path / "config.yaml"
+        path.write_text("old content")
+        save_config(path, self._config(), overwrite=True)
+        assert (tmp_path / "config.yaml.backup").read_text() == "old content"
+
+    def test_the_copy_can_be_declined(self, tmp_path: Path) -> None:
+        path = tmp_path / "config.yaml"
+        path.write_text("old content")
+        save_config(path, self._config(), overwrite=True, backup=False)
+        assert not (tmp_path / "config.yaml.backup").exists()
+
+    def test_the_backup_sits_beside_the_file_it_copies(self, tmp_path: Path) -> None:
+        """Appended to the whole name, so ``config.yaml`` and ``config.yml`` do not share one."""
+        path = tmp_path / "config.yaml"
+        path.write_text("old")
+        save_config(path, self._config(), overwrite=True)
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["config.yaml", "config.yaml.backup"]
+
+    def test_a_first_save_writes_no_backup(self, tmp_path: Path) -> None:
+        """Nothing exists to copy, so asking for a backup must not turn into an error or an empty
+        file: all three conditions have to hold before one is written."""
+        path = tmp_path / "config.yaml"
+        save_config(path, self._config(), overwrite=True, backup=True)
+        assert path.exists()
+        assert not (tmp_path / "config.yaml.backup").exists()
+
+    def test_nothing_is_left_behind_when_the_write_fails(self, tmp_path: Path, monkeypatch) -> None:
+        """The temporary file is the atomic-write staging area; a failed save must not leave it for
+        the next reader to find."""
+        path = tmp_path / "config.yaml"
+
+        def explode(*_args, **_kwargs):
+            raise RuntimeError("no space")
+
+        monkeypatch.setattr("gwmock.cli.utils.config.yaml.safe_dump", explode)
+
+        with pytest.raises(ValueError, match="Failed to save configuration"):
+            save_config(path, self._config())
+
+        assert not path.exists()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_failed_overwrite_leaves_the_original_in_place(self, tmp_path: Path, monkeypatch) -> None:
+        path = tmp_path / "config.yaml"
+        path.write_text("old content")
+
+        def explode(*_args, **_kwargs):
+            raise RuntimeError("no space")
+
+        monkeypatch.setattr("gwmock.cli.utils.config.yaml.safe_dump", explode)
+
+        with pytest.raises(ValueError, match="Failed to save configuration"):
+            save_config(path, self._config(), overwrite=True, backup=False)
+
+        assert path.read_text() == "old content"
+
+
+class TestTheLegacySimulatorClassesAreRefusedWithGuidance:
+    """A config written for the removed in-tree simulators must say what to do instead.
+
+    The message is the migration path for anyone with an old config, so the schema keys it names
+    are asserted rather than only the fact that something was raised.
+    """
+
+    def test_a_removed_signal_simulator_names_the_orchestration_keys(self) -> None:
+        with pytest.raises(ValueError, match="no longer supported") as error:
+            resolve_class_path("gwmock.signal:CBCSignalSimulator", "signal")
+        message = str(error.value)
+        assert "orchestration.population" in message
+        assert "orchestration.signal" in message
+        assert "orchestration.noise" in message
+
+    def test_a_removed_noise_simulator_points_at_the_public_classes(self) -> None:
+        with pytest.raises(ValueError, match="no longer supported") as error:
+            resolve_class_path("gwmock.noise:StationaryGaussianNoiseSimulator", "noise")
+        message = str(error.value)
+        assert "orchestration.noise" in message
+        assert "gwmock_noise." in message
+
+    def test_the_refusal_quotes_the_class_that_was_asked_for(self) -> None:
+        with pytest.raises(ValueError, match=re.escape("gwmock.signal:CBCSignalSimulator")):
+            resolve_class_path("gwmock.signal:CBCSignalSimulator", "signal")
+
+    def test_surrounding_whitespace_does_not_get_a_config_past_the_check(self) -> None:
+        with pytest.raises(ValueError, match="no longer supported"):
+            resolve_class_path("  gwmock.signal:CBCSignalSimulator  ", "signal")
+
+    def test_a_removed_signal_class_is_not_refused_in_the_noise_section(self) -> None:
+        """The two lists are per section: only the section that used to hold the class refuses it."""
+        assert resolve_class_path("gwmock.signal:CBCSignalSimulator", "noise") == "gwmock.signal:CBCSignalSimulator"
+
+    def test_an_unrelated_class_still_resolves(self) -> None:
+        assert resolve_class_path("WhiteNoise", "noise") == "gwmock.noise.WhiteNoise"
+        assert resolve_class_path("numpy.random.Generator", "noise") == "numpy.random.Generator"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, ClassVar
@@ -25,10 +26,13 @@ from gwmock.cli.utils.config import (
 from gwmock.cli.utils.simulation_plan import (
     SimulationBatch,
     SimulationPlan,
+    _dedupe_metadata_files_prefer_json,
+    _warn_environment_drift,
     _warn_version_mismatches,
     create_batch_metadata,
     create_plan_from_config,
     create_plan_from_metadata,
+    create_plan_from_metadata_files,
     merge_plans,
     parse_batch_metadata,
 )
@@ -1439,3 +1443,468 @@ class TestWarnVersionMismatches:
         with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
             _warn_version_mismatches(batches, self._INSTALLED)
         assert mock_logger.warning.call_count == 1
+
+
+# ============================================================================
+# Metadata file de-duplication, drift warnings and metadata-file plans
+# ============================================================================
+
+
+class TestDedupeMetadataFilesPreferJson:
+    """Which file survives when one batch wrote both a JSON and a legacy YAML record.
+
+    The two carry the same batch, so keeping both replays it twice; keeping the
+    YAML one silently drops whatever the JSON schema records that the YAML does not.
+    """
+
+    def test_json_wins_over_yaml_whichever_comes_first(self, tmp_path: Path):
+        """The JSON record is kept regardless of the order the paths arrive in."""
+        json_path = tmp_path / "noise-0.metadata.json"
+        yaml_path = tmp_path / "noise-0.metadata.yaml"
+
+        assert _dedupe_metadata_files_prefer_json([yaml_path, json_path]) == [json_path]
+        assert _dedupe_metadata_files_prefer_json([json_path, yaml_path]) == [json_path]
+
+    def test_the_batch_index_is_the_last_dash_separated_token(self, tmp_path: Path):
+        """A hyphenated simulator name is part of the name, not of the batch index."""
+        first = tmp_path / "noise-run-0.metadata.json"
+        second = tmp_path / "noise-run-1.metadata.json"
+
+        deduped = _dedupe_metadata_files_prefer_json([second, first])
+
+        # Two distinct batches of one simulator called "noise-run", ordered by index.
+        assert deduped == [first, second]
+
+    def test_batches_are_ordered_by_simulator_then_index(self, tmp_path: Path):
+        """Ordering is by simulator name first, then numeric batch index."""
+        paths = [
+            tmp_path / "signal-10.metadata.json",
+            tmp_path / "noise-2.metadata.json",
+            tmp_path / "signal-2.metadata.json",
+        ]
+
+        deduped = _dedupe_metadata_files_prefer_json(paths)
+
+        assert deduped == [
+            tmp_path / "noise-2.metadata.json",
+            tmp_path / "signal-2.metadata.json",
+            tmp_path / "signal-10.metadata.json",
+        ]
+
+    def test_unrecognized_names_are_kept_sorted_after_the_batches(self, tmp_path: Path):
+        """A file that is not a batch record is never dropped, only moved to the back."""
+        batch = tmp_path / "noise-0.metadata.json"
+        no_batch_token = tmp_path / "summary.metadata.json"
+        not_metadata = tmp_path / "notes.txt"
+
+        deduped = _dedupe_metadata_files_prefer_json([not_metadata, no_batch_token, batch])
+
+        assert deduped == [batch, not_metadata, no_batch_token]
+
+    def test_a_non_numeric_batch_token_is_not_a_batch(self, tmp_path: Path):
+        """``noise-final`` has no batch index, so it cannot displace ``noise-0``."""
+        batch = tmp_path / "noise-0.metadata.json"
+        non_numeric = tmp_path / "noise-final.metadata.json"
+
+        deduped = _dedupe_metadata_files_prefer_json([non_numeric, batch])
+
+        assert deduped == [batch, non_numeric]
+
+
+class TestWarnVersionMismatchMessage:
+    """The wording and coverage of the version-drift warning.
+
+    A user acts on this warning by reinstalling a package, so it has to name which
+    package drifted and in which direction. Every gwmock-family key is read from a
+    different place in the metadata, which is where a typo hides.
+    """
+
+    _INSTALLED: ClassVar[dict[str, str]] = {
+        "gwmock": "0.7.1",
+        "gwmock-noise": "0.5.2",
+        "gwmock-pop": "0.9.3",
+        "gwmock-signal": "0.8.2",
+    }
+
+    def test_the_warning_states_the_package_both_versions_and_the_consequence(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """The logged format string and its arguments are the ones the user reads."""
+        batch = _make_batch_with_metadata(globals_config, simulator_config, {"gwmock_version": "0.6.0"})
+
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_version_mismatches([batch], self._INSTALLED)
+
+        assert mock_logger.warning.call_args.args == (
+            "Version mismatch for %s: metadata records %s but %s is installed."
+            " Results may not be bit-per-bit reproducible.",
+            "gwmock",
+            "0.6.0",
+            "0.7.1",
+        )
+
+    def test_an_uninstalled_package_is_reported_as_unknown(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """A package the metadata records but the environment lacks is still worth warning about."""
+        batch = _make_batch_with_metadata(globals_config, simulator_config, {"gwmock_version": "0.6.0"})
+
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_version_mismatches([batch], {})
+
+        assert mock_logger.warning.call_args.args[3] == "unknown"
+
+    @pytest.mark.parametrize(
+        ("subpackage_key", "package_name", "installed_version"),
+        [
+            ("gwmock_noise", "gwmock-noise", "0.5.2"),
+            ("gwmock_pop", "gwmock-pop", "0.9.3"),
+            ("gwmock_signal", "gwmock-signal", "0.8.2"),
+        ],
+    )
+    def test_each_subpackage_key_is_read(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+        subpackage_key: str,
+        package_name: str,
+        installed_version: str,
+    ):
+        """Every subpackage version is read from its own metadata key."""
+        batch = _make_batch_with_metadata(
+            globals_config,
+            simulator_config,
+            {"subpackage_versions": {subpackage_key: "0.0.1"}},
+        )
+
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_version_mismatches([batch], self._INSTALLED)
+
+        assert mock_logger.warning.call_args.args[1:] == (package_name, "0.0.1", installed_version)
+
+    def test_a_batch_without_metadata_does_not_end_the_scan(
+        self,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """Metadata-less batches are skipped, not treated as the end of the list."""
+        batches = [
+            SimulationBatch(
+                simulator_name="orchestration",
+                simulator_config=simulator_config,
+                globals_config=globals_config,
+                batch_index=0,
+                source="config",
+            ),
+            _make_batch_with_metadata(globals_config, simulator_config, {"gwmock_version": "0.6.0"}),
+        ]
+
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_version_mismatches(batches, self._INSTALLED)
+
+        mock_logger.warning.assert_called_once()
+
+
+class TestWarnEnvironmentDrift:
+    """The one-shot warning about a drifted environment.
+
+    It is deliberately emitted once, from the first batch that recorded a full
+    environment, and names at most three packages -- enough to recognise the drift
+    without turning a replay of a thousand batches into a thousand warnings.
+    """
+
+    def _batch(self, globals_config, simulator_config, batch_metadata, batch_index=0) -> SimulationBatch:
+        """Build a batch carrying the given metadata."""
+        return SimulationBatch(
+            simulator_name="orchestration",
+            simulator_config=simulator_config,
+            globals_config=globals_config,
+            batch_index=batch_index,
+            source="metadata_config",
+            batch_metadata=batch_metadata,
+        )
+
+    def _patch_environment(self, monkeypatch, mismatches):
+        """Make the environment comparison return the given mismatches."""
+        from gwmock.cli.utils import environment
+
+        monkeypatch.setattr(environment, "capture_environment", lambda: {"packages": {}})
+        monkeypatch.setattr(environment, "diff_environment", lambda recorded, current: mismatches)
+
+    def test_the_warning_counts_every_mismatch_but_names_only_three(
+        self,
+        monkeypatch,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """All four mismatches are counted; the first three are named as examples."""
+        self._patch_environment(
+            monkeypatch,
+            [("numpy", "1.0", "2.0"), ("scipy", "1.0", "2.0"), ("h5py", "1.0", "2.0"), ("astropy", "1.0", "2.0")],
+        )
+        batch = self._batch(globals_config, simulator_config, {"environment": {"packages": {"numpy": "1.0"}}})
+
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_environment_drift([batch])
+
+        assert mock_logger.warning.call_args.args == (
+            "%d package(s) differ from the environment recorded in the metadata (e.g. %s). "
+            "Re-run with 'gwmock simulate --isolate' to reproduce against the exact recorded dependencies.",
+            4,
+            "numpy, scipy, h5py",
+        )
+
+    def test_no_warning_when_the_environment_matches(
+        self,
+        monkeypatch,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """An environment that still matches its record is not worth a warning."""
+        self._patch_environment(monkeypatch, [])
+        batch = self._batch(globals_config, simulator_config, {"environment": {"packages": {"numpy": "1.0"}}})
+
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_environment_drift([batch])
+
+        mock_logger.warning.assert_not_called()
+
+    def test_batches_without_a_recorded_environment_are_skipped_not_final(
+        self,
+        monkeypatch,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """Older metadata carrying no environment must not hide a later batch that has one."""
+        self._patch_environment(monkeypatch, [("numpy", "1.0", "2.0")])
+        batches = [
+            self._batch(globals_config, simulator_config, None),
+            self._batch(globals_config, simulator_config, {"other": "field"}, batch_index=1),
+            self._batch(
+                globals_config,
+                simulator_config,
+                {"environment": {"packages": {"numpy": "1.0"}}},
+                batch_index=2,
+            ),
+        ]
+
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_environment_drift(batches)
+
+        mock_logger.warning.assert_called_once()
+
+    def test_only_the_first_recorded_environment_is_compared(
+        self,
+        monkeypatch,
+        globals_config: GlobalsConfig,
+        simulator_config: SimulatorConfig,
+    ):
+        """One warning per plan, from the first batch that recorded an environment."""
+        self._patch_environment(monkeypatch, [("numpy", "1.0", "2.0")])
+        batches = [
+            self._batch(globals_config, simulator_config, {"environment": {"packages": {"numpy": "1.0"}}}),
+            self._batch(
+                globals_config,
+                simulator_config,
+                {"environment": {"packages": {"numpy": "1.0"}}},
+                batch_index=1,
+            ),
+        ]
+
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            _warn_environment_drift(batches)
+
+        mock_logger.warning.assert_called_once()
+
+
+class TestCreatePlanFromMetadataFiles:
+    """Reconstructing a plan from individual batch metadata files.
+
+    Each file can carry its configuration in one of three shapes (a resolved
+    orchestration block, a ``simulators`` mapping, or the legacy flat keys), and
+    picking the wrong one rebuilds a batch that runs against a different
+    configuration than the one that was recorded.
+    """
+
+    def _write(self, directory: Path, name: str, metadata: dict) -> Path:
+        """Write one metadata file and return its path."""
+        path = directory / name
+        path.write_text(json.dumps(metadata))
+        return path
+
+    def _orchestration_block(self) -> dict:
+        """Return a minimal orchestration config block."""
+        return OrchestrationConfig(
+            population=PopulationConfig(backend="file"),
+            noise=NoiseAdapterConfig(),
+        ).model_dump(by_alias=True, exclude_none=True)
+
+    def _globals_block(self) -> dict:
+        """Return a minimal globals config block."""
+        return {"sampling_frequency": 16384, "duration": 1.0}
+
+    def test_a_missing_file_names_the_file(self, tmp_path: Path):
+        """The error has to say which of the listed files is absent."""
+        missing = tmp_path / "noise-0.metadata.json"
+
+        with pytest.raises(FileNotFoundError, match=rf"^Metadata file not found: {re.escape(str(missing))}$"):
+            create_plan_from_metadata_files([missing], tmp_path / "checkpoints")
+
+    def test_an_orchestration_shaped_config_is_rebuilt(self, tmp_path: Path):
+        """A resolved orchestration block rebuilds an OrchestrationConfig batch."""
+        path = self._write(
+            tmp_path,
+            "orchestration-0.metadata.json",
+            {
+                "simulator_name": "orchestration",
+                "batch_index": 0,
+                "config": {"globals": self._globals_block(), "orchestration": self._orchestration_block()},
+            },
+        )
+
+        plan = create_plan_from_metadata_files([path], tmp_path / "checkpoints")
+
+        assert plan.total_batches == 1
+        assert isinstance(plan.batches[0].simulator_config, OrchestrationConfig)
+        assert plan.batches[0].globals_config.sampling_frequency == 16384
+
+    def test_a_simulators_mapping_is_unwrapped(self, tmp_path: Path):
+        """A single-entry ``simulators`` mapping is unwrapped to that simulator's config."""
+        path = self._write(
+            tmp_path,
+            "noise-0.metadata.json",
+            {
+                "simulator_name": "noise",
+                "batch_index": 0,
+                "config": {
+                    "globals": self._globals_block(),
+                    "simulators": {"noise": {"class": "WhiteNoise", "arguments": {"seed": 42}}},
+                },
+            },
+        )
+
+        plan = create_plan_from_metadata_files([path], tmp_path / "checkpoints")
+
+        assert isinstance(plan.batches[0].simulator_config, SimulatorConfig)
+        assert plan.batches[0].simulator_config.arguments == {"seed": 42}
+
+    def test_more_than_one_simulator_in_one_batch_is_rejected(self, tmp_path: Path):
+        """One metadata file describes one batch, so it cannot carry two simulators."""
+        path = self._write(
+            tmp_path,
+            "noise-0.metadata.json",
+            {
+                "simulator_name": "noise",
+                "batch_index": 0,
+                "config": {
+                    "globals": self._globals_block(),
+                    "simulators": {
+                        "noise": {"class": "WhiteNoise", "arguments": {}},
+                        "signal": {"class": "IMRPhenomD", "arguments": {}},
+                    },
+                },
+            },
+        )
+
+        with pytest.raises(
+            ValueError, match=re.escape("expected exactly one simulator config in metadata.config.simulators")
+        ):
+            create_plan_from_metadata_files([path], tmp_path / "checkpoints")
+
+    def test_the_legacy_flat_keys_are_still_read(self, tmp_path: Path):
+        """Metadata written before the config block existed still replays."""
+        path = self._write(
+            tmp_path,
+            "noise-0.metadata.json",
+            {
+                "simulator_name": "noise",
+                "batch_index": 0,
+                "globals_config": self._globals_block(),
+                "simulator_config": {"class": "WhiteNoise", "arguments": {"seed": 7}},
+            },
+        )
+
+        plan = create_plan_from_metadata_files([path], tmp_path / "checkpoints")
+
+        assert plan.batches[0].simulator_config.arguments == {"seed": 7}
+        assert plan.batches[0].globals_config.duration == 1.0
+
+    def test_a_config_of_no_known_shape_is_rejected(self, tmp_path: Path):
+        """A config that is neither a simulator nor an orchestration cannot be rebuilt."""
+        path = self._write(
+            tmp_path,
+            "noise-0.metadata.json",
+            {
+                "simulator_name": "noise",
+                "batch_index": 0,
+                "globals_config": self._globals_block(),
+                "simulator_config": {"something": "else"},
+            },
+        )
+
+        with pytest.raises(ValueError, match="unknown simulator_config shape"):
+            create_plan_from_metadata_files([path], tmp_path / "checkpoints")
+
+    def test_the_resolved_config_is_preferred_over_the_input_config(self, tmp_path: Path):
+        """Replaying an unpinned run must use the resources it actually resolved to."""
+        path = self._write(
+            tmp_path,
+            "noise-0.metadata.json",
+            {
+                "simulator_name": "noise",
+                "batch_index": 0,
+                "config": {
+                    "globals": self._globals_block(),
+                    "simulators": {"noise": {"class": "WhiteNoise", "arguments": {"seed": 1}}},
+                },
+                "resolved_config": {
+                    "globals": self._globals_block(),
+                    "simulators": {"noise": {"class": "WhiteNoise", "arguments": {"seed": 2}}},
+                },
+            },
+        )
+
+        plan = create_plan_from_metadata_files([path], tmp_path / "checkpoints")
+
+        assert plan.batches[0].simulator_config.arguments == {"seed": 2}
+
+    def test_non_replayable_metadata_warns_and_names_the_file(self, tmp_path: Path):
+        """A run that could not be pinned replays approximately, and must say so."""
+        path = self._write(
+            tmp_path,
+            "noise-0.metadata.json",
+            {
+                "simulator_name": "noise",
+                "batch_index": 0,
+                "replayable": False,
+                "globals_config": self._globals_block(),
+                "simulator_config": {"class": "WhiteNoise", "arguments": {}},
+            },
+        )
+
+        with patch("gwmock.cli.utils.simulation_plan.logger") as mock_logger:
+            create_plan_from_metadata_files([path], tmp_path / "checkpoints")
+
+        assert mock_logger.warning.call_args.args == (
+            "Metadata %s is marked non-replayable (an external-mutable input could not be "
+            "pinned to an immutable version); reproduction is not bit-for-bit.",
+            path,
+        )
+
+    def test_metadata_missing_its_batch_identity_is_rejected(self, tmp_path: Path):
+        """A batch with no simulator name or index cannot be placed in a plan."""
+        path = self._write(
+            tmp_path,
+            "noise-0.metadata.json",
+            {
+                "globals_config": self._globals_block(),
+                "simulator_config": {"class": "WhiteNoise", "arguments": {}},
+            },
+        )
+
+        with pytest.raises(ValueError, match="missing simulator_name or batch_index"):
+            create_plan_from_metadata_files([path], tmp_path / "checkpoints")

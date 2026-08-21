@@ -141,3 +141,8 @@ tmp/
 # Node modules (if using Node.js for frontend)
 node_modules/
 package-lock.json
+
+# mutmut
+mutants/
+mutmut-stats.json
+.mutmut-cache

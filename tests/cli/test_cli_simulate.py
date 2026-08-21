@@ -744,7 +744,7 @@ class TestExecutePlan:
                 batch_index=0,
             )
 
-            plan = SimulationPlan()
+            plan = SimulationPlan(checkpoint_directory=Path(tmpdir) / "checkpoints")
             plan.add_batch(batch)
 
             execute_plan(plan, output_dir, metadata_dir, overwrite=True)
@@ -760,7 +760,7 @@ class TestExecutePlan:
             output_dir = Path(tmpdir) / "output"
             metadata_dir = Path(tmpdir) / "metadata"
 
-            plan = SimulationPlan()
+            plan = SimulationPlan(checkpoint_directory=Path(tmpdir) / "checkpoints")
             for i in range(3):
                 batch = SimulationBatch(
                     simulator_name="mock",
@@ -794,7 +794,10 @@ class TestExecutePlan:
             output_dir = Path(tmpdir) / "output"
             metadata_dir = Path(tmpdir) / "metadata"
 
-            plan = SimulationPlan()
+            # Keep the checkpoint inside the temporary directory: the default is a
+            # relative "checkpoints/", which writes into the working directory and
+            # makes this test fail against a checkpoint left by an earlier run.
+            plan = SimulationPlan(checkpoint_directory=Path(tmpdir) / "checkpoints")
             for i in range(2):
                 batch = SimulationBatch(
                     simulator_name="mock",

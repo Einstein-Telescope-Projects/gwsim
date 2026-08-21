@@ -72,6 +72,60 @@ submitting a merge request—this guide will help you get started.
     uv run pytest
     ```
 
+    Mutation testing checks that the tests actually fail when the code is wrong. It mutates a copy of
+    the source under `mutants/` and is much slower than the unit suite, so run it on the code you
+    touched rather than the whole package:
+
+    ```shell
+    uv run mutmut run                     # whole package
+    uv run mutmut results                 # list surviving mutants
+    uv run mutmut show <mutant-name>      # diff of one survivor
+    uv run mutmut browse                  # interactive results browser
+
+    # `run` also takes mutant-name globs, so a single module can be targeted; names are the
+    # dotted module path plus the mutated function, as printed by `mutmut results`.
+    uv run mutmut run 'gwmock.cli.main.*'
+    ```
+
+    A surviving mutant is a change to the source that no test noticed. Either add the test that
+    catches it, or convince yourself the mutant is equivalent to the original.
+
+    Two of the verdicts are weaker than they look, and `tests/conftest.py` has a guard rail for
+    each. `timeout` means mutmut's own wall-clock limit expired, so no test asserted anything --
+    the limit is derived from the _instrumented_ stats run and can be minutes, and a single mutant
+    that never returns holds a worker for all of it. `segfault` covers the `SIGKILL` the kernel
+    sends a process that exhausts memory as well as an actual `SIGSEGV`, which is a very different
+    diagnosis. So, while a mutant is under test and only then, the suite:
+
+    - fails the running test if it produces no result within ten seconds;
+    - caps how much address space the worker may add, so a mutant that allocates without bound
+      fails with `MemoryError` rather than being killed by the kernel -- taking whatever else is
+      running on the machine with it;
+    - appends every firing to `mutants/mutation-guard.log`, so a kill that only happened because
+      the code stopped returning stays distinguishable from one an assertion made.
+
+    Both budgets are settable, and `0` switches either off:
+    `GWMOCK_MUTATION_TEST_TIMEOUT` (seconds per test) and
+    `GWMOCK_MUTATION_MEMORY_HEADROOM_GB`.
+
+    Every test also runs in a working directory of its own. mutmut runs one worker per core and
+    they all share `mutants/` as their working directory, so anything the code under test resolves
+    against a relative path -- `.gwmock_checkpoints/` for a simulation, the current directory for a
+    download -- collides between workers and makes unrelated mutants look caught.
+
+    A fourth thing the harness does needs no verdict of its own, because it removes a failure
+    that reaches no test at all. mutmut runs the suite in its own process before it tests
+    anything, then `fork()`s one worker per mutant out of that same interpreter; a worker forked
+    from a process that has already started a native thread pool inherits its mutexes held by
+    threads that no longer exist, and blocks forever on the first one it needs. Neither budget
+    above can fire, because the block is inside a lock acquisition rather than in bytecode.
+    Disabling tqdm's monitor thread removes one such lock and was measured not to be enough --
+    the same mutants still hung with the Eigen, OpenMP and BLAS thread counts all pinned to one.
+    So `tests/mutmut_fork_safety.py` gives the worker a process that inherited nothing: it
+    `exec`s a fresh interpreter, at a cost of a few seconds of imports per mutant. Set
+    `GWMOCK_MUTMUT_FORK_SAFE_WORKERS=0` to go back to mutmut's own in-process workers -- useful
+    for measuring the difference, not for a run whose numbers you intend to quote.
+
 8. Open a Pull Request
 
     Clearly describe the motivation and scope of your change, especially how it impacts GW data simulation.

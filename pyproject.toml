@@ -39,21 +39,26 @@ dependencies = [
   # ascension with an Earth rotation measured from the mean equinox of date -- 0.43 degrees in right
   # ascension by 2030. It changes continuous-wave output, which is why the bump landed with
   # regenerated e2e references rather than inside this change.
-  "gwmock-signal>=0.16.0",
+  "gwmock-signal>=0.16.2",
+  # 0.11.0 refuses a fractional `gps_start` when the output format is `gwf`, and is the first release
+  # whose noise output config admits `hdf5`. The frame filename carries the time as an integer, so
+  # below this floor two runs whose start times round to the same second compose one filename and the
+  # second silently overwrites the first. The floor makes the refusal reachable rather than leaving it
+  # to whichever version happens to resolve.
   "gwmock-noise>=0.11.0",
-  "gwmock-pop>=0.11.5",
-  "typer>=0.19.0",         # Literal-type CLI options; the SPEC 0 floor (0.13) predates them
+  "gwmock-pop>=0.11.7",
+  "typer>=0.19.0",        # Literal-type CLI options; the SPEC 0 floor (0.13) predates them
   "tqdm>=4.67.0",
   "h5py>=3.12.1",
   "pydantic>=2.9.0",
   "pymap3d>=3.2.0",
   "psutil>=6.1.0",
   "filelock>=3.16.0",
-  "textual>=2.0.0",        # Content.from_markup; the SPEC 0 floor (0.73) predates it
+  "textual>=2.0.0",       # Content.from_markup; the SPEC 0 floor (0.73) predates it
 ]
 
 [project.optional-dependencies]
-sgwb = ["gwmock-signal[sgwb]>=0.16.0"]
+sgwb = ["gwmock-signal[sgwb]>=0.16.2"]
 # The batched signal path. Without this extra `SignalAdapter.simulate_segments` and
 # `execution: batched` raise, because gwmock-signal's batched entry points need JAX and ripple,
 # which the base install omits.
@@ -69,22 +74,23 @@ sgwb = ["gwmock-signal[sgwb]>=0.16.0"]
 # floor is deliberately *not* restated here as a `ripplegw` declaration: it belongs beside the
 # guard that raises on those NaNs, which lives in gwmock-signal, and stating a version in two
 # repositories is how the two drift.
-jax = ["gwmock-signal[jax]>=0.16.0"]
+jax = ["gwmock-signal[jax]>=0.16.2"]
 # The same path with an actual GPU backend. Linux x86_64 with a CUDA 12 driver only; there is no
 # macOS or Windows wheel, which is why this is separate from `jax` rather than folded into it.
-cuda = ["gwmock-signal[jax]>=0.16.0", "jax[cuda12]>=0.11.0"]
+cuda = ["gwmock-signal[jax]>=0.16.2", "jax[cuda12]>=0.11.0"]
 
 [dependency-groups]
 dev = [
-  "prek>=0.4.12",
+  "prek>=0.4.14",
   "pytest-cov>=7.1.0",
   "pytest-mock>=3.15.1",
   "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",
   "pytest-github-actions-annotate-failures>=0.4.2",
+  "mutmut>=3.7.0",
 ]
-docs = ["zensical>=0.0.53", "mkdocstrings-python>=2.0.5"]
-build = ["hatch>=1.17.1"]
+docs = ["zensical>=0.0.55", "mkdocstrings-python>=2.0.7"]
+build = ["hatch>=1.18.0"]
 release = ["git-cliff>=2.13.1"]
 
 [project.scripts]
@@ -145,7 +151,7 @@ addopts = [
   "-m",
   "not integration and not e2e",
 ]
-pythonpath = ["src"]
+pythonpath = ["src", "scripts"]
 testpaths = "tests"
 junit_family = "xunit2"
 markers = [
@@ -161,6 +167,63 @@ markers = [
   # entries in tests/e2e/matrix.py actually execute rather than silently skipping.
   "e2e: end-to-end tests that run an example config through the CLI",
 ]
+
+[tool.mutmut]
+# mutmut copies the project into `mutants/` and mutates the copy, so the working tree is untouched.
+source_paths = ["src/gwmock"]
+# `tests/`, `pyproject.toml` and `uv.lock` are copied by default. `examples/` is not, and
+# tests/cli/utils/test_cli_utils_config.py walks the real examples tree, so it has to come along or
+# every mutant is judged against a suite that errors for reasons unrelated to the mutation.
+also_copy = ["examples/"]
+pytest_add_cli_args_test_selection = ["tests/"]
+# The default `addopts` turn on coverage, an XML report and a JUnit file. Under mutation testing
+# they cost more than the test run itself and the reports get overwritten once per mutant, so the
+# ini value is cleared and only the marker filter is restated. Integration, e2e and slow tests are
+# excluded as well: a mutant is judged by the fast unit suite.
+pytest_add_cli_args = [
+  "--override-ini=addopts=",
+  # The ini's `pythonpath` entries have to go too, and this one is load-bearing, not a speed-up.
+  # mutmut puts `mutants/src` at the front of `sys.path` and deletes `src` from it, but pytest
+  # re-inserts its `pythonpath` entries when it builds its config, so the real `src` lands back in
+  # front of the mutated copy and every test imports unmutated code. mutmut then records no
+  # test for any function and reports the whole package as "no tests" -- 15556 of 15960 mutants
+  # never run. Clearing the ini leaves `mutants/src` as the only source on the path.
+  "--override-ini=pythonpath=",
+  # `tests/test_release_version.py` imports `release_version` from `scripts/`, which mutmut does
+  # not copy into `mutants/` and which the cleared `pythonpath` above takes off the path. Without
+  # this the import fails, pytest interrupts collection, and every mutant is then judged against a
+  # suite that never ran. Skipped rather than made importable: the mutants come from `source_paths`,
+  # so a release-tooling test can only add runtime here, never a verdict. Plain `pytest` runs it.
+  "--ignore=tests/test_release_version.py",
+  "-m",
+  "not integration and not e2e and not slow",
+]
+# How long a worker may live: `(estimated_test_time + timeout_constant) * timeout_multiplier`.
+#
+# The defaults (1.0 and 15.0) put that between 15 s and 25 minutes for this suite, and the whole
+# range is wrong, because `estimated_test_time` comes from the *instrumented* stats run: mutmut
+# records a trampoline hit for every call through mutated code, which makes the estimate ~40x the
+# real cost (its three slowest tests are recorded at 31 s each against 0.8 s measured with
+# `--durations`). So the estimate already exceeds the real time on its own, and multiplying it by
+# 15 buys nothing but a worker that sits for minutes.
+#
+# Measured against the other end: replaying the heaviest mutants one at a time -- 144 and 159
+# associated tests -- takes 40 s and 50 s, against estimates of 36 s and 47 s. Doubling the
+# estimate therefore keeps more than 2x headroom over anything that terminates, and the constant
+# sets the floor for a mutant whose tests are instantaneous (20 s, against a per-test budget of
+# 10 s in `tests/conftest.py`, so a non-terminating mutant is still caught by the failing test
+# rather than by this).
+#
+# The reason to bound it at all: a worker that deadlocks on a lock inherited from the fork cannot
+# be interrupted from Python -- it is blocked in a lock acquisition rather than in bytecode -- so
+# this budget is the only thing that reaps it, and at the default it reaped them 25 minutes later.
+timeout_constant = 10.0
+timeout_multiplier = 2.0
+# `mutate_only_covered_lines` is deliberately left off. It would cut the mutant count, but its
+# coverage pass ends in `_unload_modules_not_in()`, which drops every module from `sys.modules`;
+# the next in-process pytest run then re-imports numpy and dies with
+# "ImportError: cannot load module more than once per process", because a C extension cannot be
+# initialised twice in one interpreter. Verified on beelink, 2026-08-18.
 
 [tool.ruff]
 line-length = 120 # Matches Black's default

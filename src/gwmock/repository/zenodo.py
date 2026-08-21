@@ -21,11 +21,20 @@ def get_deposition_id_from_doi(doi: str) -> tuple[str, bool]:
     returns:
         A tuple containing the deposition ID and a boolean indicating if it's from sandbox.
     """
-    parts = doi.split(".")
-    deposition_id = parts[1]
-    if parts[0] == "10.5072/zenodo":
+    # Split once from the right. A Zenodo DOI is `<prefix>.<record id>` where the prefix itself
+    # contains a dot -- `10.5281/zenodo` for production, `10.5072/zenodo` for the sandbox -- so
+    # splitting on every dot left "10" as the prefix and no DOI ever matched either form: the
+    # function raised "Invalid Zenodo DOI" for every input, including the two it documents.
+    prefix, _, deposition_id = doi.rpartition(".")
+    # Both halves have to be there and be non-empty before either is read: a string with no dot at
+    # all used to raise `IndexError` off the end of the split, and a trailing dot
+    # ("10.5281/zenodo.") gave a matching prefix and an *empty* id, which was handed back as if it
+    # were a record -- the caller then builds `records//files/...` and asks Zenodo for nothing.
+    if not prefix or not deposition_id:
+        raise ValueError(f"Invalid Zenodo DOI: {doi}")
+    if prefix == "10.5072/zenodo":
         sandbox = True
-    elif parts[0] == "10.5281/zenodo":
+    elif prefix == "10.5281/zenodo":
         sandbox = False
     else:
         raise ValueError(f"Invalid Zenodo DOI: {doi}")
