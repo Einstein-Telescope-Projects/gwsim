@@ -259,17 +259,25 @@ def test_worker_environment_describes_the_run(
     assert env["MUTANT_UNDER_TEST"] == "pkg.mod.xǁfǁ__mutmut_1"
 
 
-def test_the_worker_is_told_the_address_space_the_driver_had(fake_execve: None) -> None:
+def test_the_worker_is_told_the_address_space_the_driver_had(
+    fake_execve: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The memory ceiling in ``tests/conftest.py`` is relative to what is already mapped.
 
     A forked worker started life holding the driver's mapping; one that ``exec``s a fresh
     interpreter does not, so without this the same arithmetic yields a fraction of the intended
     ceiling and XLA aborts instead of the test failing.
+
+    The reading is stubbed rather than taken live, so this asserts the contract that matters --
+    whatever the driver measured reaches the worker -- on every platform, including those with no
+    ``/proc`` to measure from.
     """
+    monkeypatch.setattr(mutmut_fork_safety, "driver_address_space_in_use", lambda: 3 * 1024**3)
+
     with pytest.raises(_ExecCalledError) as excinfo:
         exec_mutant_worker(_StubRunner(), mutant_name="pkg.mod.xǁfǁ__mutmut_1", tests=[])
 
-    assert int(excinfo.value.env[ENV_BASELINE_VMSIZE]) == pytest.approx(driver_address_space_in_use(), rel=0.25)
+    assert int(excinfo.value.env[ENV_BASELINE_VMSIZE]) == 3 * 1024**3
 
 
 def test_the_baseline_is_omitted_rather_than_sent_as_zero(fake_execve: None, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -286,8 +294,24 @@ def test_the_baseline_is_omitted_rather_than_sent_as_zero(fake_execve: None, mon
     assert ENV_BASELINE_VMSIZE not in excinfo.value.env
 
 
-def test_driver_address_space_is_a_real_reading() -> None:
+@pytest.mark.skipif(not Path("/proc/self/status").exists(), reason="reads procfs, which is Linux-only")
+def test_driver_address_space_is_a_real_reading_where_procfs_exists() -> None:
     assert driver_address_space_in_use() > 0
+
+
+def test_driver_address_space_reports_zero_without_procfs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing may raise where there is no ``/proc``: this suite runs on macOS too.
+
+    Zero is the "do not know" answer the caller is written around -- it omits the variable rather
+    than sending a figure the worker would read as "nothing mapped".
+    """
+
+    def _no_procfs(*_args: object, **_kwargs: object) -> str:
+        raise OSError("no /proc on this platform")
+
+    monkeypatch.setattr(Path, "read_text", _no_procfs)
+
+    assert driver_address_space_in_use() == 0
 
 
 def test_a_worker_that_cannot_exec_does_not_look_like_a_killed_mutant(
