@@ -22,7 +22,7 @@ jobs:
 
             - name: Apply support policy (spec0, from pyproject tool table)
               id: policy
-              uses: isaac-cf-wong/dependency-support-policy-action@7cce60e19b902747b4267c4f8e53820e3f3656ea # v0.2.4
+              uses: isaac-cf-wong/dependency-support-policy-action@c00466ca1b1d902260e56e087c072cbb41ac038b # v0.2.5
               with:
                   mode: update
 
