@@ -1582,11 +1582,15 @@ def _validated_batch_metadata(metadata_file: Path, decoded: Any) -> tuple[dict[s
     for position, output in enumerate(outputs or []):
         if not isinstance(output, dict):
             refuse(f"'outputs[{position}]'", output, "an object")
-        path = output.get("path")
-        # Recorded as a frame path and later joined into a message by `gwmock find-signal`, so a
-        # non-string here is a rebuilt index that poisons the command it was run to repair.
-        if path is not None and not isinstance(path, str):
-            refuse(f"'outputs[{position}].path'", path, "a string")
+        # Read off the builder's own inclusion test rather than restated beside it.
+        # `_record_batch_in_index` records every signal output whose `path` key is *present*, so
+        # every present key has to be a string. An earlier version restated the rule as
+        # `path is not None`, which is a different condition: an explicit `"path": null` is present,
+        # so the builder took it, and the rebuilt index carried `frames: [null]` -- which
+        # `gwmock find-signal --id` then cannot join into its output. Found in review. Whatever the
+        # builder includes, this validates; the two conditions are now the same sentence.
+        if "path" in output and not isinstance(output["path"], str):
+            refuse(f"'outputs[{position}].path'", output["path"], "a string")
 
     decoded["outputs"] = outputs or []
     # Every element was checked above, so the narrowing is a fact the loop established rather than

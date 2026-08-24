@@ -252,6 +252,12 @@ _MALFORMED_RECORDS: list[tuple[str, Any]] = [
         "a non-string output path",
         {"signal": {"injections": [{"event_id": 1}]}, "outputs": [{"kind": "signal", "path": 7}]},
     ),
+    (
+        # A key that is present and null, which is not the same as absent -- the distinction the
+        # first version of this validation got wrong. See the test below for what it cost.
+        "a null output path",
+        {"signal": {"injections": [{"event_id": 1}]}, "outputs": [{"kind": "signal", "path": None}]},
+    ),
 ]
 
 
@@ -300,6 +306,49 @@ def test_the_malformed_record_refusal_reaches_the_shell(tmp_path: Path) -> None:
     assert "not a usable batch metadata record" in result.output
 
 
+def test_a_refused_rebuild_cannot_leave_find_signal_unable_to_print(tmp_path: Path) -> None:
+    """The repair command must not be able to write an index that breaks the consumer it repairs.
+
+    A signal output with an explicit ``"path": null`` is *present*, so the builder took it, and the
+    rebuilt index carried ``frames: [null]``. Nothing failed at that point -- ``gwmock reindex``
+    reported success -- and the damage surfaced one command later, when ``find-signal --id`` joined
+    the frames into its output and raised ``TypeError``. That is the worst shape a repair can fail
+    in: quietly, and blamed on something else.
+
+    So this asserts the whole round trip rather than only the refusal. The rebuild is refused, the
+    index that was already there is byte-for-byte unchanged, and the lookup it serves still answers
+    -- which is what "the existing index has not been touched" means to the person reading it.
+
+    Absent and null are not the same key, and the validation now reads its rule off the builder's
+    own inclusion test (``"path" in output``) rather than restating it as ``path is not None``,
+    which is how the two came apart.
+    """
+    _populate(tmp_path)
+    index_file = tmp_path / "signal_index.yaml"
+    before = index_file.read_bytes()
+    (tmp_path / "bad.metadata.json").write_text(
+        json.dumps(
+            {
+                "signal": {"injections": [{"event_id": 1, "parameters": {"coa_time": 100.0}}]},
+                "outputs": [{"kind": "signal", "path": None}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    refused = runner.invoke(app, ["reindex", "--metadata-dir", str(tmp_path)])
+
+    assert refused.exit_code == 1, refused.output
+    assert "bad.metadata.json" in refused.output
+    assert index_file.read_bytes() == before
+
+    # The index is still the one the run built, and still printable. Through the CLI's *text* path
+    # deliberately: `--json` serialises `None` happily, so it would not have caught this.
+    found = runner.invoke(app, ["find-signal", "--metadata-dir", str(tmp_path), "--id", "22"])
+    assert found.exit_code == 0, found.output
+    assert "signal/signal-0.gwf, signal/signal-1.gwf" in found.output
+
+
 def test_rebuild_still_accepts_the_records_a_run_legitimately_writes(tmp_path: Path) -> None:
     """The validation must not refuse shapes gwmock itself produces, or it breaks the repair.
 
@@ -317,6 +366,12 @@ def test_rebuild_still_accepts_the_records_a_run_legitimately_writes(tmp_path: P
     (tmp_path / "orchestration-3.metadata.json").write_text(
         json.dumps({"signal": {"injections": [{"event_id": 77, "parameters": {"coa_time": 177.0}}]}, "outputs": None}),
         encoding="utf-8",
+    )
+    # An output with no `path` key at all. The builder skips it, so it must be accepted -- the rule
+    # keys on the key being *present*, and a validation that keyed on the value being non-null
+    # would refuse this legitimate record while admitting the null one above.
+    (tmp_path / "orchestration-4.metadata.json").write_text(
+        json.dumps({"signal": {"injections": None}, "outputs": [{"kind": "noise"}]}), encoding="utf-8"
     )
 
     rebuilt = rebuild_signal_index(tmp_path)
