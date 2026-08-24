@@ -86,6 +86,7 @@ nav = [
   { "Developer Guide" = [
     { "Contributing" = "contributing.md" },
     { "Architecture" = "dev/architecture.md" },
+    { "Sine Accuracy Study" = "dev/sin-hoist-accuracy.md" },
   ] },
   { "Security" = "security.md" },
   { "Troubleshooting" = "dev/troubleshooting.md" },
