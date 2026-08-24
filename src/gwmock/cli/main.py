@@ -90,6 +90,7 @@ def register_commands() -> None:
     from gwmock.cli.config import config_command
     from gwmock.cli.find_signal import find_signal_command
     from gwmock.cli.merge import merge_command
+    from gwmock.cli.reindex import reindex_command
     from gwmock.cli.repository.main import repository_app
     from gwmock.cli.simulate import simulate_command
     from gwmock.cli.validate import validate_command
@@ -100,6 +101,7 @@ def register_commands() -> None:
     app.command("validate")(validate_command)
     app.command("batch")(batch_command)
     app.command("find-signal")(find_signal_command)
+    app.command("reindex")(reindex_command)
 
     app.add_typer(repository_app, name="repository", help="Manage Zenodo repositories")
 

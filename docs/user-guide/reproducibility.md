@@ -179,6 +179,45 @@ gwmock find-signal --metadata-dir metadata/ --id 42 --json
 Filters accept `==`, `!=`, `>`, `<`, `>=`, `<=`; numeric values are compared
 numerically. The command exits non-zero when no signal matches.
 
+## Rebuilding the signal index
+
+`signal_index.yaml` is a cache. The `*.metadata.json` files are the source of
+truth — they record every injection and every frame the batch wrote — so the
+index can always be derived again from them:
+
+```bash
+gwmock reindex --metadata-dir metadata/
+```
+
+Reach for it when the id fast path disagrees with the frames: `find-signal --id`
+reports nothing (or too little) for a signal whose samples are in the data, or a
+run refuses to write the index because it "is not the one last committed". Both
+are symptoms of a lost or hand-edited index, and neither needs the simulation
+rerunning.
+
+Updates to the index are serialised by an exclusive lock on a sidecar file, so
+concurrent runs sharing one metadata directory on one host do not overwrite each
+other. Two cases fall outside that and are what this command is for:
+
+- **A filesystem without working advisory locks.** Where `flock` is unavailable
+  or rejected, gwmock warns once and writes unsynchronised — the behaviour that
+  loses one writer's entries.
+- **Writers on different hosts.** Taking the lock revalidates the sidecar, not
+  the index, so a client with a cached view can hold the lock and still read a
+  stale index. gwmock refuses that write rather than letting it discard entries,
+  which keeps the index correct at the cost of stopping the run.
+
+Rebuilding takes the same lock a running batch does and re-records the digest
+beside the index, so a directory that was refusing writes accepts them again
+afterwards — there is no need to delete the sidecar by hand.
+
+Two things it will not do. It refuses a directory holding no `*.metadata.json`
+files, rather than replacing a good index with an empty one on a mistyped path;
+and it refuses if any batch metadata file cannot be read, rather than writing an
+index that silently omits that batch's events. On a shared filesystem, stop
+writers on other hosts before rebuilding: the rebuild indexes the metadata files
+it can list, and a client may not yet be listing one another host just wrote.
+
 ## Reproducing a run
 
 For deterministic reproduction, pin `gwmock`, `gwmock-signal`, `gwmock-noise`,
