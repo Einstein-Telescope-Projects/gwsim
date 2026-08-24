@@ -91,7 +91,8 @@ class TimeSeriesMixin:  # pylint: disable=too-few-public-methods,too-many-instan
     #: metadata record* as well as into the checkpoint, so it would write spillover samples into a
     #: provenance document meant to stay small and readable, and those records are dumped with plain
     #: `json`, which has no encoder for a `TimeSeriesList`. So it travels as its own checkpoint
-    #: field, `last_simulator_spillover`, scoped to the simulator and batch that produced it.
+    #: field, in the entry `simulator_tails` keeps for the simulator that produced it, and is handed
+    #: back only to that simulator and only to the batch immediately after the one it came from.
     cached_data_chunks = TimeSeriesList()
     #: Injection records for every signal that reaches the segment currently being built, including
     #: signals generated for an *earlier* segment whose content extends into this one. Rebuilt per
