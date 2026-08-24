@@ -230,19 +230,33 @@ were covered:
 
 - **The speedup is not measured in this study.** This is an accuracy measurement
   only. It says nothing about how much time the hoist saves.
-- **End-to-end effect on resampled output is not measured.** This study measures
-  the accuracy of the tap value `sin(pi*x)`. A resampled sample is a normalised
-  weighted sum of 127 taps, and per-tap errors can cancel or accumulate in that
-  sum. A difference measured on resampled output is therefore a _different
-  quantity_ from the per-tap differences reported here, and the two need not
-  agree in magnitude. Relatedly, the disagreement _between_ the two forms in the
-  tap regime has median 111 ulps here — but inter-form distance is not an error
-  bar for either form, and on its own says nothing about which is closer to the
-  truth.
-- **The full tap weight was not measured.** The kernel's weight is
+- **End-to-end effect on resampled output is not measured _here_, and the two
+  quantities are not interchangeable.** This study measures the accuracy of the
+  tap value `sin(pi*x)`. A resampled sample is a normalised weighted sum of 127
+  taps, and per-tap errors can cancel or accumulate in that sum. A difference
+  measured on resampled output is therefore a _different quantity_ from the
+  per-tap differences reported here, and the two need not agree in magnitude.
+  Relatedly, the disagreement _between_ the two forms in the tap regime has
+  median 111 ulps here — but inter-form distance is not an error bar for either
+  form, and on its own says nothing about which is closer to the truth.
+
+    It has since been measured at the kernel that does this work, which lives in
+    `gwmock-signal` rather than here, and the outcome is worth carrying back:
+    end to end the two forms are near-indistinguishable, with the hoist closer
+    to a high-precision reference at 49% of positions against 32% and an RMS
+    error of 6.01e-16 against 6.33e-16. **The per-tap factors below do not
+    survive into the output**, because the Kaiser taper suppresses exactly the
+    large-`|x|` taps where the direct form is worst and the normalisation
+    cancels part of the rest. Both forms sit ~4500x below that kernel's own
+    truncation error, so nothing in this document should be read as an accuracy
+    argument for changing it — the argument that survives is speed (~1.2x on the
+    NumPy path, ~3.5x on the device path's CPU backend).
+
+- **The full tap weight is not measured here.** The kernel's weight is
   `sin(pi*x)/(pi*x) * window(x)`, not `sin(pi*x)`. Relative error passes through
-  the division essentially unchanged, so the ranking should carry, but the
-  composite was not measured.
+  the division essentially unchanged, so the ranking carries — but the
+  composite, including the window, is measured in that other repository, not in
+  this one.
 - **One platform, one libm.** Measured with numpy 2.5.2 / Python 3.14.7 on
   x86-64 glibc. The dominant term is argument-side, i.e. a property of `fl(pi)`
   and `|x|` rather than of any sine implementation, so the ranking should carry
