@@ -29,14 +29,28 @@ def reindex_command(
     were being refused as stale accepts them again afterwards.
 
     Stop writers on other hosts first: a rebuild indexes the batch metadata files
-    it can list, and a shared filesystem may not yet be listing one another host
-    wrote.
+    it can list, and a shared filesystem may not yet be listing a file another host
+    has just written.
     """
-    from gwmock.cli.simulate_utils import SignalIndexRebuildError, rebuild_signal_index
+    from gwmock.cli.simulate_utils import (
+        IndexDigestNotRecordedError,
+        SignalIndexRebuildError,
+        rebuild_signal_index,
+    )
 
     try:
         rebuilt = rebuild_signal_index(metadata_dir)
-    except SignalIndexRebuildError as error:
+    except (SignalIndexRebuildError, IndexDigestNotRecordedError) as error:
+        # Both carry a message written for whoever is holding the terminal -- what stopped, what
+        # state that leaves the directory in, and what to do next -- so printing it beats a
+        # traceback that buries it. They are not the same outcome: the first means nothing was
+        # written, the second that the index is committed and correct while the sidecar is behind
+        # it. Each message says which, and both need the operator, so both exit non-zero.
+        #
+        # `OSError` is deliberately not caught, though `rebuild_signal_index` documents raising it
+        # too. A full disk or an unwritable directory has no repair this command can prescribe, and
+        # the traceback's location is worth more than an echo of the OS's own message. The line is
+        # whether the exception carries advice, not whether it is documented.
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
 

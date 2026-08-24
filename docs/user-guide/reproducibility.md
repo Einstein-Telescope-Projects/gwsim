@@ -217,7 +217,8 @@ and it refuses if any batch metadata file cannot be used — unreadable, not val
 JSON, or valid JSON that is not a batch metadata record — rather than writing an
 index that silently omits that batch's events. On a shared filesystem, stop
 writers on other hosts before rebuilding: the rebuild indexes the metadata files
-it can list, and a client may not yet be listing one another host just wrote.
+it can list, and a client may not yet be listing a file another host has just
+written.
 
 ## Reproducing a run
 

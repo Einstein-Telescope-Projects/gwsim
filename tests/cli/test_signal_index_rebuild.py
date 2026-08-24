@@ -349,6 +349,42 @@ def test_a_refused_rebuild_cannot_leave_find_signal_unable_to_print(tmp_path: Pa
     assert "signal/signal-0.gwf, signal/signal-1.gwf" in found.output
 
 
+def test_a_digest_that_cannot_be_recorded_is_reported_not_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A committed index whose digest could not be written must reach the shell as a message.
+
+    This is the one failure where the rebuild half-succeeds: the index is installed and correct,
+    and the sidecar is behind it, so every later write refuses as stale until someone re-baselines
+    it. The exception says exactly that and prescribes the repair -- which is worth printing, and
+    worthless buried in a traceback. Raised through the CLI it was a traceback, because only
+    `SignalIndexRebuildError` was caught.
+
+    Injected the way the durability tests inject it: only the digest write opens the sidecar at a
+    position, so keying on the mode leaves the lock's own ``a+`` open untouched.
+    """
+    _populate(tmp_path, update_index=False)
+    real_open = Path.open
+    sidecar = tmp_path / "signal_index.yaml.lock"
+
+    def _sidecar_write_fails(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        if self == sidecar and ("r+" in mode or mode == "w"):
+            raise OSError("input/output error")
+        return real_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", _sidecar_write_fails)
+    result = runner.invoke(app, ["reindex", "--metadata-dir", str(tmp_path)])
+    monkeypatch.undo()
+
+    assert result.exit_code == 1, result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit), result.exception
+    assert "could not be recorded" in result.output, result.output
+    # Says which of the two outcomes this is, so the operator does not go looking for lost entries:
+    # the index is there and correct, and only the sidecar is behind.
+    assert "signal_index.yaml.lock" in result.output, result.output
+    assert set(yaml.safe_load((tmp_path / "signal_index.yaml").read_text())) == {"11", "22", "33"}
+
+
 def test_rebuild_still_accepts_the_records_a_run_legitimately_writes(tmp_path: Path) -> None:
     """The validation must not refuse shapes gwmock itself produces, or it breaks the repair.
 
