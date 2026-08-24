@@ -213,7 +213,8 @@ afterwards — there is no need to delete the sidecar by hand.
 
 Two things it will not do. It refuses a directory holding no `*.metadata.json`
 files, rather than replacing a good index with an empty one on a mistyped path;
-and it refuses if any batch metadata file cannot be read, rather than writing an
+and it refuses if any batch metadata file cannot be used — unreadable, not valid
+JSON, or valid JSON that is not a batch metadata record — rather than writing an
 index that silently omits that batch's events. On a shared filesystem, stop
 writers on other hosts before rebuilding: the rebuild indexes the metadata files
 it can list, and a client may not yet be listing one another host just wrote.

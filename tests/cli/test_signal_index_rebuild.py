@@ -230,6 +230,104 @@ def test_rebuild_refuses_an_unreadable_metadata_file_and_leaves_the_index(tmp_pa
     assert index_file.read_text() == before, "a refused rebuild must not touch the index"
 
 
+# Shapes that decode as JSON without being a batch metadata record. Each one previously reached a
+# `.get` on a value that has none and raised `AttributeError` -- a traceback where the docstring,
+# the CLI help and the user guide all promise a refusal naming the file. Found in review, with the
+# first of these; the rest are the same defect at the depths the builder also indexes into, since
+# validating only the top level would have moved the traceback rather than removed it.
+_MALFORMED_RECORDS: list[tuple[str, Any]] = [
+    ("a top-level list", []),
+    ("a top-level null", None),
+    ("a top-level scalar", "orchestration-0"),
+    ("a non-object signal", {"signal": "injected"}),
+    ("non-list injections", {"signal": {"injections": {"event_id": 1}}}),
+    ("a non-object injection", {"signal": {"injections": [42]}}),
+    ("an object event_id", {"signal": {"injections": [{"event_id": {"population": 1}}]}}),
+    ("a float event_id", {"signal": {"injections": [{"event_id": 3.0}]}}),
+    ("a boolean event_id", {"signal": {"injections": [{"event_id": True}]}}),
+    ("non-object parameters", {"signal": {"injections": [{"event_id": 1, "parameters": [122.0]}]}}),
+    ("non-list outputs", {"signal": {"injections": [{"event_id": 1}]}, "outputs": "signal-0.gwf"}),
+    ("a non-object output", {"signal": {"injections": [{"event_id": 1}]}, "outputs": ["signal-0.gwf"]}),
+    (
+        "a non-string output path",
+        {"signal": {"injections": [{"event_id": 1}]}, "outputs": [{"kind": "signal", "path": 7}]},
+    ),
+]
+
+
+@pytest.mark.parametrize(("description", "record"), _MALFORMED_RECORDS, ids=[case[0] for case in _MALFORMED_RECORDS])
+def test_rebuild_refuses_valid_json_that_is_not_a_batch_metadata_record(
+    tmp_path: Path, description: str, record: Any
+) -> None:
+    """Parsing as JSON is not the same as being a batch metadata record.
+
+    The decode guard catches a file that is not JSON. It says nothing about a file that *is* JSON
+    and is not a record, which is the case a directory in trouble actually produces -- a truncated
+    write that happened to land on a valid document, a placeholder, a file from another tool.
+
+    The refusal has to name the file, because the operator's next move is to look at it, and it
+    has to be a refusal rather than a traceback, because the promise made in three places is that
+    a batch file it cannot use stops the rebuild.
+    """
+    _populate(tmp_path)
+    index_file = tmp_path / "signal_index.yaml"
+    before = index_file.read_bytes()
+    # Sorts before `orchestration-*`, so it is read first: the refusal must come before any write,
+    # not merely before the write of the batch that follows it.
+    (tmp_path / "bad.metadata.json").write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(SignalIndexRebuildError, match=re.escape("bad.metadata.json")) as raised:
+        rebuild_signal_index(tmp_path)
+
+    assert "not a usable batch metadata record" in str(raised.value), str(raised.value)
+    assert index_file.read_bytes() == before, f"the index was rewritten despite {description}"
+
+
+def test_the_malformed_record_refusal_reaches_the_shell(tmp_path: Path) -> None:
+    """Through the CLI it must be a message and an exit code, not an unhandled AttributeError.
+
+    The library refusal is only half of it: this defect was found through ``gwmock reindex``, where
+    it surfaced as a traceback. A caught :class:`SignalIndexRebuildError` is what turns it into
+    something an operator can act on.
+    """
+    (tmp_path / "bad.metadata.json").write_text("[]", encoding="utf-8")
+
+    result = runner.invoke(app, ["reindex", "--metadata-dir", str(tmp_path)])
+
+    assert result.exit_code == 1, result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit), result.exception
+    assert "bad.metadata.json" in result.output
+    assert "not a usable batch metadata record" in result.output
+
+
+def test_rebuild_still_accepts_the_records_a_run_legitimately_writes(tmp_path: Path) -> None:
+    """The validation must not refuse shapes gwmock itself produces, or it breaks the repair.
+
+    A batch that injected nothing writes ``signal`` and ``outputs`` that may be absent or null, and
+    an id is an integer. Refusing any of those would make the rebuild reject a healthy directory --
+    the failure mode a shape check is most likely to introduce, and invisible to the tests above,
+    which only ever assert that something is rejected.
+    """
+    (tmp_path / "orchestration-0.metadata.json").write_text(json.dumps({"signal": None}), encoding="utf-8")
+    (tmp_path / "orchestration-1.metadata.json").write_text(
+        json.dumps({"signal": {"injections": None}, "outputs": None}), encoding="utf-8"
+    )
+    (tmp_path / "orchestration-2.metadata.json").write_text(json.dumps({}), encoding="utf-8")
+    # An injection with no outputs at all: a real entry, and no frames to name.
+    (tmp_path / "orchestration-3.metadata.json").write_text(
+        json.dumps({"signal": {"injections": [{"event_id": 77, "parameters": {"coa_time": 177.0}}]}, "outputs": None}),
+        encoding="utf-8",
+    )
+
+    rebuilt = rebuild_signal_index(tmp_path)
+
+    assert rebuilt.batches == 1
+    index = yaml.safe_load((tmp_path / "signal_index.yaml").read_text())
+    assert index == {
+        "77": {"batches": [{"metadata": "orchestration-3.metadata.json", "frames": []}], "coa_time": 177.0}
+    }
+
+
 def test_rebuild_refuses_a_directory_holding_no_batch_metadata(tmp_path: Path) -> None:
     """A directory with no batch records is a mistyped path, not an empty run.
 

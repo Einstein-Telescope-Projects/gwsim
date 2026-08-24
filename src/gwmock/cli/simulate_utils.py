@@ -26,7 +26,7 @@ from functools import cache
 from importlib import import_module
 from importlib import metadata as importlib_metadata
 from pathlib import Path
-from typing import Any, NamedTuple, cast
+from typing import Any, NamedTuple, NoReturn, cast
 
 import numpy as np
 import yaml
@@ -1406,7 +1406,8 @@ def rebuild_signal_index(metadata_directory: Path, encoding: str = "utf-8") -> R
 
     Raises:
         SignalIndexRebuildError: If the directory holds no batch metadata files, or one of them
-            cannot be read or parsed.
+            cannot be read, cannot be parsed, or does not decode into the shape of a batch
+            metadata record.
         IndexDigestNotRecordedError: If the index was written but its digest could not be
             recorded.
         OSError: If the index cannot be written.
@@ -1465,30 +1466,132 @@ def _index_from_batch_metadata(metadata_directory: Path, encoding: str) -> tuple
 
     Raises:
         SignalIndexRebuildError: If the directory holds no batch metadata files, or one of them
-            cannot be read or parsed.
+            cannot be read, cannot be parsed, or does not decode into the shape of a batch
+            metadata record.
     """
     index: dict[str, Any] = {}
     contributing = 0
     for metadata_file in _require_batch_metadata(metadata_directory):
         try:
-            metadata = json.loads(metadata_file.read_text(encoding=encoding))
+            decoded = json.loads(metadata_file.read_text(encoding=encoding))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             # Refused, where `find_signals` skips an unreadable file and carries on. The two are
             # answering different questions: a query returns what it can find, while a rebuild
             # replaces the index, so a file skipped here is an event silently deleted from the
             # lookup by the very command run to restore it.
-            raise SignalIndexRebuildError(
-                f"Cannot rebuild the signal index: {metadata_file.name} could not be read "
-                f"({error}). Every batch metadata file has to be readable, because an index built "
-                "from the rest would be missing exactly the events this one recorded and would "
-                "look complete. The existing index has not been touched."
-            ) from error
-        injections = (metadata.get("signal") or {}).get("injections") or []
+            _refuse_metadata_file(metadata_file, f"could not be read ({error})", error)
+        metadata, injections = _validated_batch_metadata(metadata_file, decoded)
         if not injections:
             continue
         _record_batch_in_index(index, injections, metadata, metadata_file.name)
         contributing += 1
     return index, contributing
+
+
+def _refuse_metadata_file(metadata_file: Path, detail: str, cause: BaseException | None = None) -> NoReturn:
+    """Refuse the whole rebuild because one batch metadata file cannot be used.
+
+    One function for both refusals -- the file that will not decode and the file that decodes into
+    the wrong shape -- so the reason a rebuild is all-or-nothing is stated once and cannot drift
+    between them.
+
+    Args:
+        metadata_file: The file that stopped the rebuild.
+        detail: What is wrong with it, as a clause completing "<name> ...".
+        cause: The underlying error, when there was one.
+
+    Raises:
+        SignalIndexRebuildError: Always.
+    """
+    raise SignalIndexRebuildError(
+        f"Cannot rebuild the signal index: {metadata_file.name} {detail}. Every batch metadata "
+        "file has to be usable, because an index built from the rest would be missing exactly the "
+        "events this one recorded and would look complete. The existing index has not been "
+        "touched."
+    ) from cause
+
+
+def _validated_batch_metadata(metadata_file: Path, decoded: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Check that a decoded batch metadata record has the shape the rebuild reads, and return it.
+
+    Parsing as JSON is not the same as being a batch metadata record, and the gap between the two
+    is a real file on disk that this command is pointed at precisely when the directory is already
+    in a bad state. ``[]``, ``null``, or a ``signal`` that is a string all decode cleanly and then
+    fail at ``.get`` with an ``AttributeError`` -- a traceback where the docstring, the CLI help
+    and the user guide all promise a refusal naming the file. Found in review.
+
+    Every field the rebuild goes on to touch is checked here, including the nested ones:
+    :func:`_record_batch_in_index` indexes into each injection and each output, so validating only
+    the top level would move the traceback rather than remove it.
+
+    Not applied to :func:`update_signal_index`, deliberately. Its record is built in-process by the
+    run that is writing it, a few frames up the stack; there is no file, no decode, and nothing to
+    distrust. Validating it would be a per-batch cost paid to guard against gwmock having
+    constructed its own record wrongly, which is a bug for a test to catch rather than a shape for
+    a hot path to re-check.
+
+    ``outputs`` is normalised to a list on the returned record, so an explicit ``null`` is read the
+    way an absent key already was rather than becoming a ``TypeError`` in the builder.
+
+    Args:
+        metadata_file: The file the record came from, named in any refusal.
+        decoded: Whatever ``json.loads`` returned.
+
+    Returns:
+        The record, and its injections (empty when it records none).
+
+    Raises:
+        SignalIndexRebuildError: If any part of the record is not the shape the rebuild reads.
+    """
+
+    def refuse(field: str, value: Any, expected: str) -> NoReturn:
+        _refuse_metadata_file(
+            metadata_file,
+            f"parsed as JSON but is not a usable batch metadata record: {field} is "
+            f"{type(value).__name__}, not {expected}",
+        )
+
+    if not isinstance(decoded, dict):
+        refuse("the top-level value", decoded, "an object")
+
+    signal = decoded.get("signal")
+    if signal is not None and not isinstance(signal, dict):
+        refuse("'signal'", signal, "an object")
+
+    injections = (signal or {}).get("injections")
+    if injections is not None and not isinstance(injections, list):
+        refuse("'signal.injections'", injections, "a list")
+
+    for position, injection in enumerate(injections or []):
+        if not isinstance(injection, dict):
+            refuse(f"'signal.injections[{position}]'", injection, "an object")
+        event_id = injection.get("event_id")
+        # `str(event_id)` is the index key, so anything it would stringify into nonsense has to
+        # stop here: a mapping or a list would key the entry by its repr, and a float by a
+        # spelling (`3.0`) that the integer lookup in `find_signals` never asks for. `bool` is an
+        # `int` subclass and would key on `True`, so it is excluded by name.
+        if event_id is not None and (isinstance(event_id, bool) or not isinstance(event_id, (int, str))):
+            refuse(f"'signal.injections[{position}].event_id'", event_id, "an integer or a string")
+        parameters = injection.get("parameters")
+        if parameters is not None and not isinstance(parameters, dict):
+            refuse(f"'signal.injections[{position}].parameters'", parameters, "an object")
+
+    outputs = decoded.get("outputs")
+    if outputs is not None and not isinstance(outputs, list):
+        refuse("'outputs'", outputs, "a list")
+    for position, output in enumerate(outputs or []):
+        if not isinstance(output, dict):
+            refuse(f"'outputs[{position}]'", output, "an object")
+        path = output.get("path")
+        # Recorded as a frame path and later joined into a message by `gwmock find-signal`, so a
+        # non-string here is a rebuilt index that poisons the command it was run to repair.
+        if path is not None and not isinstance(path, str):
+            refuse(f"'outputs[{position}].path'", path, "a string")
+
+    decoded["outputs"] = outputs or []
+    # Every element was checked above, so the narrowing is a fact the loop established rather than
+    # an assumption this line makes.
+    return decoded, cast("list[dict[str, Any]]", injections or [])
 
 
 def _require_fresh_index_read(index_file: Path, lock_file: Path) -> None:
