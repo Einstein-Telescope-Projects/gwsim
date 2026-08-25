@@ -67,18 +67,30 @@ class TestTheGuardItself:
         """The case that must not break: an ordinary resume of the run that wrote the checkpoint."""
         require_matching_config("a" * 64, "a" * 64, _ANY_CHECKPOINT)
 
-    def test_a_checkpoint_without_a_hash_is_allowed_with_a_warning(self, caplog):
-        """Refusing would break a legitimate resume for anyone who upgrades mid-run.
+    def test_a_checkpoint_without_a_hash_is_refused(self):
+        """The last way the silent skip stays reachable: a checkpoint from before the field existed.
 
-        A certain cost against an uncertain one, so it warns instead -- but it does warn, because the
-        checkpoint genuinely cannot be checked and the consequence if it is foreign is silent.
+        It was accepted with a warning while a mid-run upgrade could still produce one, which is a
+        window one interrupted run wide and long since past. A warning was never enough on its own:
+        it is emitted where the data loss is invisible, and the run goes on to skip the batches
+        anyway.
         """
-        import logging
-
-        with caplog.at_level(logging.WARNING, logger="gwmock"):
+        with pytest.raises(ForeignCheckpointError, match="predates configuration fingerprinting"):
             require_matching_config(None, "b" * 64, _ANY_CHECKPOINT)
 
-        assert "predates configuration fingerprinting" in caplog.text
+    def test_a_checkpoint_without_a_hash_is_refused_even_with_no_plan_hash(self):
+        """Nothing to compare against does not make an unidentifiable checkpoint safe to believe."""
+        with pytest.raises(ForeignCheckpointError, match="predates configuration fingerprinting"):
+            require_matching_config(None, None, _ANY_CHECKPOINT)
+
+    def test_the_pre_fingerprint_message_names_the_file_and_the_way_out(self):
+        """Refusing is a dead end unless the message says what to move and which flag continues."""
+        with pytest.raises(ForeignCheckpointError) as raised:
+            require_matching_config(None, "b" * 64, Path("/runs/x/.gwmock_checkpoints/simulation.checkpoint.json"))
+
+        message = str(raised.value)
+        assert "/runs/x/.gwmock_checkpoints/simulation.checkpoint.json" in message
+        assert "--ignore-checkpoint" in message
 
     def test_an_unknown_plan_hash_is_allowed(self):
         """Nothing to compare against is not evidence of a mismatch."""
@@ -231,6 +243,63 @@ def test_a_second_configuration_in_the_same_directory_is_refused_end_to_end(tmp_
     assert "different configuration" in (second.stdout + second.stderr)
     written = list((tmp_path / "output" / "signal").glob("*B-*.gwf"))
     assert not written, f"the refused run still wrote {[p.name for p in written]}"
+
+
+@pytest.mark.integration
+def test_a_checkpoint_from_before_the_fingerprint_is_refused_end_to_end(tmp_path):
+    """The residual case, through the CLI: a checkpoint on disk from before the field existed.
+
+    It carries no ``config_sha256``, so nothing says which configuration wrote it, and it was once
+    resumed from anyway -- with a warning, and with the batches it recorded skipped. That left every
+    such file exactly as exposed to the silent skip as before the guard shipped, and interrupted runs
+    are precisely the population that resumes.
+
+    The file is a real one with the field removed rather than one written by hand, so the resume it
+    is offered to is the resume it would otherwise have completed: the same configuration, in the
+    same directory, which is refused here only because the checkpoint cannot be attributed to it.
+    """
+    pytest.importorskip("ripplegw", reason="ripplegw not installed")
+    import json
+    import shutil
+    import signal as signal_module
+    import subprocess
+    import time
+
+    executable = shutil.which("gwmock")
+    if executable is None:
+        pytest.skip("the gwmock console script is not on PATH")
+
+    (tmp_path / "pop_a.csv").write_text(_POPULATION.format(mass_1="1.6", mass_2="1.4"))
+    (tmp_path / "a.yaml").write_text(_CONFIG.format(population="pop_a.csv", tag="A"))
+
+    checkpoint = tmp_path / ".gwmock_checkpoints" / "simulation.checkpoint.json"
+    first = subprocess.Popen(  # noqa: S603 - absolute path from `shutil.which`
+        [executable, "simulate", "a.yaml"], cwd=tmp_path, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    try:
+        deadline = time.monotonic() + 600.0
+        while not checkpoint.exists() and first.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert checkpoint.exists(), "no checkpoint was written, so there is nothing to age backwards"
+        first.send_signal(signal_module.SIGINT)
+        first.wait(timeout=120)
+    finally:
+        if first.poll() is None:  # pragma: no cover - only on an unexpected hang
+            first.kill()
+
+    aged = json.loads(checkpoint.read_text())
+    assert aged.pop("config_sha256", None), "the interrupted run wrote no fingerprint to remove"
+    assert aged.get("completed_batch_indices"), "the checkpoint records no completed batch, so nothing is skipped"
+    checkpoint.write_text(json.dumps(aged))
+
+    resumed = subprocess.run(  # noqa: S603 - absolute path from `shutil.which`
+        [executable, "simulate", "a.yaml"], cwd=tmp_path, capture_output=True, text=True, timeout=900, check=False
+    )
+
+    assert resumed.returncode != 0, "a checkpoint naming no configuration was resumed from instead of refused"
+    output = resumed.stdout + resumed.stderr
+    assert "predates configuration fingerprinting" in output
+    assert "--ignore-checkpoint" in output, "the refusal has to say how to get past it"
 
 
 @pytest.mark.integration

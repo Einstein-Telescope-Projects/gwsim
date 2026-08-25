@@ -30,7 +30,7 @@ from gwmock.cli.simulate_utils import (
     update_metadata_index,
     validate_plan,
 )
-from gwmock.cli.utils.checkpoint import CheckpointManager
+from gwmock.cli.utils.checkpoint import CheckpointManager, run_fingerprint
 from gwmock.cli.utils.config import (
     Config,
     GlobalsConfig,
@@ -851,6 +851,19 @@ class TestCheckpointReconciliation:
         return plan
 
     @staticmethod
+    def _fingerprint_of(plan: SimulationPlan, output_dir: Path, metadata_dir: Path) -> str:
+        """The identity `execute_plan` computes for this run, so a planted checkpoint is its own.
+
+        A resume refuses any checkpoint it cannot attribute to the configuration being run --
+        including one carrying no fingerprint at all -- so a checkpoint planted to reach the
+        reconciliation these tests are about has to carry this run's. Taken from the same function
+        the run itself uses rather than written as a literal, so it follows a change in what
+        identity means instead of turning it into an unrelated refusal here. No referenced inputs:
+        these plans name no population file.
+        """
+        return run_fingerprint([batch.config_sha256 for batch in plan.batches], output_dir, metadata_dir)
+
+    @staticmethod
     def _stepped_state(plan: SimulationPlan, steps: int) -> dict[str, Any]:
         """Return a valid simulator state advanced ``steps`` times (counter == steps)."""
         simulator = instantiate_simulator(plan.batches[0].simulator_config, "mock", {})
@@ -897,6 +910,7 @@ class TestCheckpointReconciliation:
                 last_simulator_name="mock",
                 last_completed_batch_index=2,
                 last_simulator_state=self._stepped_state(plan, 3),
+                config_sha256=self._fingerprint_of(plan, output_dir, metadata_dir),
             )
 
             # The first batch's output goes missing while the checkpoint persists.
@@ -928,6 +942,7 @@ class TestCheckpointReconciliation:
                 last_simulator_name="mock",
                 last_completed_batch_index=0,
                 last_simulator_state=self._stepped_state(plan, 1),
+                config_sha256=self._fingerprint_of(plan, output_dir, metadata_dir),
             )
 
             # Resume WITHOUT --overwrite must succeed (orphans are unverified leftovers).
@@ -950,6 +965,7 @@ class TestCheckpointReconciliation:
                 last_simulator_name="mock",
                 last_completed_batch_index=1,
                 last_simulator_state=self._stepped_state(plan, 2),
+                config_sha256=self._fingerprint_of(plan, output_dir, metadata_dir),
             )
 
             # Sentinel content on the completed batches: untouched iff they are skipped.

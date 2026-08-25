@@ -304,11 +304,14 @@ def _is_marker(digest: str) -> bool:
 
 
 class ForeignCheckpointError(RuntimeError):
-    """A checkpoint in this directory was written by a different configuration."""
+    """A checkpoint in this directory was not shown to be the one this configuration wrote.
+
+    Either it names a different configuration, or it predates the field that names one at all.
+    """
 
 
 def require_matching_config(saved_sha256: str | None, plan_sha256: str | None, checkpoint_file: Path) -> None:
-    """Refuse to resume from a checkpoint another configuration wrote.
+    """Refuse to resume from a checkpoint this configuration cannot be shown to have written.
 
     **Why this refuses instead of quietly starting fresh.** Silently ignoring the checkpoint would
     fix the data loss and hide its cause: the user would be left with a stale checkpoint in the
@@ -324,11 +327,14 @@ def require_matching_config(saved_sha256: str | None, plan_sha256: str | None, c
     and then verifies the outputs *that file* records, so the first run's metadata satisfies the
     check on the second run's behalf.
 
-    A checkpoint written before this field existed has ``None`` and is accepted, with a warning. The
-    alternative -- refusing -- would break a legitimate resume for anyone who upgrades mid-run, which
-    is a certain cost against an uncertain one. **The residual is real:** every pre-fingerprint
-    checkpoint stays exactly as exposed as before, and interrupted runs are precisely the population
-    that resumes, so this is not a rare corner. It closes as those checkpoints age out.
+    A checkpoint written before this field existed has ``None`` and is refused too. It was once
+    accepted with a warning, because refusing would have broken a legitimate resume for anyone who
+    upgraded mid-run -- a certain cost against an uncertain one while that population still existed.
+    It has since aged out -- releases have shipped past the one that added the field, and a mid-run
+    upgrade spans a single interrupted run, not several releases. Accepting left every
+    pre-fingerprint checkpoint exactly as exposed as before, and interrupted runs are precisely the
+    population that resumes, so refusing closes the last way the silent-skip bug stays reachable.
+    A warning did not: it is emitted where the data loss is invisible and the run continues anyway.
 
     ``--ignore-checkpoint`` exists because refusing is otherwise a dead end for anything that cannot
     answer a prompt.
@@ -339,16 +345,17 @@ def require_matching_config(saved_sha256: str | None, plan_sha256: str | None, c
         checkpoint_file: Path named in the error, so the message says what to delete or move.
 
     Raises:
-        ForeignCheckpointError: If both hashes are known and they differ.
+        ForeignCheckpointError: If the checkpoint carries no fingerprint, or if both hashes are known
+            and they differ.
     """
     if saved_sha256 is None:
-        logger.warning(
-            "Checkpoint %s predates configuration fingerprinting, so it cannot be checked against "
-            "the configuration being run. If it was written by a different config, batches it "
-            "records as complete will be skipped and their outputs never produced.",
-            checkpoint_file,
+        raise ForeignCheckpointError(
+            f"The checkpoint at {checkpoint_file} predates configuration fingerprinting, so there is "
+            f"nothing recording which configuration wrote it. Resuming from it would skip the batches "
+            f"it records as complete and never produce their outputs if a different configuration "
+            f"wrote them. Delete or move the checkpoint, or pass --ignore-checkpoint, to start this "
+            f"configuration fresh."
         )
-        return
     if plan_sha256 is None or saved_sha256 == plan_sha256:
         return
     raise ForeignCheckpointError(
@@ -492,7 +499,7 @@ class CheckpointManager:
                 "spillover": ...       # chunks continuing into the next segment, or null
             }
         },
-        "config_sha256": "..."  # which configuration produced this run, or null if pre-1.5.0
+        "config_sha256": "..."  # which configuration produced this run; a resume refuses a null
     }
 
     **One tail per simulator, not one per checkpoint.** A plan can execute several simulators, and a
