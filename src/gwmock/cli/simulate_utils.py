@@ -930,6 +930,101 @@ class _CommittedIndex(NamedTuple):
     """Whether the rename that installed those bytes was made durable."""
 
 
+# The backoff between attempts at the rename that installs the index, in seconds, one entry per
+# retry. Windows refuses `MoveFileEx` onto a destination another process holds open, and a *reader* is
+# enough: `find_signals` and the CLI's own lookups open the index, so on Windows an update fails with
+# `PermissionError` for as long as any consumer has it open. POSIX permits the rename regardless. The
+# two ways to close that were to make the writer wait, or to document that consumers must not hold the
+# index open; the writer waits, because the second pushes a constraint onto every reader of a file
+# whose whole purpose is being read.
+#
+# Written out rather than derived from a factor and a count so both bounds are readable at once: five
+# retries after the first attempt -- six attempts -- and 0.62 s of sleeping if every one of them is
+# refused. Both bounds matter. The caller is a per-batch loop under an exclusive lock, so a rename that
+# cannot be made to happen must fail soon rather than stall the run holding the lock; 0.62 s covers the
+# open-read-close of a lookup, which is the contention this can actually wait out, and deliberately not
+# a consumer that keeps the index open across seconds, which is a configuration to fix rather than a
+# transient to absorb.
+#
+# No jitter. Jitter de-correlates contenders that collide on a resource, and the writers here do not
+# collide on this one: they are serialised by the index's `flock` well before the rename, and what this
+# waits for is a *reader* closing a handle. Adding it would buy nothing, and would cost the schedule
+# the property its tests assert against: a bound that can be read off the tuple.
+_INDEX_RENAME_BACKOFF_SECONDS: tuple[float, ...] = (0.02, 0.04, 0.08, 0.16, 0.32)
+
+
+def _replace_index_with_retry(temporary: Path, index_file: Path) -> None:
+    """Rename *temporary* onto *index_file*, retrying a refusal a reader can be holding it open for.
+
+    Only ``PermissionError`` is retried, and that is the whole of the transient case: the Windows
+    refusals this exists for -- ``ERROR_SHARING_VIOLATION`` from a handle on the destination and
+    ``ERROR_ACCESS_DENIED`` -- both reach Python as ``PermissionError``. Every other ``OSError`` is
+    raised on the first attempt: a cross-device rename, a full disk or a vanished directory does not
+    become possible by being asked again, and spending the backoff window on one would delay a real
+    error while looking like resilience.
+
+    **Not gated to Windows**, deliberately. Gating would put the only code path that matters on the one
+    platform no host in this project can execute, which is how untested platform code passes review and
+    fails in the field -- the same argument :func:`_fsync_directory` records for leaving its Windows
+    branch out. The symptom is not exclusively Windows' either: an index on a CIFS/SMB mount carries the
+    server's sharing semantics to a POSIX client. What the ungated version costs on POSIX is bounded and
+    paid only on failure -- a genuine ``EACCES`` from the directory's permissions is raised after five
+    pointless attempts and 0.62 s of sleeping, unchanged in every other respect.
+
+    The atomicity contract is untouched: this retries the *same* rename of the *same* temporary, which
+    either happens or does not. A reader sees the old index or the new one at every point.
+
+    Args:
+        temporary: The sibling temporary holding the new bytes.
+        index_file: Destination the temporary is renamed onto.
+
+    Raises:
+        OSError: If the rename fails for any reason other than a refusal, or is still refused after
+            every attempt. The error raised is the last attempt's own, unwrapped -- the caller unlinks
+            the temporary and records no digest, exactly as it did when there was no retry at all.
+    """
+    for attempt, delay in enumerate(_INDEX_RENAME_BACKOFF_SECONDS, start=1):
+        try:
+            os.replace(temporary, index_file)
+        except PermissionError as error:
+            logger.debug(
+                "Attempt %d of %d to rename the new index onto %s was refused (%s); retrying in %.2f s.",
+                attempt,
+                len(_INDEX_RENAME_BACKOFF_SECONDS) + 1,
+                index_file,
+                error,
+                delay,
+            )
+            time.sleep(delay)
+        else:
+            if attempt > 1:
+                logger.debug("The new index was renamed onto %s on attempt %d.", index_file, attempt)
+            return
+    # The last attempt, outside the loop because its failure is the caller's rather than something to
+    # sleep after. Kept as a bare `os.replace` so the error the caller sees is the one the filesystem
+    # raised, with its own errno and message, and not this function's paraphrase of it.
+    try:
+        os.replace(temporary, index_file)
+    except PermissionError:
+        # Warned rather than left to the traceback because the errno alone names the wrong repair. A
+        # bare `[WinError 5] Access is denied` reads as a permissions problem, and the fix is to close
+        # whatever is reading the index. Only reached once the whole window has been spent, so it is
+        # not a per-attempt log, and the update fails immediately after it.
+        logger.warning(
+            "The new index could not be renamed onto %s: the rename was refused on all %d attempts "
+            "over %.2f s. On Windows this is what another process holding %s open looks like -- a "
+            "reader is enough, and `gwmock find-signal` and any other consumer of the index hold it "
+            "open -- so close those and run the batch again. Elsewhere it is more likely to be the "
+            "permissions of the directory the index lives in. The index and its digest are unchanged: "
+            "the temporary is removed, nothing was recorded, and the previous index is intact.",
+            index_file,
+            len(_INDEX_RENAME_BACKOFF_SECONDS) + 1,
+            sum(_INDEX_RENAME_BACKOFF_SECONDS),
+            index_file.name,
+        )
+        raise
+
+
 def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> _CommittedIndex:
     """Write the index so a reader sees either the old file or the new one, never a fragment.
 
@@ -941,6 +1036,11 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> _Committ
 
     The temporary is created in the destination directory because ``os.replace`` is only atomic
     within a filesystem, and ``/tmp`` is routinely a different one.
+
+    The rename goes through :func:`_replace_index_with_retry` rather than ``os.replace`` directly,
+    because Windows refuses it while any process -- a reader included -- holds the destination open.
+    That is a bounded wait on the same rename, not a second way of installing the file: the atomicity
+    above is exactly as it was.
 
     Args:
         index_file: Destination path.
@@ -1002,7 +1102,7 @@ def _atomically_write_index(index_file: Path, index: dict[str, Any]) -> _Committ
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, index_file)
+        _replace_index_with_retry(temporary, index_file)
         # The rename itself has to reach the disk before the digest describing it does. `os.replace`
         # is atomic with respect to readers, which is what the comment above is about, but atomicity
         # is not durability: the directory entry can still be in the page cache when

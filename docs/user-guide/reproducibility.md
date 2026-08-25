@@ -207,6 +207,22 @@ other. Two cases fall outside that and are what this command is for:
   stale index. gwmock refuses that write rather than letting it discard entries,
   which keeps the index correct at the cost of stopping the run.
 
+On **Windows**, renaming the new index into place is refused while another
+process holds `signal_index.yaml` open — and a reader is enough, so a
+`gwmock find-signal` lookup running alongside a simulation is the ordinary way
+to meet it. gwmock retries the rename on a bounded backoff, a few tenths of a
+second in total, which covers a lookup that opens and closes the file. A
+consumer that keeps the index open for longer than that is not waited out: the
+update fails, saying so, with the previous index and its recorded digest
+untouched and nothing to repair — close the consumer and run the batch again.
+
+A **local POSIX filesystem** permits the rename while readers hold the
+destination open, so a lookup running alongside a simulation never reaches the
+retry there. Two POSIX cases do reach it: a metadata directory on a CIFS/SMB
+mount, where the server's sharing semantics travel to the client, and a rename
+refused for an ordinary reason such as the directory's permissions — which is
+now reported after the bounded backoff has been spent rather than immediately.
+
 Rebuilding takes the same lock a running batch does and re-records the digest
 beside the index, so a directory that was refusing writes accepts them again
 afterwards — there is no need to delete the sidecar by hand.
