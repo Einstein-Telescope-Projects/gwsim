@@ -467,6 +467,26 @@ The checkpoint contains:
 - Simulator state
 - Progress information
 - Already-generated file tracking
+- The fingerprint of the run that wrote it — which configuration, which output
+  and metadata directories, and, for a population file on local disk, that
+  file's contents (a population fetched from a URL contributes its address only,
+  since identifying a run does not download the catalogue again)
+
+A resume only continues from a checkpoint it can attribute to the command being
+run. It refuses when the fingerprints differ, and when the checkpoint carries no
+fingerprint at all because it was written by a version from before the field
+existed (`gwmock` 0.13.0 and earlier). Without that check, a second
+configuration run from the same working directory resumes from the first's
+checkpoint and skips the batches it recorded, so the outputs those batches would
+have produced are never written and the run still exits successfully.
+
+Both refusals name the checkpoint file, so it can be moved or deleted to start
+fresh. To start fresh without touching it — for an automated run that cannot
+answer a prompt — pass `--ignore-checkpoint`:
+
+```bash
+gwmock simulate config.yaml --ignore-checkpoint
+```
 
 ## Resource Usage Summary
 

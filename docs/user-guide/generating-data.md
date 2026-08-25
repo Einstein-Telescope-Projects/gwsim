@@ -352,7 +352,9 @@ gwmock simulate config.yaml
 gwmock simulate config.yaml
 ```
 
-gwmock automatically detects and continues from the last checkpoint.
+gwmock automatically detects and continues from the last checkpoint, as long as
+the checkpoint belongs to the command being run — see
+[Checkpointing](configuration.md#checkpointing) for what it refuses and why.
 
 ## Combining Data Types
 
