@@ -215,7 +215,13 @@ second in total, which covers a lookup that opens and closes the file. A
 consumer that keeps the index open for longer than that is not waited out: the
 update fails, saying so, with the previous index and its recorded digest
 untouched and nothing to repair — close the consumer and run the batch again.
-POSIX permits the rename regardless, so nothing there is affected.
+
+A **local POSIX filesystem** permits the rename while readers hold the
+destination open, so a lookup running alongside a simulation never reaches the
+retry there. Two POSIX cases do reach it: a metadata directory on a CIFS/SMB
+mount, where the server's sharing semantics travel to the client, and a rename
+refused for an ordinary reason such as the directory's permissions — which is
+now reported after the bounded backoff has been spent rather than immediately.
 
 Rebuilding takes the same lock a running batch does and re-records the digest
 beside the index, so a directory that was refusing writes accepts them again
