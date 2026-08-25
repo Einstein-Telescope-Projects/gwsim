@@ -38,8 +38,8 @@ from gwmock.cli.utils.checkpoint import (
     CheckpointManager,
     report_unverified_inputs,
     require_matching_config,
+    resume_tail,
     run_fingerprint,
-    spillover_applies,
 )
 from gwmock.cli.utils.config import OrchestrationConfig, SimulatorConfig, resolve_class_path
 from gwmock.cli.utils.environment import capture_environment
@@ -1810,11 +1810,48 @@ def instantiate_simulator(
     return simulator
 
 
+def _checkpoint_state_belongs_to(
+    batch: SimulationBatch,
+    last_simulator_state: dict[str, Any],
+    last_state_batch_index: int | None,
+) -> bool:
+    """Whether a checkpoint's state describes the simulator as it stood before *batch*.
+
+    **Preferred rule: which batch produced it.** A state saved after batch N is the entry state of
+    batch N+1 and of nothing else, so the caller passing ``last_state_batch_index`` gets that
+    comparison.
+
+    **Fallback: the counter.** Without that provenance the only thing to compare is
+    ``state["counter"]`` against the batch index, which is a *proxy* -- it holds when a simulator's
+    counter and its batch numbering share an origin, and silently fails when they do not. A plan
+    numbering batches across several simulators (alpha 0-2, then beta 3-4) is exactly that case:
+    beta's counter after its first batch is 1 while the batch about to run is index 4, so the proxy
+    refuses a tail that was perfectly valid and the segment regenerates from scratch, losing the
+    spillover with it -- measured at ``beta-0`` where a continued run gives ``beta-1``.
+
+    The proxy is kept for callers that have no provenance to offer rather than removed, because
+    dropping the check entirely would apply whatever state a caller happened to hold to whatever
+    batch was in hand -- and restoring the *wrong* state is worse than restoring none.
+
+    Args:
+        batch: The batch about to run.
+        last_simulator_state: The state from the checkpoint.
+        last_state_batch_index: The batch this state was saved after, or ``None`` if unknown.
+
+    Returns:
+        Whether the state may be restored onto this batch.
+    """
+    if last_state_batch_index is not None:
+        return last_state_batch_index == batch.batch_index - 1
+    return batch.batch_index == last_simulator_state.get("counter")
+
+
 def restore_batch_state(
     simulator: Simulator,
     batch: SimulationBatch,
     last_simulator_state: dict[str, Any] | None = None,
     last_simulator_spillover: Any = None,
+    last_state_batch_index: int | None = None,
 ) -> None:
     """Restore simulator state from batch metadata or checkpoint file if available.
 
@@ -1822,10 +1859,22 @@ def restore_batch_state(
     filter memory, and other stateful components that existed before this batch
     was generated.
 
+    Both checkpoint arguments belong to *this* simulator: the checkpoint keeps one tail per
+    simulator and the caller looks up the entry for the one about to run (:func:`resume_tail`).
+    Passing another simulator's tail would resume this segment behind an RNG stream that never
+    produced it, and place a signal tail that belongs to different data.
+
     Args:
         simulator: Simulator instance
         batch: SimulationBatch potentially containing state snapshot
-        last_simulator_state (optional): State dict of the last simulator from the checkpoint file, or None if unavailable
+        last_simulator_state (optional): State this simulator left in the checkpoint, or None if
+            unavailable. Applied only when it belongs to this batch -- see
+            :func:`_checkpoint_state_belongs_to`.
+        last_simulator_spillover (optional): Chunks that simulator's previous batch left for this
+            one, or None. The caller has already checked they belong to this batch.
+        last_state_batch_index (optional): The batch ``last_simulator_state`` was saved after. Pass
+            it whenever it is known: without it the check falls back to a counter proxy that refuses
+            a valid tail whenever a simulator's counter and the plan's batch numbering disagree.
 
     Raises:
         ValueError: If state restoration fails
@@ -1851,7 +1900,9 @@ def restore_batch_state(
         except Exception as e:
             logger.error("Failed to restore batch state: %s", e)
             raise ValueError(f"Failed to restore state for batch {batch.batch_index}") from e
-    elif last_simulator_state is not None and batch.batch_index == last_simulator_state.get("counter"):
+    elif last_simulator_state is not None and _checkpoint_state_belongs_to(
+        batch, last_simulator_state, last_state_batch_index
+    ):
         logger.debug(
             "[RESTORE] Batch %d: Restoring state from checkpoint last state - state_keys=%s",
             batch.batch_index,
@@ -2253,8 +2304,8 @@ def reconcile_completed_batches(
 ) -> set[int]:
     """Prune checkpointed batches whose outputs are missing from disk.
 
-    Resume restores simulator state from a single tail snapshot and assumes the
-    completed batches form a contiguous prefix (the orchestration noise stream is
+    Resume restores each simulator's state from the last snapshot it left and assumes
+    the completed batches form a contiguous prefix (the orchestration noise stream is
     sequential/stateful). So the completed set is validated in order and truncated at
     the FIRST batch whose recorded outputs (or metadata) are missing: that batch and
     every later batch are dropped so they get re-run.
@@ -2378,24 +2429,21 @@ def execute_plan(  # noqa: PLR0915
     # move/backup, fs hiccup). Skipping such a batch would silently drop a file.
     completed_batch_indices = reconcile_completed_batches(plan, metadata_directory, loaded_batch_indices)
 
+    # One tail per simulator -- state and spillover -- carried across the whole run and written
+    # back with every checkpoint. A single tail would be overwritten by whichever simulator finished
+    # most recently, taking an earlier one's RNG state and the tail of any signal crossing its final
+    # boundary with it.
+    simulator_tails: dict[str, dict[str, Any]] = {}
     if not resuming:
         logger.debug("No checkpoint found or no batches completed yet")
-        last_simulator_state = None
-        last_simulator_spillover = None
-        spillover_simulator_name = None
-        spillover_batch_index = None
     elif completed_batch_indices == loaded_batch_indices:
         logger.info("Loaded checkpoint: %d batches already completed", len(completed_batch_indices))
-        # From the single decode above. The per-batch scoping the getter would apply is done at the
-        # restore call instead, from these values.
-        last_simulator_state = checkpoint.get("last_simulator_state")
-        last_simulator_state = last_simulator_state if isinstance(last_simulator_state, dict) else None
-        last_simulator_spillover = checkpoint.get("last_simulator_spillover")
-        spillover_simulator_name = checkpoint.get("last_simulator_name")
-        spillover_batch_index = checkpoint.get("last_completed_batch_index")
+        # From the single decode above, already normalised by `load_checkpoint`. The per-batch
+        # scoping the getter would apply is done at the restore call instead, from these values.
+        simulator_tails = checkpoint.get("simulator_tails") or {}
     else:
         # One or more checkpointed batches are missing their outputs. The checkpoint
-        # only holds the tail simulator state, so an interior batch cannot be
+        # only holds each simulator's *last* state, so an interior batch cannot be
         # regenerated in isolation; discard the checkpoint and regenerate from the
         # first batch to keep the simulator/noise-stream/RNG state consistent.
         logger.warning(
@@ -2405,10 +2453,9 @@ def execute_plan(  # noqa: PLR0915
             len(completed_batch_indices),
         )
         completed_batch_indices = set()
-        last_simulator_state = None
-        last_simulator_spillover = None
-        spillover_simulator_name = None
-        spillover_batch_index = None
+        # Dropped rather than carried: every batch is regenerated, so no simulator resumes from a
+        # tail, and writing these back out would describe a run that no longer exists.
+        simulator_tails = {}
 
     # Group batches by simulator name to execute sequentially per simulator
     simulator_batches: dict[str, list[SimulationBatch]] = {}
@@ -2459,22 +2506,20 @@ def execute_plan(  # noqa: PLR0915
                         simulator.counter,
                         batch.has_state_snapshot(),
                     )
-                    # Scoped before it is handed over. A plan can execute several simulators and
-                    # the checkpoint holds one tail, so an unscoped hand-off can put one simulator's
-                    # spillover into another's segment -- real strain of the right shape, in the
-                    # wrong place. It is also only valid for the batch immediately after the one
-                    # that produced it.
-                    spillover_for_batch = (
-                        last_simulator_spillover
-                        if spillover_applies(
-                            spillover_simulator_name,
-                            spillover_batch_index,
-                            batch.simulator_name,
-                            batch.batch_index,
-                        )
-                        else None
+                    # This simulator's own tail, never another's. A plan can execute several, and
+                    # an unscoped hand-off puts one simulator's RNG state behind another's segment
+                    # and one simulator's spillover into another's data -- real strain of the right
+                    # shape, in the wrong place. The spillover is also only valid for the batch
+                    # immediately after the one that produced it.
+                    state_for_batch, spillover_for_batch = resume_tail(
+                        simulator_tails, batch.simulator_name, batch.batch_index
                     )
-                    restore_batch_state(simulator, batch, last_simulator_state, spillover_for_batch)
+                    # Which batch left that state, so the restore compares batches rather than
+                    # falling back to the counter proxy -- which refuses a valid tail as soon as a
+                    # simulator's counter and the plan's batch numbering disagree, as they do for
+                    # every simulator after the first.
+                    tail_batch_index = (simulator_tails.get(batch.simulator_name) or {}).get("batch_index")
+                    restore_batch_state(simulator, batch, state_for_batch, spillover_for_batch, tail_batch_index)
                     logger.debug("[EXECUTE] Batch %s: After restore - counter=%s", batch.batch_index, simulator.counter)
                     pre_batch_state = copy.deepcopy(simulator.state)
                     # Spillover too, and separately, because it is not part of `state`. `simulate`
@@ -2553,15 +2598,25 @@ def execute_plan(  # noqa: PLR0915
                     # At this point, state has been incremented by next() -> update_state()
                     # Save checkpoint to enable resumption if interrupted before next batch
                     completed_batch_indices.add(batch.batch_index)
+                    state_snapshot = copy.deepcopy(simulator.state)
+                    # Beside the state, not inside it: `state` also goes into every batch metadata
+                    # record, and spillover is raw samples. See `save_checkpoint`.
+                    spillover_snapshot = copy.deepcopy(getattr(simulator, "cached_data_chunks", None))
+                    # Replaces only this simulator's entry, so the tails of the simulators that ran
+                    # before it are still in the checkpoint after this one completes.
+                    simulator_tails[simulator_name] = {
+                        "batch_index": batch.batch_index,
+                        "state": state_snapshot,
+                        "spillover": spillover_snapshot,
+                    }
                     checkpoint_manager.save_checkpoint(
                         completed_batch_indices=sorted(completed_batch_indices),
                         last_simulator_name=simulator_name,
                         last_completed_batch_index=batch.batch_index,
-                        last_simulator_state=copy.deepcopy(simulator.state),
-                        # Beside the state, not inside it: `state` also goes into every batch
-                        # metadata record, and spillover is raw samples. See `save_checkpoint`.
-                        last_simulator_spillover=copy.deepcopy(getattr(simulator, "cached_data_chunks", None)),
+                        last_simulator_state=state_snapshot,
+                        last_simulator_spillover=spillover_snapshot,
                         config_sha256=plan_sha256,
+                        simulator_tails=simulator_tails,
                     )
                     logger.debug(
                         "Checkpoint saved after batch %d - state counter=%s",

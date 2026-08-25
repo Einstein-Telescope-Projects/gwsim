@@ -6,7 +6,7 @@ import contextlib
 import hashlib
 import json
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import IO, Any
 from urllib.parse import urlparse
@@ -367,10 +367,10 @@ def spillover_applies(
 ) -> bool:
     """Whether spillover saved by one batch may be given to another.
 
-    One function rather than the same two comparisons at each call site: the checkpoint getter and
-    ``execute_plan`` both need this, and the reason `execute_plan` cannot simply call the getter is
-    cost -- each load decodes the whole file, spillover included. Two copies of a predicate this
-    consequential would drift.
+    Its one caller is :func:`resume_tail`, which both the checkpoint getter and ``execute_plan``
+    go through -- ``execute_plan`` cannot simply call the getter, because each load decodes the whole
+    file, spillover included, and it has the tails in hand already. Kept as its own function because
+    the rule is worth stating and testing on its own.
 
     Both conditions guard against a *wrongly accepted* tail, which is worse than a rejected one: it
     is real strain of the right shape placed at the wrong time, in the wrong simulator's segment,
@@ -403,6 +403,77 @@ def spillover_applies(
     return not (batch_index is not None and saved_batch_index != batch_index - 1)
 
 
+def _tails_from_checkpoint(checkpoint: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Read the per-simulator tails out of a checkpoint, whichever layout wrote it.
+
+    A checkpoint written before ``simulator_tails`` existed carries one tail, spread across
+    ``last_simulator_name``/``last_completed_batch_index``/``last_simulator_state``/
+    ``last_simulator_spillover``; it becomes a single entry here, so an upgrade mid-run resumes
+    instead of losing the state it had. Entries that are not name-to-mapping are dropped rather than
+    trusted: a hand-edited or truncated checkpoint must not hand a simulator something shaped wrong.
+
+    Args:
+        checkpoint: A decoded checkpoint dict.
+
+    Returns:
+        Tails keyed by simulator name, empty if the checkpoint records none.
+    """
+    raw = checkpoint.get("simulator_tails")
+    if isinstance(raw, dict):
+        return {name: tail for name, tail in raw.items() if isinstance(name, str) and isinstance(tail, dict)}
+    simulator_name = checkpoint.get("last_simulator_name")
+    if not isinstance(simulator_name, str):
+        return {}
+    return {
+        simulator_name: {
+            "batch_index": checkpoint.get("last_completed_batch_index"),
+            "state": checkpoint.get("last_simulator_state"),
+            "spillover": checkpoint.get("last_simulator_spillover"),
+        }
+    }
+
+
+def resume_tail(
+    simulator_tails: Mapping[str, Any],
+    simulator_name: str | None,
+    batch_index: int | None = None,
+) -> tuple[dict[str, Any] | None, Any]:
+    """Return the state and spillover a given batch may resume from.
+
+    The lookup is by simulator name, which is what keeps one simulator's tail out of another's
+    segment: the state carries the RNG stream, and the spillover is real strain of the right shape,
+    so either of them arriving in the wrong simulator's data is a corruption nothing downstream
+    would flag.
+
+    **Both halves are gated on adjacency, not just the spillover.** A tail describes the simulator as
+    it stood after one particular batch, so it belongs to the batch immediately after that one and to
+    no other. Returning the state for a non-adjacent batch while withholding the spillover would hand
+    back half of a resume point: the RNG stream continued, the signal tail that goes with it dropped.
+
+    Args:
+        simulator_tails: Tails keyed by simulator name, as :meth:`CheckpointManager.load_checkpoint`
+            returns them.
+        simulator_name: The simulator about to run, or ``None`` for callers that have no name to
+            match -- which finds nothing, since every tail is keyed by one.
+        batch_index: The batch about to run, or ``None`` to skip the adjacency check, for callers
+            asking what a simulator last left behind rather than what a given batch may resume from.
+
+    Returns:
+        ``(state, spillover)``, either of which is ``None`` when this batch may not have it.
+    """
+    tail = simulator_tails.get(simulator_name) if simulator_name is not None else None
+    if not isinstance(tail, dict):
+        return None, None
+    state = tail.get("state")
+    state = state if isinstance(state, dict) else None
+    # The name half of the predicate is already satisfied by the lookup above -- it is passed on both
+    # sides deliberately, so the adjacency rule lives in `spillover_applies` alone and cannot drift
+    # from a second copy here.
+    if not spillover_applies(simulator_name, tail.get("batch_index"), simulator_name, batch_index):
+        return None, None
+    return state, tail.get("spillover")
+
+
 class CheckpointManager:
     """Manages checkpoint files for simulation recovery.
 
@@ -414,10 +485,24 @@ class CheckpointManager:
         "completed_batch_indices": [0, 1, 2, ...],
         "last_simulator_name": "signal",
         "last_completed_batch_index": 2,
-        "last_simulator_state": {...},
-        "last_simulator_spillover": ...,  # chunks continuing into the next segment, or null
+        "simulator_tails": {           # one entry per simulator that has completed a batch
+            "signal": {
+                "batch_index": 2,
+                "state": {...},
+                "spillover": ...       # chunks continuing into the next segment, or null
+            }
+        },
         "config_sha256": "..."  # which configuration produced this run, or null if pre-1.5.0
     }
+
+    **One tail per simulator, not one per checkpoint.** A plan can execute several simulators, and a
+    single ``last_simulator_state``/``last_simulator_spillover`` pair holds whichever of them
+    finished last: the earlier simulator's state, and the tail of any signal crossing its final
+    segment boundary, were overwritten and gone. Scoping the hand-over stops that tail reaching the
+    *wrong* simulator, but nothing can recover a tail the file never kept. Those two keys are
+    therefore no longer written; :meth:`load_checkpoint` rebuilds them from the tail of
+    ``last_simulator_name`` so callers asking for "the last one" keep working, and reads them back
+    as a single tail when a checkpoint written by an older gwmock has no ``simulator_tails``.
 
     The checkpoint is written atomically:
     1. Write to .tmp file
@@ -446,7 +531,11 @@ class CheckpointManager:
             - completed_batch_indices: List of completed batch indices
             - last_simulator_name: Name of last simulator
             - last_completed_batch_index: Index of last completed batch
-            - last_simulator_state: State dict of last simulator
+            - simulator_tails: ``{simulator_name: {batch_index, state, spillover}}``, one entry per
+              simulator that completed a batch, normalised so a caller never has to know which
+              layout wrote the file
+            - last_simulator_state, last_simulator_spillover: the tail of ``last_simulator_name``,
+              rebuilt from ``simulator_tails`` for callers that want only the last one
             None if no checkpoint exists or checkpoint is corrupted
         """
         # Try to restore from backup if checkpoint doesn't exist but backup does
@@ -466,6 +555,13 @@ class CheckpointManager:
         try:
             with self.checkpoint_file.open("r") as f:
                 checkpoint = json.load(f, cls=Decoder)
+            # Normalised once, here, so no caller has to know whether the file it read holds one
+            # tail per simulator or the single pre-``simulator_tails`` one.
+            tails = _tails_from_checkpoint(checkpoint)
+            checkpoint["simulator_tails"] = tails
+            last_tail = tails.get(checkpoint.get("last_simulator_name"))
+            checkpoint["last_simulator_state"] = last_tail.get("state") if last_tail else None
+            checkpoint["last_simulator_spillover"] = last_tail.get("spillover") if last_tail else None
             logger.debug(
                 "Loaded checkpoint: last_batch=%s, completed=%d batches",
                 checkpoint.get("last_completed_batch_index"),
@@ -484,6 +580,7 @@ class CheckpointManager:
         last_simulator_state: dict[str, Any],
         last_simulator_spillover: Any = None,
         config_sha256: str | None = None,
+        simulator_tails: Mapping[str, Any] | None = None,
     ) -> None:
         """Save checkpoint after completing a batch.
 
@@ -510,15 +607,38 @@ class CheckpointManager:
                 working directory resumes from the first's checkpoint and *skips its batches*:
                 measured at 1 frame written where a clean run writes 3, exit code 0, no warning.
 
+            simulator_tails: Tails already recorded for the *other* simulators of this run, carried
+                forward so completing a batch of one simulator does not erase another's. The entry
+                for ``last_simulator_name`` is rebuilt from the four arguments above, so a caller may
+                pass the whole mapping it accumulates rather than having to exclude the current one.
+
+                Without this the file holds one tail: a plan running simulator A then B keeps only
+                B's, so A's state and the tail of any signal crossing A's last boundary are gone --
+                and unlike a *misapplied* tail, which scoping refuses, nothing can recover one that
+                was never written.
+
         Raises:
             OSError: If checkpoint cannot be written
         """
+        # Entries that are not name-to-mapping are dropped rather than written back out.
+        tails = {
+            name: tail
+            for name, tail in (simulator_tails or {}).items()
+            if isinstance(name, str) and isinstance(tail, dict)
+        }
+        tails[last_simulator_name] = {
+            "batch_index": last_completed_batch_index,
+            "state": last_simulator_state,
+            "spillover": last_simulator_spillover,
+        }
+        # `last_simulator_state`/`last_simulator_spillover` are not written beside this: they are the
+        # entry for `last_simulator_name`, and duplicating them would write megabytes of spillover
+        # samples twice per batch. `load_checkpoint` rebuilds them for callers that want them.
         checkpoint = {
             "completed_batch_indices": completed_batch_indices,
             "last_simulator_name": last_simulator_name,
             "last_completed_batch_index": last_completed_batch_index,
-            "last_simulator_state": last_simulator_state,
-            "last_simulator_spillover": last_simulator_spillover,
+            "simulator_tails": tails,
             "config_sha256": config_sha256,
         }
 
@@ -577,17 +697,24 @@ class CheckpointManager:
             return set()
         return set(checkpoint.get("completed_batch_indices", []))
 
-    def get_last_simulator_state(self) -> dict[str, Any] | None:
-        """Get the last completed batch state from checkpoint.
+    def get_last_simulator_state(self, simulator_name: str | None = None) -> dict[str, Any] | None:
+        """Get the state a simulator left behind, from the checkpoint.
+
+        Args:
+            simulator_name: Whose state to return. Scoped for the same reason the spillover beside it
+                is: the state carries the RNG stream, so another simulator's state resumes a segment
+                behind a stream that never produced it. ``None`` means the simulator that completed
+                the last batch.
 
         Returns:
-            State dict of the last simulator, or None if unavailable
+            State dict of that simulator, or None if unavailable
         """
         checkpoint = self.load_checkpoint()
         if checkpoint is None:
             return None
-        last_state = checkpoint.get("last_simulator_state")
-        return last_state if isinstance(last_state, dict) else None
+        name = simulator_name if simulator_name is not None else checkpoint.get("last_simulator_name")
+        state, _ = resume_tail(checkpoint.get("simulator_tails") or {}, name)
+        return state
 
     def get_last_simulator_spillover(self, simulator_name: str | None = None, batch_index: int | None = None) -> Any:
         """Return the spillover chunks saved with the last completed batch, if any.
@@ -596,11 +723,12 @@ class CheckpointManager:
         spillover, which are the same thing to a caller: there is nothing to carry in.
 
         Args:
-            simulator_name: Restrict to spillover produced by this simulator. A plan can execute
-                several, and the checkpoint holds one tail; without this the wrong simulator can
-                receive it. ``None`` skips the check, for callers that have already established it.
+            simulator_name: Whose spillover to return. The checkpoint keeps one tail per simulator,
+                and handing one simulator's tail to another places real strain of the right shape in
+                the wrong segment. ``None`` means the simulator that completed the last batch, which
+                is what a single-simulator caller means by "the last spillover".
             batch_index: The batch about to run. Spillover is only valid for the batch immediately
-                following the one that produced it.
+                following the one that produced it. ``None`` skips that check.
 
         Returns:
             The chunks that belong to the next segment, or ``None``.
@@ -608,14 +736,9 @@ class CheckpointManager:
         checkpoint = self.load_checkpoint()
         if checkpoint is None:
             return None
-        if not spillover_applies(
-            checkpoint.get("last_simulator_name"),
-            checkpoint.get("last_completed_batch_index"),
-            simulator_name,
-            batch_index,
-        ):
-            return None
-        return checkpoint.get("last_simulator_spillover")
+        name = simulator_name if simulator_name is not None else checkpoint.get("last_simulator_name")
+        _, spillover = resume_tail(checkpoint.get("simulator_tails") or {}, name, batch_index)
+        return spillover
 
     def should_skip_batch(self, batch_index: int) -> bool:
         """Check if a batch has already been completed.
