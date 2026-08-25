@@ -445,12 +445,18 @@ def resume_tail(
     so either of them arriving in the wrong simulator's data is a corruption nothing downstream
     would flag.
 
+    **Both halves are gated on adjacency, not just the spillover.** A tail describes the simulator as
+    it stood after one particular batch, so it belongs to the batch immediately after that one and to
+    no other. Returning the state for a non-adjacent batch while withholding the spillover would hand
+    back half of a resume point: the RNG stream continued, the signal tail that goes with it dropped.
+
     Args:
         simulator_tails: Tails keyed by simulator name, as :meth:`CheckpointManager.load_checkpoint`
             returns them.
         simulator_name: The simulator about to run, or ``None`` for callers that have no name to
             match -- which finds nothing, since every tail is keyed by one.
-        batch_index: The batch about to run, or ``None`` to skip the adjacency check.
+        batch_index: The batch about to run, or ``None`` to skip the adjacency check, for callers
+            asking what a simulator last left behind rather than what a given batch may resume from.
 
     Returns:
         ``(state, spillover)``, either of which is ``None`` when this batch may not have it.
@@ -464,7 +470,7 @@ def resume_tail(
     # sides deliberately, so the adjacency rule lives in `spillover_applies` alone and cannot drift
     # from a second copy here.
     if not spillover_applies(simulator_name, tail.get("batch_index"), simulator_name, batch_index):
-        return state, None
+        return None, None
     return state, tail.get("spillover")
 
 

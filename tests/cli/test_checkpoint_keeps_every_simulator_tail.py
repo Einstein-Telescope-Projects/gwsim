@@ -79,6 +79,7 @@ class TailSimulator(Simulator):
         self.tag = tag
         # Not state: spillover is raw samples, and `state` is copied into every metadata record.
         self.cached_data_chunks: list[str] = []
+        self.carried: list[str] = []
 
     def simulate(self) -> str:
         """Generate one batch, leaving a tail behind for the next one.
@@ -91,6 +92,9 @@ class TailSimulator(Simulator):
         """
         if FAIL_AT_COUNTER.get(str(self.tag)) == self.counter:
             raise RuntimeError(f"interrupted {self.tag} at batch {self.counter}")
+        # What this batch was handed on entry, recorded before it is replaced: the only way a test
+        # can tell a restored tail from one that was silently dropped.
+        self.carried = list(self.cached_data_chunks)
         self.cached_data_chunks = [f"{self.tag}-tail-{self.counter}"]
         return f"{self.tag}-{self.counter}"
 
@@ -105,7 +109,10 @@ class TailSimulator(Simulator):
         file_name = Path(file_name)
         file_name.parent.mkdir(parents=True, exist_ok=True)
         with file_name.open("w") as f:
-            json.dump({"data": data, "tag": str(self.tag), "counter": self.counter}, f)
+            json.dump(
+                {"data": data, "tag": str(self.tag), "counter": self.counter, "carried": self.carried},
+                f,
+            )
 
 
 def _plan(checkpoint_directory: Path, segments: dict[str, list[int]]) -> SimulationPlan:
@@ -247,3 +254,51 @@ class TestARunKeepsEverySimulatorsTail:
         )
         assert metadata["pre_batch_state"]["counter"] == 0, "beta's own first batch, not alpha's fourth"
         assert json.loads((tmp_path / "output" / "beta-3.json").read_text())["data"] == "beta-0"
+
+
+class TestAResumedSimulatorContinuesFromItsOwnTail:
+    """Preserving a tail is only half the job: the resumed batch has to actually receive it.
+
+    `restore_batch_state` gated the restore on ``batch_index == state["counter"]``. The counter is
+    per simulator and the batch index is global across the plan, so the two agree only for the first
+    simulator. For every simulator after it the gate refused a tail that the checkpoint had stored
+    correctly, and the segment regenerated from scratch -- silently, and taking the spillover with
+    it, because the spillover restore sits inside the same branch.
+
+    Measured before the fix: beta's second batch came back as ``beta-0`` with no carried tail, where
+    a run that was never interrupted gives ``beta-1`` carrying ``beta-tail-0``.
+    """
+
+    def test_beta_s_second_batch_resumes_from_beta_s_first(self, tmp_path):
+        """Interrupt after beta's first batch; its second must continue, not restart."""
+        checkpoint_directory = tmp_path / "checkpoints"
+        segments = {"alpha": [0, 1, 2], "beta": [3, 4]}
+
+        FAIL_AT_COUNTER["beta"] = 1
+        _run(_plan(checkpoint_directory, segments), tmp_path, expect_failure=True)
+
+        # The checkpoint holds beta's tail; the question is whether the resume can use it.
+        tails = json.loads((checkpoint_directory / "simulation.checkpoint.json").read_text())["simulator_tails"]
+        assert tails["beta"] == {
+            "batch_index": 3,
+            "state": {"tag": "beta", "counter": 1},
+            "spillover": ["beta-tail-0"],
+        }
+
+        FAIL_AT_COUNTER.clear()
+        _run(_plan(checkpoint_directory, segments), tmp_path, expect_failure=False)
+
+        output = json.loads((tmp_path / "output" / "beta-4.json").read_text())
+        assert output["data"] == "beta-1", "beta restarted from counter 0 instead of continuing"
+        assert output["carried"] == ["beta-tail-0"], (
+            "beta's second batch was generated without the tail its first batch left, so anything "
+            "crossing that boundary is missing from the segment"
+        )
+
+    def test_an_uninterrupted_run_is_the_reference(self, tmp_path):
+        """What the resumed run above is required to reproduce, measured rather than assumed."""
+        _run(_plan(tmp_path / "checkpoints", {"alpha": [0, 1, 2], "beta": [3, 4]}), tmp_path, expect_failure=False)
+
+        output = json.loads((tmp_path / "output" / "beta-4.json").read_text())
+        assert output["data"] == "beta-1"
+        assert output["carried"] == ["beta-tail-0"]

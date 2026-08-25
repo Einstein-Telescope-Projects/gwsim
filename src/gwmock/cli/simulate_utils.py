@@ -1810,11 +1810,48 @@ def instantiate_simulator(
     return simulator
 
 
+def _checkpoint_state_belongs_to(
+    batch: SimulationBatch,
+    last_simulator_state: dict[str, Any],
+    last_state_batch_index: int | None,
+) -> bool:
+    """Whether a checkpoint's state describes the simulator as it stood before *batch*.
+
+    **Preferred rule: which batch produced it.** A state saved after batch N is the entry state of
+    batch N+1 and of nothing else, so the caller passing ``last_state_batch_index`` gets that
+    comparison.
+
+    **Fallback: the counter.** Without that provenance the only thing to compare is
+    ``state["counter"]`` against the batch index, which is a *proxy* -- it holds when a simulator's
+    counter and its batch numbering share an origin, and silently fails when they do not. A plan
+    numbering batches across several simulators (alpha 0-2, then beta 3-4) is exactly that case:
+    beta's counter after its first batch is 1 while the batch about to run is index 4, so the proxy
+    refuses a tail that was perfectly valid and the segment regenerates from scratch, losing the
+    spillover with it -- measured at ``beta-0`` where a continued run gives ``beta-1``.
+
+    The proxy is kept for callers that have no provenance to offer rather than removed, because
+    dropping the check entirely would apply whatever state a caller happened to hold to whatever
+    batch was in hand -- and restoring the *wrong* state is worse than restoring none.
+
+    Args:
+        batch: The batch about to run.
+        last_simulator_state: The state from the checkpoint.
+        last_state_batch_index: The batch this state was saved after, or ``None`` if unknown.
+
+    Returns:
+        Whether the state may be restored onto this batch.
+    """
+    if last_state_batch_index is not None:
+        return last_state_batch_index == batch.batch_index - 1
+    return batch.batch_index == last_simulator_state.get("counter")
+
+
 def restore_batch_state(
     simulator: Simulator,
     batch: SimulationBatch,
     last_simulator_state: dict[str, Any] | None = None,
     last_simulator_spillover: Any = None,
+    last_state_batch_index: int | None = None,
 ) -> None:
     """Restore simulator state from batch metadata or checkpoint file if available.
 
@@ -1831,11 +1868,13 @@ def restore_batch_state(
         simulator: Simulator instance
         batch: SimulationBatch potentially containing state snapshot
         last_simulator_state (optional): State this simulator left in the checkpoint, or None if
-            unavailable. Applied only when its ``counter`` matches the batch about to run -- which
-            assumes the counter and the batch index share an origin, true wherever a plan numbers a
-            simulator's batches from its first one.
+            unavailable. Applied only when it belongs to this batch -- see
+            :func:`_checkpoint_state_belongs_to`.
         last_simulator_spillover (optional): Chunks that simulator's previous batch left for this
             one, or None. The caller has already checked they belong to this batch.
+        last_state_batch_index (optional): The batch ``last_simulator_state`` was saved after. Pass
+            it whenever it is known: without it the check falls back to a counter proxy that refuses
+            a valid tail whenever a simulator's counter and the plan's batch numbering disagree.
 
     Raises:
         ValueError: If state restoration fails
@@ -1861,7 +1900,9 @@ def restore_batch_state(
         except Exception as e:
             logger.error("Failed to restore batch state: %s", e)
             raise ValueError(f"Failed to restore state for batch {batch.batch_index}") from e
-    elif last_simulator_state is not None and batch.batch_index == last_simulator_state.get("counter"):
+    elif last_simulator_state is not None and _checkpoint_state_belongs_to(
+        batch, last_simulator_state, last_state_batch_index
+    ):
         logger.debug(
             "[RESTORE] Batch %d: Restoring state from checkpoint last state - state_keys=%s",
             batch.batch_index,
@@ -2473,7 +2514,12 @@ def execute_plan(  # noqa: PLR0915
                     state_for_batch, spillover_for_batch = resume_tail(
                         simulator_tails, batch.simulator_name, batch.batch_index
                     )
-                    restore_batch_state(simulator, batch, state_for_batch, spillover_for_batch)
+                    # Which batch left that state, so the restore compares batches rather than
+                    # falling back to the counter proxy -- which refuses a valid tail as soon as a
+                    # simulator's counter and the plan's batch numbering disagree, as they do for
+                    # every simulator after the first.
+                    tail_batch_index = (simulator_tails.get(batch.simulator_name) or {}).get("batch_index")
+                    restore_batch_state(simulator, batch, state_for_batch, spillover_for_batch, tail_batch_index)
                     logger.debug("[EXECUTE] Batch %s: After restore - counter=%s", batch.batch_index, simulator.counter)
                     pre_batch_state = copy.deepcopy(simulator.state)
                     # Spillover too, and separately, because it is not part of `state`. `simulate`
