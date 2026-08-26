@@ -20,11 +20,14 @@ import pytest
 
 from .matrix import E2E_MATRIX, MatrixEntry
 from .reference_values import (
+    FOREIGN_PLATFORM_TOLERANCE,
+    STATISTIC_TOLERANCE,
     WRITE_ENVIRONMENT_VARIABLE,
     build_reference,
     describe_difference,
     load_reference,
     same_environment,
+    same_platform,
     statistic_differences,
     write_reference,
     writing_references,
@@ -41,6 +44,14 @@ def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_r
     Integer statistics -- sample count, occupancy, the peak's position -- must match exactly, since
     no amount of floating-point drift moves them. ``peak``, ``rms`` and ``signed_peak`` may differ
     within :data:`STATISTIC_TOLERANCE`.
+
+    The one relaxation is for an entry whose samples come out of LALSimulation, replayed on a
+    different system or architecture than wrote its reference: those are compared at
+    :data:`FOREIGN_PLATFORM_TOLERANCE` instead. LAL's own output was measured not to reproduce
+    across architectures -- the difference is in its frequency-domain polarizations before any
+    code here runs -- while every other entry reproduces at 1e-13 and better and stays under the
+    tight gate everywhere. Keyed on the *entry* and the *platform*, not on "is this macOS", so a
+    reference regenerated elsewhere needs no change here.
 
     The content hash is recorded and reported but is **not** the assertion. It was, until it turned
     out not to reproduce between this project's CI runner and a local machine with identical package
@@ -86,14 +97,32 @@ def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_r
     # between this project's CI runner and a local machine with the same package versions -- the
     # difference is confined to summation order -- so a bit-for-bit assertion is green only where
     # the references were generated. See the module docstring.
-    differences = statistic_differences(stored_outputs, produced_outputs)
+    foreign_lal = entry.lal_waveform and not same_platform(stored.get("fingerprint"), produced.get("fingerprint"))
+    tolerance = FOREIGN_PLATFORM_TOLERANCE if foreign_lal else STATISTIC_TOLERANCE
+
+    differences = statistic_differences(stored_outputs, produced_outputs, tolerance)
     assert not differences, (
         f"'{entry.label}' differs from its reference by more than floating-point drift. This is a "
         f"prompt to look, not necessarily a bug -- if the change is harmless, regenerate with "
         f"`{WRITE_ENVIRONMENT_VARIABLE}=1 uv run pytest -m e2e --no-cov`.\n"
         f"  reference environment: {stored.get('fingerprint')}\n"
-        f"  this environment:      {produced.get('fingerprint')}\n  " + "\n  ".join(differences)
+        f"  this environment:      {produced.get('fingerprint')}\n"
+        f"  tolerance applied:     {tolerance:g}"
+        f"{' (LAL entry, off the reference platform)' if foreign_lal else ''}\n  " + "\n  ".join(differences)
     )
+
+    if foreign_lal:
+        # Said out loud rather than passing in silence: this entry was held to a bound 100x
+        # looser than the rest of the suite, so a reader knows what the green does and does not
+        # cover here. Regenerating on this platform is not the fix -- it would move the failure
+        # to the machine that wrote the reference.
+        print(
+            f"note: {entry.label} was compared at {tolerance:g} rather than "
+            f"{STATISTIC_TOLERANCE:g}: it generates through LAL, whose output does not reproduce "
+            f"across architectures, and this run is on {produced.get('fingerprint', {}).get('system')}/"
+            f"{produced.get('fingerprint', {}).get('machine')} against a reference written on "
+            f"{stored.get('fingerprint', {}).get('system')}/{stored.get('fingerprint', {}).get('machine')}"
+        )
 
     identical = [
         name

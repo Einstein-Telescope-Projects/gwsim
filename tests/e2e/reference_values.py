@@ -28,6 +28,11 @@ Regenerate with::
 Review the resulting diff before committing it. The references are small JSON in the repository
 rather than an opaque archive precisely so that an update shows up as a reviewable change.
 
+**Regenerate on the platform the references already name**, which the ``fingerprint`` block in each
+file records. Rewriting them from an architecture whose LAL differs does not fix anything -- it moves
+the same 4e-06 onto the machines that were green before, and the diff looks like a real change to
+every entry that generates through LAL. The macOS section below is what that is about.
+
 **Portability: measured, and it does not hold.** An earlier run suggested these hashes reproduced
 bit-for-bit between a local Linux/x86_64 machine and GitHub's ubuntu-latest runner. That was wrong.
 With identical package versions -- numpy, scipy, lalsuite, jax and ripplegw all unchanged -- CI and
@@ -69,7 +74,9 @@ itself was characterised separately as a global time shift of 2.3e-16 s, 3.16e-1
 difference                                                   relative    against a 1e-06 gate
 ===========================================================  ==========  =====================
 CPU to GPU, one Linux host                                   3.16e-13    passes, 3e6 to spare
-Linux/x86_64/py3.12 to Darwin/arm64/py3.13                   4.17e-06    **fails, by 4x**
+Linux/x86_64 to Darwin/arm64, LAL entries                    4.17e-06    **fails, by 4x**
+Linux/x86_64 to Darwin/arm64, every other entry              8.0e-13     passes, 1e6 to spare
+py3.12 to py3.13, either platform                            0           bit-identical
 ===========================================================  ==========  =====================
 
 So the tolerance is not simply loose: it admits the device difference and rejects a platform change. What
@@ -77,8 +84,42 @@ it does *not* do is catch a GPU-specific regression smaller than about 1e-06, wh
 the device difference -- passing the GPU replay says these references survive the device, not that the
 device is tightly watched.
 
-The macOS row is the reason this suite cannot be run green on an Apple machine against Linux-written
-references; it is a known gap rather than a fault in a particular entry.
+**What the macOS row actually is.** It was recorded here as a whole-platform gap -- "this suite cannot
+be run green on an Apple machine" -- and that was wrong in the way that matters: it is confined to the
+two entries whose samples come out of LALSimulation, and it is not the Python version at all. Measured
+by replaying the matrix on both platforms at both Python versions, and by dumping the pipeline stage by
+stage:
+
+* **The Python version contributes nothing.** Linux/x86_64 py3.12 against py3.13 is *bit-identical* on
+  all 37 output files, and so is Darwin/arm64 py3.12 against py3.13. The whole 4.17e-06 is the platform.
+* **Six of the eight entries reproduce across the platforms**, at 8.0e-13 and below -- the noise-only
+  entries and the stochastic one at 1.9e-16, about one ulp. Only
+  ``noise/uncorrelated_gaussian/quick_start`` (3.90e-06) and ``signal/bbh/et_triangle_sardinia``
+  (4.17e-06) fail, and those are exactly the two that generate through LAL.
+* **The difference is already in LAL's own output**, before numpy touches it: the raw ``IMRPhenomXPHM``
+  frequency-domain polarizations differ by 2.0e-07 rms (5.1e-07 peak) between the two builds. Conditioning
+  to the time domain conserves that rms and merely redistributes it, concentrating the *maximum* to 1.3e-05.
+  Sidereal time over the same span -- astropy and pyerfa, no LAL -- differs by 1.6e-14.
+* **The control that isolates it**: the ripple backend is an independent implementation of the same
+  physics running through the *same* projection, resampling and writer code, and it reproduces across the
+  platforms at 1.5e-14. Same downstream code, different waveform generator, eight orders of magnitude
+  better agreement. Neither build is thereby shown *correct* -- this compares two builds of one version
+  against each other, not against an external reference -- but it locates where they part.
+* Every integer statistic survives, on all 37 files. ``argmax`` is compared exactly and did not move, so
+  no peak changed sample.
+
+So the rule this suite applies is not "skip macOS". Entries flagged
+:attr:`~tests.e2e.matrix.MatrixEntry.lal_waveform` are compared at :data:`FOREIGN_PLATFORM_TOLERANCE`
+when the reference was written on a different system or machine, and at the full
+:data:`STATISTIC_TOLERANCE` on the platform that wrote it; every other entry is gated at 1e-06
+everywhere. That keeps the six portable entries under the tight gate on an Apple machine instead of
+discarding coverage that demonstrably works, and keeps the LAL pair checked at a bound that still
+rejects a waveform regression while admitting a difference that is the library's, not the project's.
+
+**Measured on one Mac.** The 4.17e-06 comes from a single machine -- macOS 26.5.2, arm64, the PyPI
+``lalsuite`` 7.26.15 ``macosx_12_0_arm64`` wheel. Whether an x86_64 Mac, another macOS release, or a
+Linux/aarch64 host lands at the same figure is *not* measured, and :data:`FOREIGN_PLATFORM_TOLERANCE`
+carries margin for that reason rather than because a spread was observed.
 
 This check also cannot run in CI: GitHub-hosted runners have no GPU. Repeat it when the waveform path or
 the JAX dependency changes, rather than expecting it to guard every pull request.
@@ -184,6 +225,29 @@ _RECORDED_PACKAGES_ARE_CURATED = True
 #: not.
 STATISTIC_TOLERANCE = 1e-6
 
+#: Relative tolerance for an entry flagged :attr:`~tests.e2e.matrix.MatrixEntry.lal_waveform`
+#: when the stored reference was written on a different system or machine.
+#:
+#: **Measured, then given margin.** Replaying the matrix on Darwin/arm64 against these
+#: Linux/x86_64 references moves the LAL entries by 4.17e-06 and 3.90e-06 of peak, while every
+#: entry that does not generate through LAL stays at 8.0e-13 or below and the Python version
+#: moves nothing at all. The difference is present in LAL's own frequency-domain output before
+#: any of this project's code runs, so it is the library's and not something a gate here can
+#: catch or fix. The macOS section of the module docstring carries the full measurement.
+#:
+#: Set at 1e-04, which is 24x the largest figure observed. The margin is *not* an observed
+#: spread: it was measured on one Mac, and nothing here establishes what an x86_64 Mac, another
+#: macOS release, or a Linux/aarch64 host would give. It is sized so that a plausible variation
+#: between LAL builds does not turn into a red suite, while a real waveform regression -- which
+#: moves these by percent, two orders above this -- still fails.
+#:
+#: This is deliberately *not* applied to every entry. Widening the gate globally would cost the
+#: six entries that reproduce across platforms at 1e-13 and better the sensitivity they
+#: currently have, to buy portability for two; and :data:`STATISTIC_TOLERANCE` was already held
+#: at 1e-06 on purpose, so that it would keep catching a projection regression of the same size
+#: as the Earth-orientation churn that used to trip it.
+FOREIGN_PLATFORM_TOLERANCE = 1e-4
+
 
 def writing_references() -> bool:
     """Return whether this run should write references instead of comparing against them.
@@ -279,6 +343,28 @@ def same_environment(stored: dict[str, str] | None, produced: dict[str, str] | N
     return stored == produced
 
 
+def same_platform(stored: dict[str, str] | None, produced: dict[str, str] | None) -> bool:
+    """Whether two fingerprints describe the same operating system and processor architecture.
+
+    Narrower than :func:`same_environment` on purpose, and the narrowing is what was measured:
+    ``python`` and ``device`` do not belong here. Both Python versions produce bit-identical
+    output on either platform, and the device difference is 3.16e-13 -- so folding either into
+    this question would relax the LAL entries' tolerance for a reason that is known not to move
+    them, which is exactly the false excuse a gate should not accept.
+
+    Args:
+        stored: The fingerprint recorded with the reference, if any.
+        produced: The fingerprint of this run, if any.
+
+    Returns:
+        Whether both name the same ``system`` and ``machine``. A missing fingerprint on either
+        side is not the same platform as anything, since there is nothing to compare.
+    """
+    if not stored or not produced:
+        return False
+    return all(stored.get(key) == produced.get(key) for key in ("system", "machine"))
+
+
 def _environment() -> dict[str, str]:
     """Return the installed versions of the packages that could change the data."""
     from importlib import metadata
@@ -370,13 +456,23 @@ def load_reference(label: str) -> dict[str, Any] | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def statistic_differences(stored: dict[str, Any], produced: dict[str, Any]) -> list[str]:
+def statistic_differences(
+    stored: dict[str, Any], produced: dict[str, Any], tolerance: float = STATISTIC_TOLERANCE
+) -> list[str]:
     """Return the statistics that differ beyond what floating-point drift explains.
 
     Used instead of the hash when the two runs are not on the same numerical stack, where an exact
     match is not a fair thing to require. Integer statistics -- sample count, occupancy, the peak's
-    position -- must match exactly, because no amount of last-bit drift moves them. The float
-    magnitudes are compared with :data:`STATISTIC_TOLERANCE`.
+    position -- must match exactly, because no amount of last-bit drift moves them, and they are
+    held exactly whatever *tolerance* says: the measured platform difference moved none of them.
+    The float magnitudes are compared with *tolerance*.
+
+    Args:
+        stored: The reference's per-file statistics.
+        produced: This run's per-file statistics.
+        tolerance: Relative bound on ``peak``, ``rms`` and ``signed_peak``. Defaults to
+            :data:`STATISTIC_TOLERANCE`; the caller passes :data:`FOREIGN_PLATFORM_TOLERANCE`
+            for a LAL-generated entry compared off the platform that wrote its reference.
     """
     differences: list[str] = []
     for name in sorted(set(stored) & set(produced)):
@@ -396,7 +492,7 @@ def statistic_differences(stored: dict[str, Any], produced: dict[str, Any]) -> l
                 differences.append(f"{name}: {key} {old!r} -> {new!r} (not finite)")
                 continue
             scale = max(abs(old), abs(new))
-            if scale and abs(new - old) / scale > STATISTIC_TOLERANCE:
+            if scale and abs(new - old) / scale > tolerance:
                 differences.append(f"{name}: {key} {old!r} -> {new!r} (relative {abs(new - old) / scale:.3e})")
     return differences
 
