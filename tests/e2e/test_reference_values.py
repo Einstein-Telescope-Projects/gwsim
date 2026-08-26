@@ -20,8 +20,10 @@ import pytest
 
 from .matrix import E2E_MATRIX, MatrixEntry
 from .reference_values import (
+    STATISTIC_TOLERANCE,
     WRITE_ENVIRONMENT_VARIABLE,
     build_reference,
+    comparison_bound,
     describe_difference,
     load_reference,
     same_environment,
@@ -41,6 +43,16 @@ def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_r
     Integer statistics -- sample count, occupancy, the peak's position -- must match exactly, since
     no amount of floating-point drift moves them. ``peak``, ``rms`` and ``signed_peak`` may differ
     within :data:`STATISTIC_TOLERANCE`.
+
+    The one relaxation is for an entry whose samples come out of LALSimulation, replayed on a
+    system or architecture established to differ from the one that wrote its reference: those are
+    compared at :data:`FOREIGN_PLATFORM_TOLERANCE` instead, and say so. LAL's own output was
+    measured not to reproduce across architectures -- the difference is in its frequency-domain
+    polarizations before any code here runs -- while every other entry reproduces at 1e-13 and
+    better and stays under the tight gate everywhere. Keyed on the *entry* and the *platform*, not
+    on "is this macOS", so a reference regenerated elsewhere needs no change here.
+    :func:`~tests.e2e.reference_values.comparison_bound` makes the choice and is where it is
+    tested.
 
     The content hash is recorded and reported but is **not** the assertion. It was, until it turned
     out not to reproduce between this project's CI runner and a local machine with identical package
@@ -86,13 +98,33 @@ def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_r
     # between this project's CI runner and a local machine with the same package versions -- the
     # difference is confined to summation order -- so a bit-for-bit assertion is green only where
     # the references were generated. See the module docstring.
-    differences = statistic_differences(stored_outputs, produced_outputs)
+    tolerance, relaxed_because = comparison_bound(
+        entry.lal_waveform, stored.get("fingerprint"), produced.get("fingerprint")
+    )
+
+    if relaxed_because:
+        # Emitted *before* the assertion, which is where a reviewer found it did not belong.
+        # Printed afterwards, the one run that most needs to say "this was held to a bound 100x
+        # looser than the rest of the suite" -- the one where even that bound failed -- was the
+        # single run that said nothing, because the assertion left the function first. The note
+        # is a statement about how the comparison was set up, so it is owed whether or not the
+        # comparison then passes.
+        #
+        # Regenerating on this platform is not the fix, either way: it would move the same
+        # difference onto the machine that wrote the reference.
+        print(
+            f"note: {entry.label} was compared at {tolerance:g} rather than {STATISTIC_TOLERANCE:g}: {relaxed_because}"
+        )
+
+    differences = statistic_differences(stored_outputs, produced_outputs, tolerance)
     assert not differences, (
         f"'{entry.label}' differs from its reference by more than floating-point drift. This is a "
         f"prompt to look, not necessarily a bug -- if the change is harmless, regenerate with "
         f"`{WRITE_ENVIRONMENT_VARIABLE}=1 uv run pytest -m e2e --no-cov`.\n"
         f"  reference environment: {stored.get('fingerprint')}\n"
-        f"  this environment:      {produced.get('fingerprint')}\n  " + "\n  ".join(differences)
+        f"  this environment:      {produced.get('fingerprint')}\n"
+        f"  tolerance applied:     {tolerance:g}"
+        f"{' (LAL entry, off the reference platform)' if relaxed_because else ''}\n  " + "\n  ".join(differences)
     )
 
     identical = [
