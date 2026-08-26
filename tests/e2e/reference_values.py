@@ -110,9 +110,10 @@ stage:
 
 So the rule this suite applies is not "skip macOS". Entries flagged
 :attr:`~tests.e2e.matrix.MatrixEntry.lal_waveform` are compared at :data:`FOREIGN_PLATFORM_TOLERANCE`
-when the reference was written on a different system or machine, and at the full
-:data:`STATISTIC_TOLERANCE` on the platform that wrote it; every other entry is gated at 1e-06
-everywhere. That keeps the six portable entries under the tight gate on an Apple machine instead of
+when the reference is *established* to have been written on a different system or machine -- see
+:func:`comparison_bound`, which decides that and is the only place the choice is made -- and at the
+full :data:`STATISTIC_TOLERANCE` on the platform that wrote it, or whenever the platforms cannot be
+compared at all; every other entry is gated at 1e-06 everywhere. That keeps the six portable entries under the tight gate on an Apple machine instead of
 discarding coverage that demonstrably works, and keeps the LAL pair checked at a bound that still
 rejects a waveform regression while admitting a difference that is the library's, not the project's.
 
@@ -343,26 +344,75 @@ def same_environment(stored: dict[str, str] | None, produced: dict[str, str] | N
     return stored == produced
 
 
-def same_platform(stored: dict[str, str] | None, produced: dict[str, str] | None) -> bool:
-    """Whether two fingerprints describe the same operating system and processor architecture.
+#: The fingerprint keys that decide whether two runs are on the same platform.
+#:
+#: Narrower than what :func:`same_environment` compares, and the narrowing is the measurement:
+#: ``python`` and ``device`` do not belong here. Both Python versions produce bit-identical output
+#: on either platform, and the device difference is 3.16e-13 -- so letting either answer this
+#: question would relax the LAL entries' bound for a reason known not to move them, which is
+#: exactly the false excuse a gate must not accept.
+_PLATFORM_KEYS = ("system", "machine")
 
-    Narrower than :func:`same_environment` on purpose, and the narrowing is what was measured:
-    ``python`` and ``device`` do not belong here. Both Python versions produce bit-identical
-    output on either platform, and the device difference is 3.16e-13 -- so folding either into
-    this question would relax the LAL entries' tolerance for a reason that is known not to move
-    them, which is exactly the false excuse a gate should not accept.
+
+def known_different_platform(stored: dict[str, str] | None, produced: dict[str, str] | None) -> bool:
+    """Whether two fingerprints *positively establish* that the platforms differ.
+
+    Phrased as the positive claim, and defaulting to ``False``, because this is what widens a
+    tolerance: the loose bound should need evidence that the platform really changed, not merely
+    the absence of evidence that it did not. An earlier version asked the opposite question --
+    "are these the same platform?" -- and took the loose branch on ``not same_platform(...)``,
+    which handed every flagged entry the wider bound whenever a fingerprint was missing or
+    incomplete, *including on the machine that wrote the reference*. Every reference in the tree
+    carries a full fingerprint today, so nothing was actually widened; it was a latent widening
+    waiting for the first reference that omitted one, and a reviewer caught it.
+
+    So anything short of a complete comparison answers ``False`` and the caller keeps the tight
+    gate. A reference that cannot say where it was written gets held to the strict bound, and a
+    strict bound failing on a foreign platform is a visible prompt to look -- which is the
+    direction this should fail in.
 
     Args:
         stored: The fingerprint recorded with the reference, if any.
         produced: The fingerprint of this run, if any.
 
     Returns:
-        Whether both name the same ``system`` and ``machine``. A missing fingerprint on either
-        side is not the same platform as anything, since there is nothing to compare.
+        Whether both fingerprints name a ``system`` and a ``machine`` and at least one differs.
     """
     if not stored or not produced:
         return False
-    return all(stored.get(key) == produced.get(key) for key in ("system", "machine"))
+    if not all(stored.get(key) and produced.get(key) for key in _PLATFORM_KEYS):
+        return False
+    return any(stored[key] != produced[key] for key in _PLATFORM_KEYS)
+
+
+def comparison_bound(
+    lal_waveform: bool, stored: dict[str, str] | None, produced: dict[str, str] | None
+) -> tuple[float, str | None]:
+    """Return the tolerance this comparison runs at, and why, if it is not the usual one.
+
+    One function rather than a condition spelled out at the call site, for two reasons a review
+    drew out. It makes the conjunction -- a flagged entry *and* an established platform change,
+    both required -- directly testable without a generation run. And it hands back the
+    explanation alongside the number, so the caller cannot report the relaxed bound without the
+    reason for it, or report the reason in a place a failure would skip past.
+
+    Args:
+        lal_waveform: Whether the entry generates through LALSimulation.
+        stored: The fingerprint recorded with the reference, if any.
+        produced: The fingerprint of this run, if any.
+
+    Returns:
+        The relative tolerance to apply, and a phrase naming why it was relaxed -- or ``None``
+        when it was not, which is every case except a flagged entry on an established different
+        platform.
+    """
+    if not (lal_waveform and known_different_platform(stored, produced)):
+        return STATISTIC_TOLERANCE, None
+    return FOREIGN_PLATFORM_TOLERANCE, (
+        f"it generates through LAL, whose output does not reproduce across architectures, and "
+        f"this run is on {produced['system']}/{produced['machine']} against a reference written "
+        f"on {stored['system']}/{stored['machine']}"
+    )
 
 
 def _environment() -> dict[str, str]:

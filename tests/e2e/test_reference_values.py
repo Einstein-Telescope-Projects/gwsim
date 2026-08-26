@@ -20,14 +20,13 @@ import pytest
 
 from .matrix import E2E_MATRIX, MatrixEntry
 from .reference_values import (
-    FOREIGN_PLATFORM_TOLERANCE,
     STATISTIC_TOLERANCE,
     WRITE_ENVIRONMENT_VARIABLE,
     build_reference,
+    comparison_bound,
     describe_difference,
     load_reference,
     same_environment,
-    same_platform,
     statistic_differences,
     write_reference,
     writing_references,
@@ -46,12 +45,14 @@ def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_r
     within :data:`STATISTIC_TOLERANCE`.
 
     The one relaxation is for an entry whose samples come out of LALSimulation, replayed on a
-    different system or architecture than wrote its reference: those are compared at
-    :data:`FOREIGN_PLATFORM_TOLERANCE` instead. LAL's own output was measured not to reproduce
-    across architectures -- the difference is in its frequency-domain polarizations before any
-    code here runs -- while every other entry reproduces at 1e-13 and better and stays under the
-    tight gate everywhere. Keyed on the *entry* and the *platform*, not on "is this macOS", so a
-    reference regenerated elsewhere needs no change here.
+    system or architecture established to differ from the one that wrote its reference: those are
+    compared at :data:`FOREIGN_PLATFORM_TOLERANCE` instead, and say so. LAL's own output was
+    measured not to reproduce across architectures -- the difference is in its frequency-domain
+    polarizations before any code here runs -- while every other entry reproduces at 1e-13 and
+    better and stays under the tight gate everywhere. Keyed on the *entry* and the *platform*, not
+    on "is this macOS", so a reference regenerated elsewhere needs no change here.
+    :func:`~tests.e2e.reference_values.comparison_bound` makes the choice and is where it is
+    tested.
 
     The content hash is recorded and reported but is **not** the assertion. It was, until it turned
     out not to reproduce between this project's CI runner and a local machine with identical package
@@ -97,8 +98,23 @@ def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_r
     # between this project's CI runner and a local machine with the same package versions -- the
     # difference is confined to summation order -- so a bit-for-bit assertion is green only where
     # the references were generated. See the module docstring.
-    foreign_lal = entry.lal_waveform and not same_platform(stored.get("fingerprint"), produced.get("fingerprint"))
-    tolerance = FOREIGN_PLATFORM_TOLERANCE if foreign_lal else STATISTIC_TOLERANCE
+    tolerance, relaxed_because = comparison_bound(
+        entry.lal_waveform, stored.get("fingerprint"), produced.get("fingerprint")
+    )
+
+    if relaxed_because:
+        # Emitted *before* the assertion, which is where a reviewer found it did not belong.
+        # Printed afterwards, the one run that most needs to say "this was held to a bound 100x
+        # looser than the rest of the suite" -- the one where even that bound failed -- was the
+        # single run that said nothing, because the assertion left the function first. The note
+        # is a statement about how the comparison was set up, so it is owed whether or not the
+        # comparison then passes.
+        #
+        # Regenerating on this platform is not the fix, either way: it would move the same
+        # difference onto the machine that wrote the reference.
+        print(
+            f"note: {entry.label} was compared at {tolerance:g} rather than {STATISTIC_TOLERANCE:g}: {relaxed_because}"
+        )
 
     differences = statistic_differences(stored_outputs, produced_outputs, tolerance)
     assert not differences, (
@@ -108,21 +124,8 @@ def test_the_output_matches_its_stored_reference(entry: MatrixEntry, completed_r
         f"  reference environment: {stored.get('fingerprint')}\n"
         f"  this environment:      {produced.get('fingerprint')}\n"
         f"  tolerance applied:     {tolerance:g}"
-        f"{' (LAL entry, off the reference platform)' if foreign_lal else ''}\n  " + "\n  ".join(differences)
+        f"{' (LAL entry, off the reference platform)' if relaxed_because else ''}\n  " + "\n  ".join(differences)
     )
-
-    if foreign_lal:
-        # Said out loud rather than passing in silence: this entry was held to a bound 100x
-        # looser than the rest of the suite, so a reader knows what the green does and does not
-        # cover here. Regenerating on this platform is not the fix -- it would move the failure
-        # to the machine that wrote the reference.
-        print(
-            f"note: {entry.label} was compared at {tolerance:g} rather than "
-            f"{STATISTIC_TOLERANCE:g}: it generates through LAL, whose output does not reproduce "
-            f"across architectures, and this run is on {produced.get('fingerprint', {}).get('system')}/"
-            f"{produced.get('fingerprint', {}).get('machine')} against a reference written on "
-            f"{stored.get('fingerprint', {}).get('system')}/{stored.get('fingerprint', {}).get('machine')}"
-        )
 
     identical = [
         name

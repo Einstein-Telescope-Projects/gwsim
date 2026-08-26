@@ -28,13 +28,17 @@ integer statistics being swept along with the floats.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from .matrix import E2E_MATRIX
+from .matrix import E2E_MATRIX, MatrixEntry
 from .reference_values import (
     FOREIGN_PLATFORM_TOLERANCE,
     STATISTIC_TOLERANCE,
-    same_platform,
+    WRITE_ENVIRONMENT_VARIABLE,
+    comparison_bound,
+    known_different_platform,
     statistic_differences,
 )
 
@@ -67,40 +71,108 @@ def _outputs(peak: float, *, n: int = 16384, nonzero: int = 5734, argmax: int = 
     }
 
 
-class TestSamePlatform:
-    """Which fingerprint keys decide that two runs are on the same machine architecture."""
+class TestKnownDifferentPlatform:
+    """Which fingerprint keys establish that two runs are on different machine architectures."""
 
-    def test_a_run_matches_itself(self) -> None:
-        assert same_platform(LINUX, dict(LINUX))
+    def test_a_run_does_not_differ_from_itself(self) -> None:
+        assert not known_different_platform(LINUX, dict(LINUX))
 
     @pytest.mark.parametrize("key", ["python", "device"])
-    def test_the_keys_measured_not_to_matter_do_not_separate_platforms(self, key: str) -> None:
-        """The narrowing against ``same_environment`` is the measurement, not a convenience.
+    def test_the_keys_measured_not_to_matter_do_not_establish_a_difference(self, key: str) -> None:
+        """The narrowing to ``system`` and ``machine`` is the measurement, not a convenience.
 
         Both Python versions produce bit-identical output on either platform -- 37 of 37 files --
-        and the device difference is 3.16e-13. Letting either key answer this question would hand
-        a LAL entry the loose tolerance for a reason known not to move it, which is the one thing
-        a relaxed gate must not do.
+        and the device difference is 3.16e-13. Letting either key answer this would hand a LAL
+        entry the loose tolerance for a reason known not to move it, which is the one thing a
+        relaxed gate must not do.
         """
-        assert same_platform(LINUX, dict(LINUX, **{key: "something-else"}))
+        assert not known_different_platform(LINUX, dict(LINUX, **{key: "something-else"}))
 
     @pytest.mark.parametrize("key", ["system", "machine"])
-    def test_the_keys_measured_to_matter_do_separate_platforms(self, key: str) -> None:
-        assert not same_platform(LINUX, dict(LINUX, **{key: "something-else"}))
+    def test_the_keys_measured_to_matter_do_establish_a_difference(self, key: str) -> None:
+        assert known_different_platform(LINUX, dict(LINUX, **{key: "something-else"}))
 
-    def test_linux_and_darwin_are_different_platforms(self) -> None:
-        assert not same_platform(LINUX, DARWIN)
+    def test_linux_and_darwin_are_established_as_different(self) -> None:
+        assert known_different_platform(LINUX, DARWIN)
 
-    def test_a_missing_fingerprint_matches_nothing(self) -> None:
-        """There is nothing to compare, so the honest answer is "not the same platform".
+    @pytest.mark.parametrize(
+        "stored",
+        [
+            pytest.param(None, id="absent"),
+            pytest.param({}, id="empty"),
+            pytest.param({"python": "3.12", "device": "cpu"}, id="no-platform-keys"),
+            pytest.param({"system": "Linux", "python": "3.12"}, id="machine-missing"),
+            pytest.param({"system": "Linux", "machine": "", "python": "3.12"}, id="machine-blank"),
+        ],
+    )
+    def test_an_incomplete_fingerprint_establishes_nothing(self, stored: dict | None) -> None:
+        """The fail-closed direction, and the reason this asks the positive question.
 
-        It has to fall this way round rather than the other: a reference with no fingerprint
-        that counted as *every* platform would hand every LAL entry the loose bound everywhere,
-        including on the machine that wrote it.
+        A reviewer found the earlier form -- ``not same_platform(...)``, which answered "same?"
+        and took the loose branch on false -- handing every flagged entry the wider bound whenever
+        a fingerprint was missing or partial, *including on the machine that wrote the reference*.
+        Nothing in the tree was actually widened, because every reference carries a full
+        fingerprint; it was a widening waiting for the first one that did not.
+
+        Widening needs evidence. Absence of evidence keeps the tight gate, and a tight gate
+        failing somewhere foreign is a visible prompt to look rather than a silent pass.
         """
-        assert not same_platform(None, LINUX)
-        assert not same_platform({}, LINUX)
-        assert not same_platform(LINUX, None)
+        assert not known_different_platform(stored, DARWIN)
+        assert not known_different_platform(DARWIN, stored)
+
+
+class TestComparisonBound:
+    """The conjunction: a flagged entry *and* an established platform change, both required."""
+
+    @pytest.mark.parametrize(
+        ("lal_waveform", "stored", "produced", "expected", "relaxed"),
+        [
+            pytest.param(True, LINUX, DARWIN, FOREIGN_PLATFORM_TOLERANCE, True, id="flagged-and-foreign"),
+            pytest.param(True, LINUX, dict(LINUX), STATISTIC_TOLERANCE, False, id="flagged-but-same-platform"),
+            pytest.param(False, LINUX, DARWIN, STATISTIC_TOLERANCE, False, id="foreign-but-unflagged"),
+            pytest.param(False, LINUX, dict(LINUX), STATISTIC_TOLERANCE, False, id="neither"),
+            pytest.param(True, None, DARWIN, STATISTIC_TOLERANCE, False, id="flagged-but-unknown-platform"),
+            pytest.param(
+                True,
+                dict(LINUX, python="3.14", device="gpu"),
+                LINUX,
+                STATISTIC_TOLERANCE,
+                False,
+                id="flagged-but-only-python-and-device-moved",
+            ),
+        ],
+    )
+    def test_only_a_flagged_entry_on_an_established_other_platform_is_relaxed(
+        self, lal_waveform: bool, stored: dict | None, produced: dict, expected: float, relaxed: bool
+    ) -> None:
+        """Both halves pinned, in both directions.
+
+        The selection used to be a condition spelled out inside the reference test, where it could
+        only be reached by a full generation run -- so a reviewer could see it was right but
+        nothing held it there. Dropping either half of the conjunction, or letting an
+        unestablished platform count as foreign, now fails here.
+        """
+        tolerance, because = comparison_bound(lal_waveform, stored, produced)
+        assert tolerance == expected
+        assert (because is not None) is relaxed
+
+    def test_the_reason_names_both_platforms_and_the_library(self) -> None:
+        """The caller prints this verbatim, so what it has to contain is pinned here.
+
+        A note that says only "a looser bound was used" sends the reader back to the source to
+        find out which bound, why, and against what. These four facts are what make it act on.
+        """
+        _, because = comparison_bound(True, LINUX, DARWIN)
+        assert because is not None
+        assert "LAL" in because
+        assert "Darwin/arm64" in because
+        assert "Linux/x86_64" in because
+
+    def test_nothing_is_relaxed_without_a_reason_to_report(self) -> None:
+        """The tolerance and its justification travel together, so one cannot be had without the other."""
+        for lal_waveform, stored, produced in ((True, LINUX, dict(LINUX)), (False, LINUX, DARWIN)):
+            tolerance, because = comparison_bound(lal_waveform, stored, produced)
+            assert (tolerance == FOREIGN_PLATFORM_TOLERANCE) == (because is not None)
 
 
 class TestTheToleranceIsHonoured:
@@ -184,3 +256,104 @@ class TestTheBoundsThemselves:
     def test_the_tight_gate_still_rejects_the_measured_difference(self) -> None:
         """The relaxation is a second bound, not a replacement for the first."""
         assert MEASURED_PLATFORM_DIFFERENCE > STATISTIC_TOLERANCE
+
+
+class TestTheNoteSurvivesAFailure:
+    """The relaxed bound announces itself even when the comparison then fails.
+
+    The note used to be printed after the assertion, so the one run that most needed it -- a
+    flagged entry on a foreign platform whose difference cleared even the *loose* bound -- was
+    the single run that printed nothing, because the assertion left the function first. A
+    reviewer caught it. These drive the real reference test rather than the helper, because the
+    ordering inside that function is the whole of what went wrong; testing
+    :func:`comparison_bound` alone would have passed throughout.
+    """
+
+    ENTRY = MatrixEntry(label="synthetic/lal/entry", covers="a flagged entry, for this test only", lal_waveform=True)
+
+    @staticmethod
+    def _document(fingerprint: dict, peak: float) -> dict:
+        return {
+            "label": "synthetic/lal/entry",
+            "fingerprint": fingerprint,
+            "environment": {},
+            "outputs": {
+                "output/signal/strain.hdf5": {
+                    "content_hash": f"sha256:{peak:.17e}",
+                    "n": 16384,
+                    "nonzero": 5734,
+                    "argmax": 4080,
+                    "peak": peak,
+                    "rms": peak / 11.4,
+                    "signed_peak": peak,
+                    "mean": 3.5e-26,
+                }
+            },
+        }
+
+    def _run(self, monkeypatch: pytest.MonkeyPatch, stored: dict, produced: dict) -> None:
+        """Drive ``test_the_output_matches_its_stored_reference`` without a generation run."""
+        from . import test_reference_values as module
+
+        monkeypatch.delenv(WRITE_ENVIRONMENT_VARIABLE, raising=False)
+        monkeypatch.setattr(module, "written_files", lambda directory: [])
+        monkeypatch.setattr(module, "build_reference", lambda label, directory, files: produced)
+        monkeypatch.setattr(module, "load_reference", lambda label: stored)
+        module.test_the_output_matches_its_stored_reference(self.ENTRY, lambda entry: Path("unused"))
+
+    def test_the_note_is_printed_when_even_the_loose_bound_fails(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The regression itself: a difference above 1e-04, on the relaxed path.
+
+        The comparison must still fail -- the loose bound is a bound, not an exemption -- and the
+        note must still come out, because the reader's first question about that failure is which
+        bound it cleared.
+        """
+        base = 8.942912893531663e-22
+        stored = self._document(LINUX, base)
+        produced = self._document(DARWIN, base * (1 + 1e-3))
+
+        with pytest.raises(AssertionError) as failure:
+            self._run(monkeypatch, stored, produced)
+
+        printed = capsys.readouterr().out
+        assert "note: synthetic/lal/entry was compared at 0.0001" in printed
+        assert "LAL" in printed
+        assert "Darwin/arm64" in printed
+        assert "Linux/x86_64" in printed
+        # And the failure itself still reports which bound was in force.
+        assert "tolerance applied:     0.0001" in str(failure.value)
+        assert "LAL entry, off the reference platform" in str(failure.value)
+
+    def test_the_note_is_printed_when_the_loose_bound_passes(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The path that already worked, kept working -- moving the print must not have lost it."""
+        base = 8.942912893531663e-22
+        stored = self._document(LINUX, base)
+        produced = self._document(DARWIN, base * (1 + 4.17e-6))
+
+        self._run(monkeypatch, stored, produced)
+
+        assert "note: synthetic/lal/entry was compared at 0.0001" in capsys.readouterr().out
+
+    def test_no_note_is_printed_on_the_reference_platform(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Silence is the correct output when nothing was relaxed.
+
+        A note on every run would be noise, and would stop the real one being noticed. Here the
+        same entry, same difference, replayed where its reference was written: the tight gate
+        applies and the run fails without claiming any relaxation.
+        """
+        base = 8.942912893531663e-22
+        stored = self._document(LINUX, base)
+        produced = self._document(dict(LINUX), base * (1 + 4.17e-6))
+
+        with pytest.raises(AssertionError) as failure:
+            self._run(monkeypatch, stored, produced)
+
+        assert "note:" not in capsys.readouterr().out
+        assert "tolerance applied:     1e-06" in str(failure.value)
+        assert "off the reference platform" not in str(failure.value)
