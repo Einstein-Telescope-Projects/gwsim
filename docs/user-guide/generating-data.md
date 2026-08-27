@@ -252,7 +252,7 @@ The total number of frame files depends on the duration of each frame file and
 the total duration of the dataset, and it's rounded to the nearest integer:
 
 ```python
-max_samples = round(total-duration / duration)
+max_samples = round(total - duration / duration)
 ```
 
 For example, a one-day dataset (86400 s) in 4096-second frames yields

@@ -28,7 +28,6 @@ import gwmock
 
 # How you'd like to use the new feature
 result = gwmock.new_function(param="example")
-
 ```
 
 ## 🌈 Use Case & Benefits
