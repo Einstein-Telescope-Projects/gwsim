@@ -99,7 +99,7 @@ from gwpy.timeseries import TimeSeries
 files = [
     "E-ET1_EMR_STRAIN_NOISE-1000000000-1024.gwf",
     "E-ET1_EMR_STRAIN_NOISE-1000001024-1024.gwf",
-    "E-ET1_EMR_STRAIN_NOISE-1000002048-1024.gwf"
+    "E-ET1_EMR_STRAIN_NOISE-1000002048-1024.gwf",
 ]
 
 # Read all files
@@ -142,10 +142,10 @@ import json
 with open("metadata/orchestration-0.metadata.json", "r") as f:
     metadata = json.load(f)
 
-print(metadata["schema_version"])    # e.g. "1.0.0"
-print(metadata["gwmock_version"])    # e.g. "0.5.0"
-print(metadata["config"])            # resolved config snapshot
-print(metadata["outputs"])           # list of generated files with hashes
+print(metadata["schema_version"])  # e.g. "1.0.0"
+print(metadata["gwmock_version"])  # e.g. "0.5.0"
+print(metadata["config"])  # resolved config snapshot
+print(metadata["outputs"])  # list of generated files with hashes
 ```
 
 **Metadata fields:**
