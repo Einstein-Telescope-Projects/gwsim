@@ -1,8 +1,3 @@
----
-name: 🚀 Pull Request
-about: Submit your changes for review
----
-
 ## 📝 Summary
 
 Briefly describe the changes introduced by this PR. Mention any related issues
@@ -21,7 +16,7 @@ using keywords (e.g., `Closes #123`).
 
 Please describe the tests that you ran to verify your changes.
 
-- [ ] **Unit Tests:** `uv run pytest tests/test_feature.py`
+- [ ] **Unit Tests:** `uv run pytest tests/<path>/test_<module>.py`
 - [ ] **Manual Test:** (Describe steps)
 
 ## 🏗️ Checklist

@@ -35,8 +35,10 @@ A clear and concise description of what you expected to happen.
 
 If applicable, add the Python error traceback here **after redacting secrets**
 (API keys, tokens, credentials, private URLs/paths, personal data). If this is a
-potential security vulnerability, do **not** post it publicly; use the Security
-reporting channel instead.
+potential security vulnerability, do **not** post it publicly; report it
+privately as described in
+[SECURITY.md](https://github.com/Leuven-Gravity-Institute/gwmock/blob/main/SECURITY.md)
+instead.
 
 ```text
 Traceback (most recent call last):
