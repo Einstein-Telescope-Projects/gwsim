@@ -27,6 +27,7 @@ from gwmock.signal import SignalAdapter
 from gwmock.simulator.base import Simulator
 from gwmock.simulator.seeds import derive_seed
 from gwmock.simulator.state import StateAttribute
+from gwmock.strain_schema import declare_strain_schema
 
 #: Waveform library used when a config gives ``waveform-backend-arguments`` but names no
 #: backend. It must stay the same library ``WaveformFactory`` defaults to internally, or
@@ -1359,6 +1360,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 output_path,
                 format=self._infer_signal_output_format(output_path),
             )
+            declare_strain_schema(output_path)
             return
 
         if len(file_name.shape) != 1 or file_name.shape[0] != data.num_of_channels:
@@ -1380,6 +1382,7 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 output_path,
                 format=self._infer_signal_output_format(output_path),
             )
+            declare_strain_schema(output_path)
 
     def _run_noise_batch(self) -> SimulationResult:
         # Source the file_name from the active per-batch context so that reproduction from
@@ -1450,6 +1453,9 @@ class AdapterOrchestrator(TimeSeriesMixin, Simulator):
                 )
             else:
                 np.save(output_path, chunk[detector])
+            # Every strain artifact a run writes declares the contract it meets, whichever of the three
+            # writers above produced it; the call is a no-op for the formats with no attribute space.
+            declare_strain_schema(output_path)
             output_paths_by_detector[detector] = output_path
 
         self.noise_stream_committed_count = max(

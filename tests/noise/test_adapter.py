@@ -10,6 +10,7 @@ import pytest
 
 from gwmock.noise import NoiseAdapter
 from gwmock.noise import adapter as noise_adapter
+from gwmock.strain_schema import STRAIN_SCHEMA_VERSION, require_strain_schema
 
 TEST_DURATION = 8.0
 TEST_SAMPLING_FREQUENCY = 256.0
@@ -1226,11 +1227,151 @@ class TestHdf5Output:
 
         assert backend_path.name == gwmock_path.name
 
-        def layout(path: Path) -> tuple[list[str], dict[str, object]]:
+        def layout(path: Path) -> tuple[list[str], dict[str, object], dict[str, object]]:
             with h5py.File(path, "r") as handle:
                 names: list[str] = []
                 handle.visititems(lambda name, obj: names.append(name) if isinstance(obj, h5py.Dataset) else None)
                 dataset = handle[names[0]]
-                return names, {key: dataset.attrs[key] for key in sorted(dataset.attrs)}
+                return (
+                    names,
+                    {key: dataset.attrs[key] for key in sorted(dataset.attrs)},
+                    {key: handle.attrs[key] for key in sorted(handle.attrs)},
+                )
 
+        # The root attributes are compared too, because that is where the strain schema is declared: a
+        # backend-written file that carried no declaration while a gwmock-written one did would make the
+        # contract depend on which of the two happened to write the artifact.
         assert layout(backend_path) == layout(gwmock_path)
+
+
+class TestTheDeclaredStrainSchema:
+    """Every HDF5 strain artifact says which contract it meets, whichever writer produced it.
+
+    A consumer reading gwmock output used to have to match the writer's implementation -- this dataset,
+    those attributes -- because nothing in the file said what it was. `gwmock.strain_schema` is that
+    statement, and these tests pin that it reaches the artifact by both routes: the writer `write_chunk`
+    composes itself, and the file a backend writes during `run`.
+    """
+
+    def test_a_chunk_written_as_hdf5_declares_the_schema(self, tmp_path: Path):
+        adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
+        config = adapter.build_config(
+            detectors=["H1", "L1"],
+            duration=4.0,
+            sampling_frequency=8.0,
+            output_directory=tmp_path,
+            output_prefix="",
+            output_format="hdf5",
+            gps_start=100.0,
+            channel="MOCK_NOISE",
+            seed=7,
+        )
+
+        result = adapter.write_chunk(
+            config=config,
+            chunk={"H1": np.arange(32, dtype=float), "L1": np.arange(32, dtype=float)},
+        )
+
+        for path in result.output_paths.values():
+            assert require_strain_schema(path).version == STRAIN_SCHEMA_VERSION
+
+    def test_a_file_the_backend_wrote_declares_the_schema(self, tmp_path: Path):
+        """`run` hands the writing to gwmock-noise, which knows nothing of gwmock's contract.
+
+        This is the path a real run takes, so a declaration that only `write_chunk` applied would be
+        absent from almost every artifact gwmock produces.
+        """
+        real = NoiseAdapter.from_backend(None)
+
+        result = real.run(
+            detectors=["H1"],
+            duration=4.0,
+            sampling_frequency=256.0,
+            output_directory=tmp_path,
+            output_prefix="",
+            output_format="hdf5",
+            gps_start=100.0,
+            channel="MOCK_NOISE",
+            seed=11,
+        )
+
+        for path in result.output_paths.values():
+            assert require_strain_schema(path).version == STRAIN_SCHEMA_VERSION
+
+    def test_declaring_it_leaves_the_file_readable(self, tmp_path: Path):
+        """The declaration must not cost a consumer the standard reader; see `gwmock.strain_schema`."""
+        from gwpy.timeseries import TimeSeries
+
+        adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
+        config = adapter.build_config(
+            detectors=["H1"],
+            duration=4.0,
+            sampling_frequency=8.0,
+            output_directory=tmp_path,
+            output_prefix="",
+            output_format="hdf5",
+            gps_start=100.0,
+            channel="MOCK_NOISE",
+            seed=7,
+        )
+
+        result = adapter.write_chunk(config=config, chunk={"H1": np.arange(32, dtype=float)})
+
+        series = TimeSeries.read(str(result.output_paths["H1"]), format="hdf5")
+        assert np.array_equal(series.value, np.arange(32, dtype=float))
+
+    def test_it_does_not_change_the_content_hash(self, tmp_path: Path):
+        """The declaration is provenance, not data: two runs producing the same samples still match.
+
+        The content hash is what a reproduction check compares, so a constant folded into it would make
+        every artifact written before the declaration compare unequal to the same data written after.
+        """
+        import shutil
+
+        import h5py
+
+        from gwmock.cli.utils.hash import compute_content_hash
+
+        adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
+        config = adapter.build_config(
+            detectors=["H1"],
+            duration=4.0,
+            sampling_frequency=8.0,
+            output_directory=tmp_path,
+            output_prefix="",
+            output_format="hdf5",
+            gps_start=100.0,
+            channel="MOCK_NOISE",
+            seed=7,
+        )
+        written = adapter.write_chunk(config=config, chunk={"H1": np.arange(32, dtype=float)}).output_paths["H1"]
+        stamped = compute_content_hash(written)
+
+        undeclared = tmp_path / "undeclared.hdf5"
+        shutil.copyfile(written, undeclared)
+        with h5py.File(undeclared, "a") as handle:
+            for key in list(handle.attrs):
+                del handle.attrs[key]
+
+        assert stamped == compute_content_hash(undeclared)
+
+    @pytest.mark.parametrize("output_format", ["npy", "gwf"])
+    def test_the_formats_that_cannot_carry_it_still_write(self, tmp_path: Path, output_format: str):
+        """`.npy` has no metadata space and a GWF frame is composed from a fixed set of fields, so the
+        declaration is skipped rather than attempted -- but writing them must not break."""
+        adapter = NoiseAdapter.from_backend(FakeStreamNoiseBackend())
+        config = adapter.build_config(
+            detectors=["H1"],
+            duration=4.0,
+            sampling_frequency=8.0,
+            output_directory=tmp_path,
+            output_prefix="",
+            output_format=output_format,
+            gps_start=100.0,
+            channel="MOCK_NOISE",
+            seed=7,
+        )
+
+        result = adapter.write_chunk(config=config, chunk={"H1": np.arange(32, dtype=float)})
+
+        assert result.output_paths["H1"].exists()

@@ -29,6 +29,63 @@ orchestration:
 Everything below works for either: GWpy reads both, and the channel is named the
 same way in each.
 
+## What the file says it is
+
+Every HDF5 file gwmock writes -- noise, signal, and the output of `gwmock merge`
+-- declares the contract it meets, in two attributes at the **root of the
+file**:
+
+| Attribute        | Value               | Meaning                                      |
+| ---------------- | ------------------- | -------------------------------------------- |
+| `schema`         | `gwmock-strain`     | Which contract this is                       |
+| `schema_version` | `MAJOR.MINOR.PATCH` | Which revision of it the file was written to |
+
+Version `1.0.0` requires, of **every** dataset in the file: the samples of one
+channel, in a dataset named for that channel, plus these attributes.
+
+| Attribute          | Meaning                                   |
+| ------------------ | ----------------------------------------- |
+| `x0`               | Epoch of the first sample, in GPS seconds |
+| `dx`               | Sample interval, in seconds               |
+| `xunit`            | The unit those two are in, `s`            |
+| `channel` / `name` | The channel the samples belong to         |
+
+Anything else on the dataset is an extra, and a consumer ignores it. Two extras
+appear in practice: `unit` (`strain`, where the producer recorded one), and
+`t0`/`dt`, which duplicate `x0`/`dx` and are how the multichannel writer inside
+`gwmock-signal` spells the grid. When only one of the two pairs is present,
+gwmock derives the other as it declares the file. When both are present and
+disagree, gwmock **refuses** the file -- at declaration, and again at validation
+-- so a declared file never carries two grids that contradict each other.
+
+The **major** version moves when a reader written against the previous version
+would misread a file; the **minor** moves when something is added that such a
+reader can safely ignore. So a consumer checks the major and refuses anything
+else, rather than discovering the change as a wrong number:
+
+```python
+from gwmock.strain_schema import read_strain_schema, require_strain_schema
+
+# Raises if the file declares no schema, another schema, a major version this
+# gwmock does not know how to read, or a layout that does not match what it
+# declares -- the claim is checked, not taken on trust.
+require_strain_schema("filename.hdf5")
+
+# Or look without refusing: None means the file predates the declaration or
+# came from another producer.
+declared = read_strain_schema("filename.hdf5")
+```
+
+The declaration sits at the file root rather than on the dataset so that GWpy
+still reads the file: GWpy passes every _dataset_ attribute to the series
+constructor, and one it does not recognise makes the file unreadable through
+`TimeSeries.read`.
+
+**GWF and `.npy` carry no declaration.** A frame is composed from a fixed set of
+fields and `.npy` is a bare array container, so neither has anywhere to put it;
+for those formats the run's metadata record remains the description of what was
+written.
+
 ## Reading a file
 
 ```python

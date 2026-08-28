@@ -32,6 +32,7 @@ from gwmock_noise.gaussian import normalize_spectral_lines
 from gwmock_noise.glitches import normalize_glitch_models
 from gwmock_noise.output.frame import compose_frame_name, format_time_token
 
+from gwmock.strain_schema import declare_strain_schema
 from gwmock.utils.download import download_file
 
 _SUPPORTED_OUTPUT_FORMATS = {"npy", "gwf", "hdf5"}
@@ -415,7 +416,7 @@ class NoiseAdapter:
             glitches=glitches,
         )
         if callable(getattr(self._backend, "run", None)):
-            return self._backend.run(config)
+            return self._declare_backend_outputs(self._backend.run(config))
 
         if not isinstance(self._backend, NoiseSimulator):
             raise TypeError("Noise backend must expose run() or satisfy the gwmock_noise NoiseSimulator protocol.")
@@ -681,8 +682,31 @@ class NoiseAdapter:
                 dataset.attrs["channel"] = channel
                 dataset.attrs["name"] = channel
                 dataset.attrs["unit"] = "strain"
+            # Declared through the same call every other writer uses, rather than composed inline here:
+            # one mechanism is one place for the layout to be decided, and gwmock writes this artifact
+            # through three different libraries. See `gwmock.strain_schema`.
+            declare_strain_schema(output_path)
             output_paths[detector] = output_path
         return output_paths
+
+    @staticmethod
+    def _declare_backend_outputs(result: SimulationResult) -> SimulationResult:
+        """Declare the strain schema on artifacts the backend wrote, and return the result unchanged.
+
+        `write_chunk` declares as it writes, but a backend that owns the whole run writes the file itself
+        and knows nothing of gwmock's contract -- so the two paths would otherwise disagree about what a
+        gwmock artifact carries, and `run()` is the path a real run takes. Formats with no attribute
+        space are skipped by `declare_strain_schema` itself.
+
+        Args:
+            result: The result returned by the backend.
+
+        Returns:
+            The same result.
+        """
+        for output_path in result.output_paths.values():
+            declare_strain_schema(output_path)
+        return result
 
     def _normalize_chunk(self, *, chunk: Mapping[str, np.ndarray], detectors: Sequence[str]) -> dict[str, np.ndarray]:
         """Validate and normalize one upstream chunk.

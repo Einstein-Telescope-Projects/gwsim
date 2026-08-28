@@ -1,18 +1,18 @@
 {
   "environment": {
     "astropy": "8.0.1",
-    "astropy-iers-data": "0.2026.8.3.0.53.6",
-    "gwmock": "0.13.0.post32+63f59b7",
-    "gwmock-noise": "0.11.0",
-    "gwmock-pop": "0.11.5",
-    "gwmock-signal": "0.16.0",
-    "jax": "0.11.0",
-    "jaxlib": "0.11.0",
+    "astropy-iers-data": "0.2026.8.24.0.24.29",
+    "gwmock": "0.14.0.post11+a2a216d",
+    "gwmock-noise": "0.11.1",
+    "gwmock-pop": "0.12.0",
+    "gwmock-signal": "0.16.3",
+    "jax": "0.11.1",
+    "jaxlib": "0.11.1",
     "lalsuite": "7.26.15",
-    "numpy": "2.5.1",
+    "numpy": "2.5.2",
     "pyerfa": "2.0.1.5",
     "ripplegw": "0.3.1",
-    "scipy": "1.18.0"
+    "scipy": "1.18.1"
   },
   "fingerprint": {
     "device": "cpu",
@@ -24,7 +24,7 @@
   "outputs": {
     "output/noise/E-ET1_SARD_STRAIN_NOISE-1577491218-8.hdf5": {
       "argmax": 1333,
-      "content_hash": "sha256:03e9244cc86c4bd20d9012ce16152b34c75f9a4cf567d31b3fe17427c73fec17",
+      "content_hash": "sha256:767549b0b52d4407cd5637459e343317aa2d92d1e02e000e4cfe5376d5198220",
       "mean": -1.1045546998264137e-25,
       "n": 8192,
       "nonzero": 8192,
@@ -34,7 +34,7 @@
     },
     "output/noise/E-ET2_SARD_STRAIN_NOISE-1577491218-8.hdf5": {
       "argmax": 1850,
-      "content_hash": "sha256:0a8aeeb99281c22a80515fedcc93aaa620e66c565bb4d0a01adea8a55a2ec836",
+      "content_hash": "sha256:ed6e28a0350c9113d545f446002c6bb2ce707f6b5ed532cf9a0ad2a69077aee3",
       "mean": -1.4361525567439015e-25,
       "n": 8192,
       "nonzero": 8192,
@@ -44,7 +44,7 @@
     },
     "output/noise/E-ET3_SARD_STRAIN_NOISE-1577491218-8.hdf5": {
       "argmax": 978,
-      "content_hash": "sha256:303ab43b1903367edb3510cf2dbe1f815b5130b82f19ae2b9f90363bdb672031",
+      "content_hash": "sha256:b65d977eaa94078f6549e18712f606cf82190115d334d3ebfcd8a1951c5bb190",
       "mean": -7.763877893725934e-25,
       "n": 8192,
       "nonzero": 8192,

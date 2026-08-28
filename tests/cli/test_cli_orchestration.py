@@ -25,6 +25,7 @@ from gwmock.cli.utils.config import (
 )
 from gwmock.cli.utils.simulation_plan import SimulationBatch, create_plan_from_config
 from gwmock.simulator.seeds import derive_seed
+from gwmock.strain_schema import STRAIN_SCHEMA_VERSION, missing_layout_attributes, require_strain_schema
 
 EXPECTED_BATCHES = 2
 FAKE_POPULATION_BACKEND = "tests.cli.test_cli_orchestration:FakePopulationBackend"
@@ -194,8 +195,29 @@ class FakeNoiseAdapter:
 
 
 def _write_signal_file(self, path, **kwargs):
+    """Stand in for `DetectorStrainStack.write`, producing a file its own format can be opened as.
+
+    The stub used to write the bytes `STRAIN` whatever the extension asked for. That was invisible while
+    nothing reopened the artifact, and stopped being so once gwmock declares its strain schema on the
+    file it just wrote: a `.hdf5` holding six ASCII bytes is not an HDF5 file, and the declaration failed
+    on a file no reader could have opened either. A fake writer still has to produce the container the
+    name promises.
+    """
     _ = kwargs
     Path(path).parent.mkdir(parents=True, exist_ok=True)
+    if Path(path).suffix.lower() in {".hdf5", ".h5"}:
+        import h5py
+
+        with h5py.File(path, "w") as handle:
+            dataset = handle.create_dataset("STRAIN", data=np.zeros(1))
+            # The grid, spelled the way the real writer spells it. Without it the stub produces a file
+            # carrying no epoch, which is not something that writer can emit and which gwmock refuses to
+            # declare a layout over -- so a stub that omitted it would be testing a state that cannot
+            # occur.
+            dataset.attrs["t0"] = 0.0
+            dataset.attrs["dt"] = 1.0
+            dataset.attrs["unit"] = "strain"
+        return
     Path(path).write_text("STRAIN")
 
 
@@ -484,6 +506,38 @@ def test_simulate_reproduces_metadata_with_multi_detector_signal_template(monkey
         assert (repro_dir / "output" / "signal" / name).exists()
     for name in ("E-H1_NOISE-0.npy", "E-L1_NOISE-0.npy", "E-H1_NOISE-1.npy", "E-L1_NOISE-1.npy"):
         assert (repro_dir / "output" / "noise" / name).exists()
+
+
+def test_a_runs_hdf5_outputs_declare_the_strain_schema(tmp_path: Path):
+    """Both halves of a run declare the contract their strain files meet.
+
+    Signal and noise reach disk through different writers -- `DetectorStrainStack.write` from the signal
+    side, a second call to it from the noise side -- so a declaration applied to one of them would leave
+    a consumer unable to say what a gwmock run produces. The signal writer is the real one here, not the
+    stub the tests above use, because what is being checked is the artifact rather than the call.
+    """
+    config = _fake_orchestration_config(tmp_path, source_type="bbh")
+    config.orchestration.signal.output.file_name = "signal-{{ counter }}.hdf5"
+    config.orchestration.noise.output.file_name = "noise-{{ counter }}.hdf5"
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.safe_dump(config.model_dump(by_alias=True, exclude_none=True), sort_keys=False))
+
+    _simulate_impl(str(config_file), overwrite=True, metadata=True)
+
+    for counter in range(EXPECTED_BATCHES):
+        signal_output = tmp_path / "output" / "signal" / f"signal-{counter}.hdf5"
+        noise_output = tmp_path / "output" / "noise" / f"noise-{counter}.hdf5"
+        # `require_strain_schema` checks the layout, not only the claim: these files are written by
+        # gwmock-signal's multichannel writer, which records the grid as `t0`/`dt` and no channel
+        # attributes, so passing here is the statement that a run's artifacts genuinely carry the
+        # declared 1.0.0 layout rather than merely asserting it.
+        assert require_strain_schema(signal_output).version == STRAIN_SCHEMA_VERSION
+        assert require_strain_schema(noise_output).version == STRAIN_SCHEMA_VERSION
+        assert missing_layout_attributes(signal_output) == {}
+        assert missing_layout_attributes(noise_output) == {}
+        # Still openable by the standard reader: the declaration lives at the file root precisely so
+        # that gwpy does not meet an attribute it would pass to the series constructor.
+        assert GWpyTimeSeries.read(str(noise_output), format="hdf5") is not None
 
 
 def test_simulate_command_runs_signal_only_sgwb_orchestration(monkeypatch, tmp_path: Path):

@@ -58,6 +58,24 @@ def _hash_named_arrays(hash_func: hashlib._Hash, items: list[tuple[str, dict, ob
         hash_func.update(arr.tobytes())
 
 
+def _first_attribute(dataset: object, names: tuple[str, ...]) -> float | None:
+    """Return the first of *names* the dataset carries, as a float, or ``None`` if it carries none.
+
+    Two writers spell the same quantity differently, so the digest has to accept either -- but only one
+    of them can contribute, or the same number would be folded in twice under two keys and the two
+    spellings would hash differently while describing the same grid.
+
+    Taking the first is not choosing between two answers: a file gwmock declared to its strain schema
+    carries the two spellings consistently or is refused, both when it is declared and when a consumer
+    validates it. For an undeclared file this is a best effort, as the rest of this branch is.
+    """
+    attributes = dataset.attrs  # type: ignore[attr-defined]
+    for name in names:
+        if name in attributes:
+            return float(attributes[name])
+    return None
+
+
 def _read_content_items(file_path: Path) -> list[tuple[str, dict, object]] | None:
     """Decode *file_path* into ``(label, meta, array)`` items, or ``None`` if the
     format is not understood (caller then falls back to the raw-file hash)."""
@@ -92,18 +110,24 @@ def _read_content_items(file_path: Path) -> list[tuple[str, dict, object]] | Non
             # matter while HDF5 was the secondary format; it does now that it is the one a run writes by
             # default.
             #
-            # gwpy stores them as the `x0` and `dx` dataset attributes. A dataset written by something
-            # else may carry neither, and then the entry is hashed on its samples alone as before -- the
-            # check is only as strong as what the writer recorded, which is why this reads attributes
-            # rather than asserting them.
+            # gwpy stores them as the `x0` and `dx` dataset attributes, and gwmock-signal's multichannel
+            # writer as `t0` and `dt`. Both spellings are read, because reading only the first one meant
+            # that for a file written through that writer -- which is the path a run's own outputs take
+            # -- the grid fell out of the digest again, and two segments seconds apart hashed alike.
+            # gwmock now records `x0`/`dx` on every strain artifact it declares, so this second spelling
+            # matters for files written before that and for another producer's; a dataset carrying
+            # neither is still hashed on its samples alone, since the check can only be as strong as
+            # what the writer recorded.
             items = []
             for name in sorted(names):
                 dataset = handle[name]
                 meta: dict[str, object] = {"n": int(dataset.shape[0]) if dataset.shape else 0}
-                if "x0" in dataset.attrs:
-                    meta["t0"] = float(dataset.attrs["x0"])
-                if "dx" in dataset.attrs:
-                    meta["dt"] = float(dataset.attrs["dx"])
+                epoch = _first_attribute(dataset, ("x0", "t0"))
+                if epoch is not None:
+                    meta["t0"] = epoch
+                interval = _first_attribute(dataset, ("dx", "dt"))
+                if interval is not None:
+                    meta["dt"] = interval
                 items.append((name, meta, dataset[()]))
             return items
 

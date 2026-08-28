@@ -40,6 +40,21 @@ FORMATS = [".gwf", ".hdf5"]
 SAMPLES = np.linspace(0.0, 1.0, 1024)
 
 
+def _digest(path: Path) -> str:
+    """Return the content hash of *path*, refusing a ``None``.
+
+    `compute_content_hash` returns `None` for a file it cannot decode. Two `None`s compare equal and a
+    `None` differs from any digest, so a comparison written without this passes whether or not anything
+    was actually hashed -- an inequality test survives one side failing to decode, and an equality test
+    survives both. Every assertion below is about *which* digest came out, so none of them may be
+    satisfied by no digest coming out at all. Returning the value rather than asserting at each call
+    site is what stops the next test in this file from being written without the check.
+    """
+    digest = compute_content_hash(path)
+    assert digest is not None, f"nothing was hashed for {path}, so the comparison would prove nothing"
+    return digest
+
+
 def _written(
     directory: Path,
     suffix: str,
@@ -71,10 +86,7 @@ def _written(
 @pytest.mark.parametrize("suffix", FORMATS)
 def test_the_same_file_hashes_the_same(tmp_path: Path, suffix: str) -> None:
     """The baseline the others are read against: nothing moved, nothing changes."""
-    first = compute_content_hash(_written(tmp_path / "a", suffix))
-    second = compute_content_hash(_written(tmp_path / "b", suffix))
-    assert first is not None
-    assert first == second
+    assert _digest(_written(tmp_path / "a", suffix)) == _digest(_written(tmp_path / "b", suffix))
 
 
 @pytest.mark.parametrize("suffix", FORMATS)
@@ -84,26 +96,81 @@ def test_moving_the_epoch_changes_the_hash(tmp_path: Path, suffix: str) -> None:
     This is the case that collided for HDF5: a segment written for the wrong epoch was indistinguishable
     from the right one.
     """
-    original = compute_content_hash(_written(tmp_path / "a", suffix))
-    moved = compute_content_hash(_written(tmp_path / "b", suffix, t0=1000000512.0))
+    original = _digest(_written(tmp_path / "a", suffix))
+    moved = _digest(_written(tmp_path / "b", suffix, t0=1000000512.0))
     assert original != moved
 
 
 @pytest.mark.parametrize("suffix", FORMATS)
 def test_changing_the_sample_rate_changes_the_hash(tmp_path: Path, suffix: str) -> None:
     """Same samples, half the span. Also collided for HDF5."""
-    original = compute_content_hash(_written(tmp_path / "a", suffix))
-    resampled = compute_content_hash(_written(tmp_path / "b", suffix, rate=512.0))
+    original = _digest(_written(tmp_path / "a", suffix))
+    resampled = _digest(_written(tmp_path / "b", suffix, rate=512.0))
     assert original != resampled
 
 
 @pytest.mark.parametrize("suffix", FORMATS)
 def test_changing_a_sample_changes_the_hash(tmp_path: Path, suffix: str) -> None:
     """The property that already held, kept explicit so a metadata-only digest cannot pass this file."""
-    original = compute_content_hash(_written(tmp_path / "a", suffix))
+    original = _digest(_written(tmp_path / "a", suffix))
     altered = SAMPLES.copy()
     altered[17] += 1e-3
-    assert original != compute_content_hash(_written(tmp_path / "b", suffix, samples=altered))
+    assert original != _digest(_written(tmp_path / "b", suffix, samples=altered))
+
+
+class TestTheOtherSpellingOfTheGrid:
+    """The writer a run's own outputs go through records the grid under different names.
+
+    The tests above write through gwpy, which spells the epoch and the sample interval `x0` and `dx`.
+    `gwmock_signal.DetectorStrainStack.write` -- the writer both halves of an orchestrated run use, so
+    the one behind almost every artifact a user ends up with -- spells them `t0` and `dt`. The digest
+    read only the first spelling, so for those files the grid dropped out of it again and the very
+    collision this module exists to prevent came back on the primary path. Measured before the fix: the
+    same samples at t0=100.0 and t0=612.0 produced one identical digest.
+    """
+
+    @staticmethod
+    def _stack_written(path: Path, *, t0: float = 100.0, rate: float = 8.0) -> Path:
+        from gwmock_signal import DetectorStrainStack
+
+        series = TimeSeries(np.arange(8, dtype=float), t0=t0, sample_rate=rate)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        DetectorStrainStack.from_mapping(["H1:MOCK"], {"H1:MOCK": series}).write(str(path), format="hdf5")
+        return path
+
+    def test_the_writer_really_does_use_the_other_spelling(self, tmp_path: Path) -> None:
+        """Pinned, because everything below is only meaningful while it is true."""
+        h5py = pytest.importorskip("h5py")
+        with h5py.File(self._stack_written(tmp_path / "probe.hdf5"), "r") as handle:
+            attributes = set(handle["H1:MOCK"].attrs)
+        assert {"t0", "dt"} <= attributes
+
+    def test_moving_the_epoch_changes_the_hash(self, tmp_path: Path) -> None:
+        original = _digest(self._stack_written(tmp_path / "a.hdf5"))
+        moved = _digest(self._stack_written(tmp_path / "b.hdf5", t0=612.0))
+        assert original != moved
+
+    def test_changing_the_sample_rate_changes_the_hash(self, tmp_path: Path) -> None:
+        original = _digest(self._stack_written(tmp_path / "a.hdf5"))
+        resampled = _digest(self._stack_written(tmp_path / "b.hdf5", rate=16.0))
+        assert original != resampled
+
+    def test_the_two_spellings_of_one_grid_hash_alike(self, tmp_path: Path) -> None:
+        """A file carrying both names must not hash differently from one carrying either.
+
+        Only one spelling may contribute to the digest. Folding both in would make an artifact declared
+        to the strain schema -- which records `x0`/`dx` alongside the `t0`/`dt` the stack writer leaves
+        in place -- hash differently from the same data before it was declared.
+        """
+        h5py = pytest.importorskip("h5py")
+        aliased = self._stack_written(tmp_path / "a.hdf5")
+        both = self._stack_written(tmp_path / "b.hdf5")
+        with h5py.File(both, "a") as handle:
+            dataset = handle["H1:MOCK"]
+            dataset.attrs["x0"] = float(dataset.attrs["t0"])
+            dataset.attrs["dx"] = float(dataset.attrs["dt"])
+
+        assert _digest(aliased) == _digest(both)
 
 
 def test_an_hdf5_dataset_without_grid_attributes_still_hashes(tmp_path: Path) -> None:
