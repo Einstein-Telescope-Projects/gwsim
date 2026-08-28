@@ -25,7 +25,7 @@ from gwmock.cli.utils.config import (
 )
 from gwmock.cli.utils.simulation_plan import SimulationBatch, create_plan_from_config
 from gwmock.simulator.seeds import derive_seed
-from gwmock.strain_schema import STRAIN_SCHEMA_VERSION, require_strain_schema
+from gwmock.strain_schema import STRAIN_SCHEMA_VERSION, missing_layout_attributes, require_strain_schema
 
 EXPECTED_BATCHES = 2
 FAKE_POPULATION_BACKEND = "tests.cli.test_cli_orchestration:FakePopulationBackend"
@@ -209,7 +209,14 @@ def _write_signal_file(self, path, **kwargs):
         import h5py
 
         with h5py.File(path, "w") as handle:
-            handle.create_dataset("STRAIN", data=np.zeros(1))
+            dataset = handle.create_dataset("STRAIN", data=np.zeros(1))
+            # The grid, spelled the way the real writer spells it. Without it the stub produces a file
+            # carrying no epoch, which is not something that writer can emit and which gwmock refuses to
+            # declare a layout over -- so a stub that omitted it would be testing a state that cannot
+            # occur.
+            dataset.attrs["t0"] = 0.0
+            dataset.attrs["dt"] = 1.0
+            dataset.attrs["unit"] = "strain"
         return
     Path(path).write_text("STRAIN")
 
@@ -520,8 +527,14 @@ def test_a_runs_hdf5_outputs_declare_the_strain_schema(tmp_path: Path):
     for counter in range(EXPECTED_BATCHES):
         signal_output = tmp_path / "output" / "signal" / f"signal-{counter}.hdf5"
         noise_output = tmp_path / "output" / "noise" / f"noise-{counter}.hdf5"
+        # `require_strain_schema` checks the layout, not only the claim: these files are written by
+        # gwmock-signal's multichannel writer, which records the grid as `t0`/`dt` and no channel
+        # attributes, so passing here is the statement that a run's artifacts genuinely carry the
+        # declared 1.0.0 layout rather than merely asserting it.
         assert require_strain_schema(signal_output).version == STRAIN_SCHEMA_VERSION
         assert require_strain_schema(noise_output).version == STRAIN_SCHEMA_VERSION
+        assert missing_layout_attributes(signal_output) == {}
+        assert missing_layout_attributes(noise_output) == {}
         # Still openable by the standard reader: the declaration lives at the file root precisely so
         # that gwpy does not meet an attribute it would pass to the series constructor.
         assert GWpyTimeSeries.read(str(noise_output), format="hdf5") is not None

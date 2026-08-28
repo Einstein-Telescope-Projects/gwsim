@@ -1,18 +1,18 @@
 {
   "environment": {
     "astropy": "8.0.1",
-    "astropy-iers-data": "0.2026.8.3.0.53.6",
-    "gwmock": "0.13.0.post32+63f59b7",
-    "gwmock-noise": "0.11.0",
-    "gwmock-pop": "0.11.5",
-    "gwmock-signal": "0.16.0",
-    "jax": "0.11.0",
-    "jaxlib": "0.11.0",
+    "astropy-iers-data": "0.2026.8.24.0.24.29",
+    "gwmock": "0.14.0.post11+a2a216d",
+    "gwmock-noise": "0.11.1",
+    "gwmock-pop": "0.12.0",
+    "gwmock-signal": "0.16.3",
+    "jax": "0.11.1",
+    "jaxlib": "0.11.1",
     "lalsuite": "7.26.15",
-    "numpy": "2.5.1",
+    "numpy": "2.5.2",
     "pyerfa": "2.0.1.5",
     "ripplegw": "0.3.1",
-    "scipy": "1.18.0"
+    "scipy": "1.18.1"
   },
   "fingerprint": {
     "device": "cpu",
@@ -24,7 +24,7 @@
   "outputs": {
     "output/noise/noise-0-ET1_SARD.hdf5": {
       "argmax": 6525,
-      "content_hash": "sha256:9dcc55046872a4ee0aa69b98eae536466d3f2e30e2c7127ecff4d20dc09056b1",
+      "content_hash": "sha256:5560be5522f62688e8aab9dd34c0506a7ba78604511923cde8b5448b93c7b851",
       "mean": 6.640791750541525e-27,
       "n": 8192,
       "nonzero": 8192,
@@ -34,7 +34,7 @@
     },
     "output/noise/noise-0-ET2_SARD.hdf5": {
       "argmax": 1503,
-      "content_hash": "sha256:97b09ce681bca15e94f311c4bfb9f23c172edca0f2e421bf933d63eaee5d30ed",
+      "content_hash": "sha256:593ec9c37cc42b2372b58dbc471d8a68464fbbbdc92bb184c1acb5701271d10e",
       "mean": 6.576453366363114e-26,
       "n": 8192,
       "nonzero": 8192,
@@ -44,7 +44,7 @@
     },
     "output/noise/noise-0-ET3_SARD.hdf5": {
       "argmax": 3504,
-      "content_hash": "sha256:2dfa0ed69c75834ea942aaad8e891b060759ca8c59fc468e114371952532d46b",
+      "content_hash": "sha256:1b15e16834533ae96383b90835a81dfe51d398f953dc88b5e8e60ff877ee973c",
       "mean": 3.986888356333029e-25,
       "n": 8192,
       "nonzero": 8192,
@@ -54,7 +54,7 @@
     },
     "output/signal/sgwb-et-triangle-0.hdf5": {
       "argmax": 1807,
-      "content_hash": "sha256:93862f4b53e60b9f40a1dde60377ed52ae63f082baa67c3ad55eebbf9b5e249e",
+      "content_hash": "sha256:be692f3aa4e43f1d70884d6d18104cc9451de55757bed99635d8b8c430df1959",
       "mean": 4.18521141345012e-42,
       "n": 24576,
       "nonzero": 24576,

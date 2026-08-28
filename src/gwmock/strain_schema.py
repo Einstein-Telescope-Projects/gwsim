@@ -16,7 +16,29 @@ What the schema declares is written into the artifact itself, at the **file root
     misread a file (a dataset renamed, an attribute's meaning changed); the minor moves when something
     is added that such a reader can ignore.
 
-Two consequences of that placement are deliberate:
+Version 1.0.0 requires, of every dataset in the file:
+
+* the samples of one channel, and the dataset is **named** for that channel;
+* ``x0`` -- the epoch of the first sample, in GPS seconds;
+* ``dx`` -- the sample interval, in seconds;
+* ``xunit`` -- the unit those two are in, ``"s"``;
+* ``channel`` and ``name`` -- the channel the samples belong to.
+
+Anything else on the dataset is permitted and a consumer ignores it. Two such extras are written in
+practice: ``unit`` (``"strain"``, where the producer recorded one), and ``t0``/``dt``, which duplicate
+``x0``/``dx`` and are how the multichannel writer in ``gwmock-signal`` spells the grid. The duplicate is
+not a second source of truth -- :func:`declare_strain_schema` derives one pair from the other at write
+time, so they cannot be set independently -- and it is kept because that writer's own reader requires
+it.
+
+That last point is the reason declaring the schema is not only a matter of writing two root attributes.
+gwmock composes strain HDF5 through three different writers -- its own, gwpy's, and gwmock-signal's --
+and they did not agree on how to spell the grid. Declaring one contract over three layouts would have
+announced a compatibility that two thirds of the artifacts did not have, so
+:func:`declare_strain_schema` makes the file match the declaration before making it, and
+:func:`require_strain_schema` checks the layout rather than trusting the claim.
+
+Two consequences of the root placement are deliberate:
 
 * **Root, not dataset.** gwpy's HDF5 reader passes every dataset attribute to the series constructor as
   a keyword argument, so an attribute it does not know raises ``TypeError`` and the file becomes
@@ -39,17 +61,17 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 #: The name written to the ``schema`` attribute, identifying which contract the file claims to meet.
 STRAIN_SCHEMA = "gwmock-strain"
 
 #: The version of the strain contract this gwmock writes.
 #:
-#: 1.0.0: one dataset per channel, named for the channel, holding the samples as float64 strain; the
-#: grid in the dataset's ``x0`` (epoch, GPS seconds) and ``dx`` (sample interval, seconds) attributes,
-#: with ``xunit``/``unit`` naming their units and ``channel``/``name`` repeating the channel. This is
-#: the layout gwmock already wrote; 1.0.0 declares it rather than changing it.
+#: 1.0.0: the layout described in the module docstring -- one dataset per channel, named for the
+#: channel, with the grid in ``x0``/``dx``/``xunit`` and the channel in ``channel``/``name``. This is
+#: the layout gwmock's own writer already produced; 1.0.0 declares it, and makes the other two writers
+#: meet it rather than widening the contract to cover what each of them happened to emit.
 STRAIN_SCHEMA_VERSION = "1.0.0"
 
 #: Root attribute naming the schema.
@@ -57,6 +79,14 @@ SCHEMA_ATTRIBUTE = "schema"
 
 #: Root attribute carrying the schema version.
 SCHEMA_VERSION_ATTRIBUTE = "schema_version"
+
+#: The dataset attributes version 1.0.0 requires. A consumer may read these on any declared file.
+REQUIRED_DATASET_ATTRIBUTES = ("x0", "dx", "xunit", "channel", "name")
+
+#: How ``gwmock-signal``'s multichannel writer spells the epoch and the sample interval. Read to derive
+#: ``x0``/``dx`` when they are absent, and left in place afterwards because that writer's reader needs
+#: them: deleting them makes ``DetectorStrainStack.read`` fail with ``can't locate attribute: 't0'``.
+_GRID_ALIASES = (("x0", "t0"), ("dx", "dt"))
 
 _HDF5_SUFFIXES = frozenset({".hdf5", ".h5"})
 _VERSION_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -117,21 +147,30 @@ def carries_strain_schema(path: str | Path) -> bool:
     return Path(path).suffix.lower() in _HDF5_SUFFIXES
 
 
-def stamp_strain_schema(path: str | Path) -> bool:
-    """Declare the current strain schema on an already-written artifact.
+def declare_strain_schema(path: str | Path) -> bool:
+    """Make an already-written artifact meet the current strain schema, and say that it does.
 
     Call it once per artifact, after the samples are written and before the file is published under its
-    final name. It is a no-op for ``.npy`` and ``.gwf``, which have nowhere to record it, so a caller
-    that writes several formats does not have to branch on the format itself.
+    final name -- from every writer, so that one call site is the only thing that decides what a gwmock
+    strain artifact looks like. It is a no-op for ``.npy`` and ``.gwf``, which have nowhere to record
+    the declaration, so a caller that writes several formats does not have to branch on the format.
+
+    Each dataset is brought up to the 1.0.0 layout before the file claims it: the grid is filled in from
+    the ``t0``/``dt`` spelling when ``x0``/``dx`` are absent, and the channel from the dataset's own
+    name. Nothing already present is overwritten -- the writer's own value is the authoritative one --
+    and no attribute is invented from nothing, so a dataset carrying no grid at all is an error rather
+    than a file that declares a layout it does not have.
 
     Args:
-        path: The artifact to stamp.
+        path: The artifact to declare.
 
     Returns:
         True if the declaration was written, False if the format cannot carry one.
 
     Raises:
         FileNotFoundError: If the artifact does not exist.
+        ValueError: If a dataset carries no epoch or no sample interval under either spelling, so the
+            required layout cannot be completed.
     """
     artifact = Path(path)
     if not carries_strain_schema(artifact):
@@ -142,6 +181,8 @@ def stamp_strain_schema(path: str | Path) -> bool:
     import h5py  # noqa: PLC0415  # deferred so importing the contract does not pull in the HDF5 stack
 
     with h5py.File(artifact, "a") as handle:
+        for dataset in _datasets(handle):
+            _conform_dataset(dataset, artifact=artifact)
         handle.attrs.update(strain_schema_attributes())
     return True
 
@@ -174,11 +215,34 @@ def read_strain_schema(path: str | Path) -> StrainSchema | None:
         )
 
 
+def missing_layout_attributes(path: str | Path) -> dict[str, list[str]]:
+    """Return, per dataset, the required attributes the file does not carry.
+
+    Args:
+        path: The artifact to inspect.
+
+    Returns:
+        A mapping of dataset name to the missing attribute names; empty when the file meets the layout.
+    """
+    import h5py  # noqa: PLC0415  # deferred so importing the contract does not pull in the HDF5 stack
+
+    missing: dict[str, list[str]] = {}
+    with h5py.File(Path(path), "r") as handle:
+        for dataset in _datasets(handle):
+            absent = [name for name in REQUIRED_DATASET_ATTRIBUTES if name not in dataset.attrs]
+            if absent:
+                missing[dataset.name.lstrip("/")] = absent
+    return missing
+
+
 def require_strain_schema(path: str | Path) -> StrainSchema:
     """Return the declared schema, refusing anything this gwmock cannot read.
 
     This is the consumer-side half of the contract: it turns a file whose layout may have moved under
-    the reader into a refusal at open time, rather than a wrong number later.
+    the reader into a refusal at open time, rather than a wrong number later. The layout is checked
+    rather than taken on trust, because a declaration a writer got wrong is worth exactly as little as
+    no declaration at all -- and it is the check that would have caught the multichannel writer emitting
+    the grid under a different name than the contract promised.
 
     Args:
         path: The artifact to check.
@@ -187,8 +251,8 @@ def require_strain_schema(path: str | Path) -> StrainSchema:
         The declared schema.
 
     Raises:
-        ValueError: If the artifact declares no schema, declares a different one, or declares a major
-            version this gwmock does not know how to read.
+        ValueError: If the artifact declares no schema, declares a different one, declares a major
+            version this gwmock does not know how to read, or does not carry the layout it declares.
     """
     declared = read_strain_schema(path)
     if declared is None:
@@ -204,7 +268,58 @@ def require_strain_schema(path: str | Path) -> StrainSchema:
             f"{Path(path)} declares strain schema major version {declared.major}; this gwmock reads "
             f"major version {current_major} ({STRAIN_SCHEMA_VERSION})."
         )
+    missing = missing_layout_attributes(path)
+    if missing:
+        detail = "; ".join(f"{name} is missing {', '.join(absent)}" for name, absent in sorted(missing.items()))
+        raise ValueError(
+            f"{Path(path)} declares strain schema {declared.version} but does not carry its layout: {detail}."
+        )
     return declared
+
+
+def _datasets(handle: Any) -> list[Any]:
+    """Return every dataset in an open HDF5 file, at any depth.
+
+    Args:
+        handle: The open file.
+
+    Returns:
+        The datasets it holds.
+    """
+    import h5py  # noqa: PLC0415  # deferred so importing the contract does not pull in the HDF5 stack
+
+    found: list[Any] = []
+    handle.visititems(lambda _, obj: found.append(obj) if isinstance(obj, h5py.Dataset) else None)
+    return found
+
+
+def _conform_dataset(dataset: Any, *, artifact: Path) -> None:
+    """Fill in the attributes version 1.0.0 requires, from what the writer already recorded.
+
+    Args:
+        dataset: The dataset to complete.
+        artifact: The file it belongs to, named in the error below.
+
+    Raises:
+        ValueError: If the epoch or the sample interval is absent under both spellings, leaving nothing
+            to derive the required grid from.
+    """
+    for required, alias in _GRID_ALIASES:
+        if required in dataset.attrs:
+            continue
+        if alias not in dataset.attrs:
+            raise ValueError(
+                f"Cannot declare the strain schema on {artifact}: dataset '{dataset.name.lstrip('/')}' "
+                f"carries neither '{required}' nor '{alias}', so the grid version "
+                f"{STRAIN_SCHEMA_VERSION} requires cannot be recorded."
+            )
+        dataset.attrs[required] = float(dataset.attrs[alias])
+    if "xunit" not in dataset.attrs:
+        dataset.attrs["xunit"] = "s"
+    channel = dataset.name.lstrip("/")
+    for attribute in ("channel", "name"):
+        if attribute not in dataset.attrs:
+            dataset.attrs[attribute] = channel
 
 
 def _as_text(value: object) -> str:

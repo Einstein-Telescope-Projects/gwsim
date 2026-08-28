@@ -40,10 +40,22 @@ file**:
 | `schema`         | `gwmock-strain`     | Which contract this is                       |
 | `schema_version` | `MAJOR.MINOR.PATCH` | Which revision of it the file was written to |
 
-Version `1.0.0` says: one dataset per channel, named for the channel, holding
-the samples as float64 strain; the epoch in the dataset's `x0` attribute (GPS
-seconds) and the sample interval in `dx` (seconds), with `xunit`/`unit` naming
-their units and `channel`/`name` repeating the channel name.
+Version `1.0.0` requires, of **every** dataset in the file: the samples of one
+channel, as float64 strain, in a dataset named for that channel, plus these
+attributes.
+
+| Attribute          | Meaning                                   |
+| ------------------ | ----------------------------------------- |
+| `x0`               | Epoch of the first sample, in GPS seconds |
+| `dx`               | Sample interval, in seconds               |
+| `xunit`            | The unit those two are in, `s`            |
+| `channel` / `name` | The channel the samples belong to         |
+
+Anything else on the dataset is an extra, and a consumer ignores it. Two extras
+appear in practice: `unit` (`strain`, where the producer recorded one), and
+`t0`/`dt`, which duplicate `x0`/`dx` and are how the multichannel writer inside
+`gwmock-signal` spells the grid. gwmock derives one pair from the other when it
+declares the file, so the two cannot disagree.
 
 The **major** version moves when a reader written against the previous version
 would misread a file; the **minor** moves when something is added that such a
@@ -53,8 +65,9 @@ else, rather than discovering the change as a wrong number:
 ```python
 from gwmock.strain_schema import read_strain_schema, require_strain_schema
 
-# Raises if the file declares no schema, another schema, or a major version
-# this gwmock does not know how to read.
+# Raises if the file declares no schema, another schema, a major version this
+# gwmock does not know how to read, or a layout that does not match what it
+# declares -- the claim is checked, not taken on trust.
 require_strain_schema("filename.hdf5")
 
 # Or look without refusing: None means the file predates the declaration or

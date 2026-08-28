@@ -106,6 +106,62 @@ def test_changing_a_sample_changes_the_hash(tmp_path: Path, suffix: str) -> None
     assert original != compute_content_hash(_written(tmp_path / "b", suffix, samples=altered))
 
 
+class TestTheOtherSpellingOfTheGrid:
+    """The writer a run's own outputs go through records the grid under different names.
+
+    The tests above write through gwpy, which spells the epoch and the sample interval `x0` and `dx`.
+    `gwmock_signal.DetectorStrainStack.write` -- the writer both halves of an orchestrated run use, so
+    the one behind almost every artifact a user ends up with -- spells them `t0` and `dt`. The digest
+    read only the first spelling, so for those files the grid dropped out of it again and the very
+    collision this module exists to prevent came back on the primary path. Measured before the fix: the
+    same samples at t0=100.0 and t0=612.0 produced one identical digest.
+    """
+
+    @staticmethod
+    def _stack_written(path: Path, *, t0: float = 100.0, rate: float = 8.0) -> Path:
+        from gwmock_signal import DetectorStrainStack
+
+        series = TimeSeries(np.arange(8, dtype=float), t0=t0, sample_rate=rate)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        DetectorStrainStack.from_mapping(["H1:MOCK"], {"H1:MOCK": series}).write(str(path), format="hdf5")
+        return path
+
+    def test_the_writer_really_does_use_the_other_spelling(self, tmp_path: Path) -> None:
+        """Pinned, because everything below is only meaningful while it is true."""
+        h5py = pytest.importorskip("h5py")
+        with h5py.File(self._stack_written(tmp_path / "probe.hdf5"), "r") as handle:
+            attributes = set(handle["H1:MOCK"].attrs)
+        assert {"t0", "dt"} <= attributes
+
+    def test_moving_the_epoch_changes_the_hash(self, tmp_path: Path) -> None:
+        original = compute_content_hash(self._stack_written(tmp_path / "a.hdf5"))
+        moved = compute_content_hash(self._stack_written(tmp_path / "b.hdf5", t0=612.0))
+        assert original is not None
+        assert original != moved
+
+    def test_changing_the_sample_rate_changes_the_hash(self, tmp_path: Path) -> None:
+        original = compute_content_hash(self._stack_written(tmp_path / "a.hdf5"))
+        resampled = compute_content_hash(self._stack_written(tmp_path / "b.hdf5", rate=16.0))
+        assert original != resampled
+
+    def test_the_two_spellings_of_one_grid_hash_alike(self, tmp_path: Path) -> None:
+        """A file carrying both names must not hash differently from one carrying either.
+
+        Only one spelling may contribute to the digest. Folding both in would make an artifact declared
+        to the strain schema -- which records `x0`/`dx` alongside the `t0`/`dt` the stack writer leaves
+        in place -- hash differently from the same data before it was declared.
+        """
+        h5py = pytest.importorskip("h5py")
+        aliased = self._stack_written(tmp_path / "a.hdf5")
+        both = self._stack_written(tmp_path / "b.hdf5")
+        with h5py.File(both, "a") as handle:
+            dataset = handle["H1:MOCK"]
+            dataset.attrs["x0"] = float(dataset.attrs["t0"])
+            dataset.attrs["dx"] = float(dataset.attrs["dt"])
+
+        assert compute_content_hash(aliased) == compute_content_hash(both)
+
+
 def test_an_hdf5_dataset_without_grid_attributes_still_hashes(tmp_path: Path) -> None:
     """A file written by something other than gwpy has no `x0`/`dx`, and must not raise.
 

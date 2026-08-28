@@ -16,16 +16,18 @@ import pytest
 from gwpy.timeseries import TimeSeries
 
 from gwmock.strain_schema import (
+    REQUIRED_DATASET_ATTRIBUTES,
     SCHEMA_ATTRIBUTE,
     SCHEMA_VERSION_ATTRIBUTE,
     STRAIN_SCHEMA,
     STRAIN_SCHEMA_VERSION,
     StrainSchema,
     carries_strain_schema,
+    declare_strain_schema,
+    missing_layout_attributes,
     parse_strain_schema_version,
     read_strain_schema,
     require_strain_schema,
-    stamp_strain_schema,
     strain_schema_attributes,
 )
 
@@ -60,6 +62,11 @@ class TestWhatTheDeclarationSays:
             SCHEMA_VERSION_ATTRIBUTE: STRAIN_SCHEMA_VERSION,
         }
 
+    def test_the_layout_the_version_requires(self) -> None:
+        """The five attributes a consumer may read on any declared file, pinned so widening the contract
+        is a deliberate edit rather than a side effect."""
+        assert REQUIRED_DATASET_ATTRIBUTES == ("x0", "dx", "xunit", "channel", "name")
+
     @pytest.mark.parametrize("value", ["1", "1.0", "1.0.0.0", "v1.0.0", "1.0.0-rc1", "01.0.0", "", "one.0.0"])
     def test_a_version_that_is_not_one_is_refused(self, value: str) -> None:
         """A reader compares majors, so a version it cannot split is not a version it can compare."""
@@ -68,25 +75,25 @@ class TestWhatTheDeclarationSays:
 
 
 class TestStamping:
-    """What `stamp_strain_schema` writes, and where."""
+    """What `declare_strain_schema` writes, and where."""
 
     def test_an_hdf5_artifact_is_stamped(self, tmp_path: Path) -> None:
         path = _hdf5_strain(tmp_path / "strain.hdf5")
 
-        assert stamp_strain_schema(path) is True
+        assert declare_strain_schema(path) is True
         assert read_strain_schema(path) == StrainSchema(name=STRAIN_SCHEMA, version=STRAIN_SCHEMA_VERSION)
 
     def test_the_h5_spelling_is_the_same_format(self, tmp_path: Path) -> None:
         path = _hdf5_strain(tmp_path / "strain.h5")
 
-        assert stamp_strain_schema(path) is True
+        assert declare_strain_schema(path) is True
         assert read_strain_schema(path) is not None
 
     def test_the_declaration_is_written_at_the_root(self, tmp_path: Path) -> None:
         """Where it goes is the whole design, not a detail -- see the sibling test below for why."""
         path = _hdf5_strain(tmp_path / "strain.hdf5")
 
-        stamp_strain_schema(path)
+        declare_strain_schema(path)
 
         with h5py.File(path, "r") as handle:
             assert handle.attrs[SCHEMA_ATTRIBUTE] == STRAIN_SCHEMA
@@ -103,7 +110,7 @@ class TestStamping:
         """
         path = _hdf5_strain(tmp_path / "strain.hdf5")
 
-        stamp_strain_schema(path)
+        declare_strain_schema(path)
 
         series = TimeSeries.read(str(path), format="hdf5")
         assert series.t0.value == START
@@ -113,7 +120,7 @@ class TestStamping:
     def test_the_samples_are_untouched(self, tmp_path: Path) -> None:
         path = _hdf5_strain(tmp_path / "strain.hdf5")
 
-        stamp_strain_schema(path)
+        declare_strain_schema(path)
 
         with h5py.File(path, "r") as handle:
             dataset = handle["H1:MOCK_NOISE"]
@@ -124,8 +131,8 @@ class TestStamping:
         """A file may be re-stamped -- a merge of merges, a re-run over an existing path."""
         path = _hdf5_strain(tmp_path / "strain.hdf5")
 
-        stamp_strain_schema(path)
-        stamp_strain_schema(path)
+        declare_strain_schema(path)
+        declare_strain_schema(path)
 
         with h5py.File(path, "r") as handle:
             assert sorted(handle.attrs) == sorted([SCHEMA_ATTRIBUTE, SCHEMA_VERSION_ATTRIBUTE])
@@ -138,13 +145,13 @@ class TestStamping:
         path = tmp_path / name
         path.write_bytes(b"not hdf5")
 
-        assert stamp_strain_schema(path) is False
+        assert declare_strain_schema(path) is False
         assert path.read_bytes() == b"not hdf5"
 
     def test_a_missing_hdf5_artifact_is_an_error(self, tmp_path: Path) -> None:
         """It is called straight after a write, so an absent file means the write did not happen."""
         with pytest.raises(FileNotFoundError, match="does not exist"):
-            stamp_strain_schema(tmp_path / "never-written.hdf5")
+            declare_strain_schema(tmp_path / "never-written.hdf5")
 
     @pytest.mark.parametrize(
         ("name", "expected"),
@@ -152,6 +159,137 @@ class TestStamping:
     )
     def test_which_formats_can_carry_it(self, name: str, expected: bool) -> None:
         assert carries_strain_schema(Path(name)) is expected
+
+
+class TestBringingAFileUpToTheLayout:
+    """gwmock composes strain HDF5 through three libraries, and they did not agree on the layout.
+
+    `gwmock_signal.DetectorStrainStack.write` -- the writer behind both halves of an orchestrated run,
+    so behind almost every artifact a user ends up with -- records the grid as `t0`/`dt` and writes no
+    channel attributes at all. Declaring 1.0.0 over that file announced a layout it did not have. The
+    declaration now completes the file first, from what its writer already recorded.
+    """
+
+    @staticmethod
+    def _aliased(path: Path, *, t0: float = START, dt: float = 1.0 / RATE) -> Path:
+        """A dataset in the other spelling, as the multichannel writer leaves it."""
+        with h5py.File(path, "w") as handle:
+            dataset = handle.create_dataset("H1:MOCK_NOISE", data=np.arange(16, dtype=float))
+            dataset.attrs["t0"] = t0
+            dataset.attrs["dt"] = dt
+            dataset.attrs["unit"] = "strain"
+        return path
+
+    def test_the_grid_is_filled_in_from_the_other_spelling(self, tmp_path: Path) -> None:
+        path = self._aliased(tmp_path / "strain.hdf5")
+
+        declare_strain_schema(path)
+
+        with h5py.File(path, "r") as handle:
+            attributes = handle["H1:MOCK_NOISE"].attrs
+            assert attributes["x0"] == START
+            assert attributes["dx"] == 1.0 / RATE
+            assert attributes["xunit"] == "s"
+
+    def test_the_derived_grid_is_the_one_the_writer_recorded(self, tmp_path: Path) -> None:
+        """Derived rather than assumed: a file at another epoch must not acquire the default one."""
+        path = self._aliased(tmp_path / "strain.hdf5", t0=612.0, dt=0.5)
+
+        declare_strain_schema(path)
+
+        with h5py.File(path, "r") as handle:
+            attributes = handle["H1:MOCK_NOISE"].attrs
+            assert attributes["x0"] == 612.0
+            assert attributes["dx"] == 0.5
+
+    def test_the_other_spelling_is_left_in_place(self, tmp_path: Path) -> None:
+        """Deleting it breaks the writer's own reader: `DetectorStrainStack.read` looks for `t0`."""
+        path = self._aliased(tmp_path / "strain.hdf5")
+
+        declare_strain_schema(path)
+
+        with h5py.File(path, "r") as handle:
+            assert handle["H1:MOCK_NOISE"].attrs["t0"] == START
+            assert handle["H1:MOCK_NOISE"].attrs["dt"] == 1.0 / RATE
+
+    def test_the_channel_is_taken_from_the_dataset_name(self, tmp_path: Path) -> None:
+        path = self._aliased(tmp_path / "strain.hdf5")
+
+        declare_strain_schema(path)
+
+        with h5py.File(path, "r") as handle:
+            attributes = handle["H1:MOCK_NOISE"].attrs
+            assert attributes["channel"] == "H1:MOCK_NOISE"
+            assert attributes["name"] == "H1:MOCK_NOISE"
+
+    def test_what_the_writer_recorded_is_not_overwritten(self, tmp_path: Path) -> None:
+        """The writer's own value is the authoritative one; the completion only fills gaps."""
+        path = tmp_path / "strain.hdf5"
+        with h5py.File(path, "w") as handle:
+            dataset = handle.create_dataset("H1:MOCK_NOISE", data=np.arange(4, dtype=float))
+            dataset.attrs["x0"] = 7.0
+            dataset.attrs["t0"] = 9.0
+            dataset.attrs["dx"] = 0.25
+            dataset.attrs["channel"] = "SOMETHING:ELSE"
+
+        declare_strain_schema(path)
+
+        with h5py.File(path, "r") as handle:
+            attributes = handle["H1:MOCK_NOISE"].attrs
+            assert attributes["x0"] == 7.0
+            assert attributes["channel"] == "SOMETHING:ELSE"
+
+    def test_every_dataset_in_the_file_is_completed(self, tmp_path: Path) -> None:
+        """A multichannel file holds one dataset per channel, and the contract is about all of them."""
+        path = tmp_path / "strain.hdf5"
+        with h5py.File(path, "w") as handle:
+            for channel in ("H1:MOCK", "L1:MOCK"):
+                dataset = handle.create_dataset(channel, data=np.arange(4, dtype=float))
+                dataset.attrs["t0"] = START
+                dataset.attrs["dt"] = 1.0 / RATE
+
+        declare_strain_schema(path)
+
+        assert missing_layout_attributes(path) == {}
+
+    def test_a_dataset_with_no_grid_at_all_is_refused(self, tmp_path: Path) -> None:
+        """Nothing is invented from nothing: the alternative is a file declaring a layout it lacks."""
+        path = tmp_path / "strain.hdf5"
+        with h5py.File(path, "w") as handle:
+            handle.create_dataset("H1:MOCK_NOISE", data=np.arange(4, dtype=float))
+
+        with pytest.raises(ValueError, match="carries neither 'x0' nor 't0'"):
+            declare_strain_schema(path)
+
+    def test_a_file_it_refuses_is_left_undeclared(self, tmp_path: Path) -> None:
+        """The root attributes go on last, so a refusal cannot leave a half-declared artifact."""
+        path = tmp_path / "strain.hdf5"
+        with h5py.File(path, "w") as handle:
+            handle.create_dataset("H1:MOCK_NOISE", data=np.arange(4, dtype=float))
+
+        with pytest.raises(ValueError, match="carries neither"):
+            declare_strain_schema(path)
+
+        assert read_strain_schema(path) is None
+
+    def test_a_completed_file_meets_the_layout(self, tmp_path: Path) -> None:
+        path = self._aliased(tmp_path / "strain.hdf5")
+
+        declare_strain_schema(path)
+
+        assert missing_layout_attributes(path) == {}
+        assert require_strain_schema(path).version == STRAIN_SCHEMA_VERSION
+
+    def test_a_completed_file_still_reads_through_gwpy(self, tmp_path: Path) -> None:
+        """Both spellings of the grid now sit on the dataset, and gwpy passes every one of them to the
+        series constructor -- so this is the check that the pair does not collide there."""
+        path = self._aliased(tmp_path / "strain.hdf5")
+
+        declare_strain_schema(path)
+
+        series = TimeSeries.read(str(path), format="hdf5")
+        assert series.t0.value == START
+        assert series.sample_rate.value == RATE
 
 
 class TestReadingTheDeclaration:
@@ -192,7 +330,7 @@ class TestRequiringTheDeclaration:
 
     def test_a_stamped_file_is_accepted(self, tmp_path: Path) -> None:
         path = _hdf5_strain(tmp_path / "strain.hdf5")
-        stamp_strain_schema(path)
+        declare_strain_schema(path)
 
         assert require_strain_schema(path).version == STRAIN_SCHEMA_VERSION
 
@@ -228,6 +366,37 @@ class TestRequiringTheDeclaration:
             handle.attrs[SCHEMA_VERSION_ATTRIBUTE] = "1.7.3"
 
         assert require_strain_schema(path).version == "1.7.3"
+
+    def test_a_declared_file_that_does_not_carry_the_layout_is_refused(self, tmp_path: Path) -> None:
+        """A declaration a writer got wrong is worth exactly as little as no declaration at all.
+
+        This is the check that would have caught the multichannel writer emitting the grid under a name
+        the contract did not promise, instead of a consumer discovering it as a missing attribute.
+        """
+        path = tmp_path / "strain.hdf5"
+        with h5py.File(path, "w") as handle:
+            dataset = handle.create_dataset("H1:MOCK_NOISE", data=np.arange(4, dtype=float))
+            dataset.attrs["t0"] = START
+            dataset.attrs["dt"] = 1.0 / RATE
+            handle.attrs[SCHEMA_ATTRIBUTE] = STRAIN_SCHEMA
+            handle.attrs[SCHEMA_VERSION_ATTRIBUTE] = STRAIN_SCHEMA_VERSION
+
+        with pytest.raises(ValueError, match="does not carry its layout"):
+            require_strain_schema(path)
+
+    def test_the_refusal_names_what_is_missing(self, tmp_path: Path) -> None:
+        path = tmp_path / "strain.hdf5"
+        with h5py.File(path, "w") as handle:
+            dataset = handle.create_dataset("H1:MOCK_NOISE", data=np.arange(4, dtype=float))
+            dataset.attrs["x0"] = START
+            dataset.attrs["dx"] = 1.0 / RATE
+            dataset.attrs["xunit"] = "s"
+            handle.attrs[SCHEMA_ATTRIBUTE] = STRAIN_SCHEMA
+            handle.attrs[SCHEMA_VERSION_ATTRIBUTE] = STRAIN_SCHEMA_VERSION
+
+        assert missing_layout_attributes(path) == {"H1:MOCK_NOISE": ["channel", "name"]}
+        with pytest.raises(ValueError, match=r"H1:MOCK_NOISE is missing channel, name"):
+            require_strain_schema(path)
 
     def test_a_malformed_version_is_refused(self, tmp_path: Path) -> None:
         path = _hdf5_strain(tmp_path / "strain.hdf5")
