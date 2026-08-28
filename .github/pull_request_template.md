@@ -16,7 +16,8 @@ using keywords (e.g., `Closes #123`).
 
 Please describe the tests that you ran to verify your changes.
 
-- [ ] **Unit Tests:** `uv run pytest tests/<path>/test_<module>.py`
+- [ ] **Unit Tests:** `uv run pytest` — name the test files you ran, e.g.
+      `tests/signal/test_adapter.py`
 - [ ] **Manual Test:** (Describe steps)
 
 ## 🏗️ Checklist
