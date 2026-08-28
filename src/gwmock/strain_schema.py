@@ -170,6 +170,12 @@ def declare_strain_schema(path: str | Path) -> bool:
     two are read by different consumers and the artifact would then be one file placing its samples at
     two different times. Refusing it is what "do not overwrite" leaves available.
 
+    **Every** dataset is checked before any of them is written, in a read-only pass, so a refusal leaves
+    the artifact exactly as it was found. Checking and completing one dataset at a time reads naturally
+    and is wrong for a multichannel file: the datasets before the offending one would already have been
+    completed by the time it was reached, leaving a file that is undeclared but no longer what its
+    writer produced -- a half-converted artifact, which is worse than either outcome the caller expected.
+
     Args:
         path: The artifact to declare.
 
@@ -190,9 +196,12 @@ def declare_strain_schema(path: str | Path) -> bool:
 
     import h5py  # noqa: PLC0415  # deferred so importing the contract does not pull in the HDF5 stack
 
+    with h5py.File(artifact, "r") as handle:
+        for dataset in _datasets(handle):
+            _check_dataset(dataset, artifact=artifact)
     with h5py.File(artifact, "a") as handle:
         for dataset in _datasets(handle):
-            _conform_dataset(dataset, artifact=artifact)
+            _complete_dataset(dataset)
         handle.attrs.update(strain_schema_attributes())
     return True
 
@@ -356,16 +365,19 @@ def _grid_conflicts(dataset: Any) -> list[str]:
     return conflicts
 
 
-def _conform_dataset(dataset: Any, *, artifact: Path) -> None:
-    """Fill in the attributes version 1.0.0 requires, from what the writer already recorded.
+def _check_dataset(dataset: Any, *, artifact: Path) -> None:
+    """Refuse a dataset the 1.0.0 layout cannot be completed over, without writing anything.
+
+    Kept apart from :func:`_complete_dataset` so that the caller can ask this of every dataset before
+    writing to any of them.
 
     Args:
-        dataset: The dataset to complete.
+        dataset: The dataset to check.
         artifact: The file it belongs to, named in the errors below.
 
     Raises:
-        ValueError: If the epoch or the sample interval is absent under both spellings, leaving nothing
-            to derive the required grid from, or is present under both with values that disagree.
+        ValueError: If the epoch or the sample interval is present under both spellings with values that
+            disagree, or absent under both, leaving nothing to derive the required grid from.
     """
     disagreements = _grid_conflicts(dataset)
     if disagreements:
@@ -376,15 +388,26 @@ def _conform_dataset(dataset: Any, *, artifact: Path) -> None:
             "file would put one artifact at two different times."
         )
     for required, alias in _GRID_ALIASES:
-        if required in dataset.attrs:
-            continue
-        if alias not in dataset.attrs:
+        if required not in dataset.attrs and alias not in dataset.attrs:
             raise ValueError(
                 f"Cannot declare the strain schema on {artifact}: dataset '{dataset.name.lstrip('/')}' "
                 f"carries neither '{required}' nor '{alias}', so the grid version "
                 f"{STRAIN_SCHEMA_VERSION} requires cannot be recorded."
             )
-        dataset.attrs[required] = float(dataset.attrs[alias])
+
+
+def _complete_dataset(dataset: Any) -> None:
+    """Fill in the attributes version 1.0.0 requires, from what the writer already recorded.
+
+    Writes only: every reason to refuse has been raised by :func:`_check_dataset`, over every dataset in
+    the file, before this is called on the first of them.
+
+    Args:
+        dataset: The dataset to complete.
+    """
+    for required, alias in _GRID_ALIASES:
+        if required not in dataset.attrs:
+            dataset.attrs[required] = float(dataset.attrs[alias])
     if "xunit" not in dataset.attrs:
         dataset.attrs["xunit"] = "s"
     channel = dataset.name.lstrip("/")

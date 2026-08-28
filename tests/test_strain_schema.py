@@ -38,6 +38,14 @@ RATE = 8.0
 START = 100.0
 
 
+def _attribute_snapshot(path: Path) -> dict[str, dict[str, object]]:
+    """Return every dataset's attributes, for comparing a file against itself across a call."""
+    with h5py.File(path, "r") as handle:
+        return {
+            name: {key: handle[name].attrs[key].item() for key in sorted(handle[name].attrs)} for name in sorted(handle)
+        }
+
+
 def _hdf5_strain(path: Path, *, channel: str = "H1:MOCK_NOISE") -> Path:
     """Write a strain file laid out the way gwmock lays one out, with nothing declared on it yet."""
     with h5py.File(path, "w") as handle:
@@ -388,6 +396,52 @@ class TestAGridThatContradictsItself:
         for path in (aliased, canonical):
             declare_strain_schema(path)
             assert conflicting_grid_attributes(path) == {}
+
+    def test_a_refusal_does_not_half_convert_a_multichannel_file(self, tmp_path: Path) -> None:
+        """The datasets before the offending one must not be written either.
+
+        Checking and completing one dataset at a time reads naturally and is wrong here: a file whose
+        first channel is derivable and whose second contradicts itself would be refused *after* the
+        first had been completed, leaving an artifact that is undeclared but no longer what its writer
+        produced. Both orderings are covered because the property is "nothing is written", not "the
+        first dataset happens to be safe".
+        """
+        h1_first, l1_second = ({"t0": START, "dt": 1.0 / RATE}, {"x0": 100.0, "t0": 200.0})
+        for name, (h1, l1) in (
+            ("derivable-then-conflicting", (h1_first, l1_second)),
+            ("conflicting-then-derivable", (l1_second, h1_first)),
+        ):
+            path = tmp_path / f"{name}.hdf5"
+            with h5py.File(path, "w") as handle:
+                for channel, attributes in (("H1:MOCK", h1), ("L1:MOCK", l1)):
+                    dataset = handle.create_dataset(channel, data=np.arange(4, dtype=float))
+                    for attribute, value in attributes.items():
+                        dataset.attrs[attribute] = value
+            before = _attribute_snapshot(path)
+            before_bytes = path.read_bytes()
+
+            with pytest.raises(ValueError, match="disagree"):
+                declare_strain_schema(path)
+
+            assert _attribute_snapshot(path) == before, f"{name}: a dataset was written before the refusal"
+            assert path.read_bytes() == before_bytes, f"{name}: the file was modified by a refusal"
+            assert read_strain_schema(path) is None
+
+    def test_a_missing_grid_in_a_later_dataset_writes_nothing_either(self, tmp_path: Path) -> None:
+        """The other reason to refuse takes the same path, so it gets the same guarantee."""
+        path = tmp_path / "strain.hdf5"
+        with h5py.File(path, "w") as handle:
+            derivable = handle.create_dataset("H1:MOCK", data=np.arange(4, dtype=float))
+            derivable.attrs["t0"] = START
+            derivable.attrs["dt"] = 1.0 / RATE
+            handle.create_dataset("L1:MOCK", data=np.arange(4, dtype=float))
+        before = _attribute_snapshot(path)
+
+        with pytest.raises(ValueError, match="carries neither"):
+            declare_strain_schema(path)
+
+        assert _attribute_snapshot(path) == before
+        assert read_strain_schema(path) is None
 
     def test_the_conflict_is_reported_for_the_dataset_that_has_it(self, tmp_path: Path) -> None:
         """A multichannel file: one bad dataset must not be hidden by its well-formed neighbours."""
