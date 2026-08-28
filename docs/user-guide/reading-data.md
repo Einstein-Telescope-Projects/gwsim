@@ -41,8 +41,7 @@ file**:
 | `schema_version` | `MAJOR.MINOR.PATCH` | Which revision of it the file was written to |
 
 Version `1.0.0` requires, of **every** dataset in the file: the samples of one
-channel, as float64 strain, in a dataset named for that channel, plus these
-attributes.
+channel, in a dataset named for that channel, plus these attributes.
 
 | Attribute          | Meaning                                   |
 | ------------------ | ----------------------------------------- |
@@ -54,8 +53,10 @@ attributes.
 Anything else on the dataset is an extra, and a consumer ignores it. Two extras
 appear in practice: `unit` (`strain`, where the producer recorded one), and
 `t0`/`dt`, which duplicate `x0`/`dx` and are how the multichannel writer inside
-`gwmock-signal` spells the grid. gwmock derives one pair from the other when it
-declares the file, so the two cannot disagree.
+`gwmock-signal` spells the grid. When only one of the two pairs is present,
+gwmock derives the other as it declares the file. When both are present and
+disagree, gwmock **refuses** the file -- at declaration, and again at validation
+-- so a declared file never carries two grids that contradict each other.
 
 The **major** version moves when a reader written against the previous version
 would misread a file; the **minor** moves when something is added that such a
