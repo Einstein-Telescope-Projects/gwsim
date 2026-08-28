@@ -80,6 +80,7 @@ nav = [
     { "gwmock.repository" = "reference/gwmock/repository/index.md" },
     { "gwmock.signal" = "reference/gwmock/signal/index.md" },
     { "gwmock.simulator" = "reference/gwmock/simulator/index.md" },
+    { "gwmock.strain_schema" = "reference/gwmock/strain_schema.md" },
     { "gwmock.utils" = "reference/gwmock/utils/index.md" },
     { "gwmock.version" = "reference/gwmock/version.md" },
   ] },

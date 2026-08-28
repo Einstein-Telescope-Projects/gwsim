@@ -62,6 +62,7 @@ def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many
     from gwpy.timeseries import TimeSeries
 
     from gwmock.cli.utils.hash import compute_file_hash
+    from gwmock.strain_schema import stamp_strain_schema
     from gwmock.utils.log import get_dependency_versions
 
     if file_names is None:
@@ -131,6 +132,10 @@ def merge_command(  # pylint: disable=too-many-locals,too-many-branches,too-many
         frame_data.channel = output_channel
         frame_data.name = output_channel
     frame_data.write(temp_output)
+    # Declared before the rename, so the merged file carries the contract from the moment it appears
+    # under its final name -- a reader that opens it the instant it exists sees a complete artifact.
+    # A merge is a strain artifact like any other, and it is the one gwmock hands to another pipeline.
+    stamp_strain_schema(temp_output)
     temp_output.rename(output)
 
     if metadata:

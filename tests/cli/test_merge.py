@@ -18,6 +18,7 @@ from gwpy.timeseries import TimeSeries
 
 from gwmock.cli.merge import merge_command
 from gwmock.cli.utils.hash import compute_file_hash
+from gwmock.strain_schema import STRAIN_SCHEMA_VERSION, read_strain_schema, require_strain_schema
 
 pytestmark = pytest.mark.unit
 
@@ -202,6 +203,57 @@ class TestWhatComesOut:
         output = tmp_path / "merged.gwf"
         merge_command([path], channel="WANTED", output=str(output), force=True)
         assert np.allclose(TimeSeries.read(output, "WANTED").value, 1.0, atol=0.0)
+
+
+class TestTheStrainSchemaIsDeclared:
+    """A merged file is the artifact gwmock most often hands to another pipeline, so it says what it is.
+
+    The declaration rides in the file itself rather than only in the metadata sidecar, because a merge
+    can be forced past metadata entirely and the merged frame then travels alone.
+    """
+
+    @staticmethod
+    def _hdf5(path: Path, values) -> Path:
+        series = TimeSeries(np.asarray(values, dtype=float), sample_rate=RATE, t0=START, channel=CHANNEL, name=CHANNEL)
+        series.write(path)
+        return path
+
+    def test_an_hdf5_merge_declares_the_schema(self, tmp_path: Path) -> None:
+        inputs = [self._hdf5(tmp_path / "a.hdf5", np.ones(RATE)), self._hdf5(tmp_path / "b.hdf5", 2 * np.ones(RATE))]
+        output = tmp_path / "merged.hdf5"
+
+        merge_command(inputs, output=str(output), force=True)
+
+        assert require_strain_schema(output).version == STRAIN_SCHEMA_VERSION
+
+    def test_the_merged_file_is_still_readable(self, tmp_path: Path) -> None:
+        """Declaring the schema must not cost the consumer the standard reader."""
+        inputs = [self._hdf5(tmp_path / "a.hdf5", np.ones(RATE)), self._hdf5(tmp_path / "b.hdf5", 2 * np.ones(RATE))]
+        output = tmp_path / "merged.hdf5"
+
+        merge_command(inputs, output=str(output), force=True)
+
+        assert np.allclose(TimeSeries.read(output, CHANNEL).value, 3.0, atol=0.0)
+
+    def test_the_declaration_is_in_place_before_the_file_appears(self, tmp_path: Path) -> None:
+        """Stamped on the temporary file, so the merged path never exists in an undeclared state -- the
+        same reason the samples are written to a temporary file and renamed."""
+        inputs = [self._hdf5(tmp_path / "a.hdf5", np.ones(RATE))]
+        output = tmp_path / "merged.hdf5"
+
+        merge_command(inputs, output=str(output), force=True)
+
+        assert not (tmp_path / "merged.tmp.hdf5").exists()
+        assert require_strain_schema(output) is not None
+
+    def test_a_gwf_merge_is_written_without_one(self, tmp_path: Path, two_frames) -> None:
+        """A frame has no attribute space for the declaration, so the merge must simply not attempt it."""
+        output = tmp_path / "merged.gwf"
+
+        merge_command(list(two_frames), output=str(output), force=True)
+
+        assert output.exists()
+        assert read_strain_schema(output) is None
 
 
 class TestTheMergedMetadata:

@@ -29,6 +29,49 @@ orchestration:
 Everything below works for either: GWpy reads both, and the channel is named the
 same way in each.
 
+## What the file says it is
+
+Every HDF5 file gwmock writes -- noise, signal, and the output of `gwmock merge`
+-- declares the contract it meets, in two attributes at the **root of the
+file**:
+
+| Attribute        | Value               | Meaning                                      |
+| ---------------- | ------------------- | -------------------------------------------- |
+| `schema`         | `gwmock-strain`     | Which contract this is                       |
+| `schema_version` | `MAJOR.MINOR.PATCH` | Which revision of it the file was written to |
+
+Version `1.0.0` says: one dataset per channel, named for the channel, holding
+the samples as float64 strain; the epoch in the dataset's `x0` attribute (GPS
+seconds) and the sample interval in `dx` (seconds), with `xunit`/`unit` naming
+their units and `channel`/`name` repeating the channel name.
+
+The **major** version moves when a reader written against the previous version
+would misread a file; the **minor** moves when something is added that such a
+reader can safely ignore. So a consumer checks the major and refuses anything
+else, rather than discovering the change as a wrong number:
+
+```python
+from gwmock.strain_schema import read_strain_schema, require_strain_schema
+
+# Raises if the file declares no schema, another schema, or a major version
+# this gwmock does not know how to read.
+require_strain_schema("filename.hdf5")
+
+# Or look without refusing: None means the file predates the declaration or
+# came from another producer.
+declared = read_strain_schema("filename.hdf5")
+```
+
+The declaration sits at the file root rather than on the dataset so that GWpy
+still reads the file: GWpy passes every _dataset_ attribute to the series
+constructor, and one it does not recognise makes the file unreadable through
+`TimeSeries.read`.
+
+**GWF and `.npy` carry no declaration.** A frame is composed from a fixed set of
+fields and `.npy` is a bare array container, so neither has anywhere to put it;
+for those formats the run's metadata record remains the description of what was
+written.
+
 ## Reading a file
 
 ```python

@@ -67,6 +67,7 @@ Complete API documentation for the gwmock package.
 - [`gwmock.simulator.base`](gwmock/simulator/base.md)
 - [`gwmock.simulator.seeds`](gwmock/simulator/seeds.md)
 - [`gwmock.simulator.state`](gwmock/simulator/state.md)
+- [`gwmock.strain_schema`](gwmock/strain_schema.md)
 - [`gwmock.utils`](gwmock/utils/index.md)
 - [`gwmock.utils.datetime_parser`](gwmock/utils/datetime_parser.md)
 - [`gwmock.utils.download`](gwmock/utils/download.md)
