@@ -23,6 +23,7 @@ from gwmock.strain_schema import (
     STRAIN_SCHEMA_VERSION,
     StrainSchema,
     carries_strain_schema,
+    conflicting_grid_attributes,
     declare_strain_schema,
     missing_layout_attributes,
     parse_strain_schema_version,
@@ -223,21 +224,28 @@ class TestBringingAFileUpToTheLayout:
             assert attributes["name"] == "H1:MOCK_NOISE"
 
     def test_what_the_writer_recorded_is_not_overwritten(self, tmp_path: Path) -> None:
-        """The writer's own value is the authoritative one; the completion only fills gaps."""
+        """The writer's own value is the authoritative one; the completion only fills gaps.
+
+        The channel carries this rather than the grid: a dataset whose two grid spellings differ is not
+        a question of which to keep but an inconsistent file, and is refused -- see
+        `TestAGridThatContradictsItself`.
+        """
         path = tmp_path / "strain.hdf5"
         with h5py.File(path, "w") as handle:
             dataset = handle.create_dataset("H1:MOCK_NOISE", data=np.arange(4, dtype=float))
-            dataset.attrs["x0"] = 7.0
             dataset.attrs["t0"] = 9.0
-            dataset.attrs["dx"] = 0.25
+            dataset.attrs["dt"] = 0.25
             dataset.attrs["channel"] = "SOMETHING:ELSE"
+            dataset.attrs["xunit"] = "ms"
 
         declare_strain_schema(path)
 
         with h5py.File(path, "r") as handle:
             attributes = handle["H1:MOCK_NOISE"].attrs
-            assert attributes["x0"] == 7.0
             assert attributes["channel"] == "SOMETHING:ELSE"
+            assert attributes["xunit"] == "ms"
+            assert attributes["name"] == "H1:MOCK_NOISE", "the gap is still filled"
+            assert attributes["x0"] == 9.0, "and the grid is still derived"
 
     def test_every_dataset_in_the_file_is_completed(self, tmp_path: Path) -> None:
         """A multichannel file holds one dataset per channel, and the contract is about all of them."""
@@ -290,6 +298,112 @@ class TestBringingAFileUpToTheLayout:
         series = TimeSeries.read(str(path), format="hdf5")
         assert series.t0.value == START
         assert series.sample_rate.value == RATE
+
+
+class TestAGridThatContradictsItself:
+    """A file recording the same quantity twice, differently, is refused at both ends.
+
+    The two spellings are read by different consumers -- the content hash takes `x0`/`dx`, and
+    `DetectorStrainStack.read` takes `t0`/`dt` -- so a declared file allowed to carry both with
+    different values is one artifact that two readers place at two different times, or sample at two
+    different rates. Not overwriting the writer's value is right; declaring the file anyway is not, and
+    refusing it is what "do not overwrite" leaves available.
+    """
+
+    @staticmethod
+    def _written(path: Path, **attributes: float) -> Path:
+        with h5py.File(path, "w") as handle:
+            dataset = handle.create_dataset("H1:MOCK_NOISE", data=np.arange(8, dtype=float))
+            dataset.attrs["unit"] = "strain"
+            for name, value in attributes.items():
+                dataset.attrs[name] = value
+        return path
+
+    @staticmethod
+    def _declared_then_edited(path: Path, **edits: float) -> Path:
+        """A file gwmock declared cleanly and something changed afterwards -- the only way a declared
+        artifact can reach this state, and the reason the consumer checks rather than trusting."""
+        with h5py.File(path, "w") as handle:
+            dataset = handle.create_dataset("H1:MOCK_NOISE", data=np.arange(8, dtype=float))
+            dataset.attrs["t0"] = START
+            dataset.attrs["dt"] = 1.0 / RATE
+            dataset.attrs["unit"] = "strain"
+        declare_strain_schema(path)
+        with h5py.File(path, "a") as handle:
+            for name, value in edits.items():
+                handle["H1:MOCK_NOISE"].attrs[name] = value
+        return path
+
+    def test_an_epoch_conflict_is_refused_at_declaration(self, tmp_path: Path) -> None:
+        path = self._written(tmp_path / "strain.hdf5", x0=100.0, t0=200.0, dx=0.5, dt=0.5)
+
+        with pytest.raises(ValueError, match=r"x0=100\.0 but t0=200\.0"):
+            declare_strain_schema(path)
+
+    def test_an_interval_conflict_is_refused_at_declaration(self, tmp_path: Path) -> None:
+        path = self._written(tmp_path / "strain.hdf5", x0=100.0, t0=100.0, dx=0.5, dt=0.25)
+
+        with pytest.raises(ValueError, match=r"dx=0\.5 but dt=0\.25"):
+            declare_strain_schema(path)
+
+    def test_a_refused_file_is_left_undeclared(self, tmp_path: Path) -> None:
+        """The check runs before any attribute is written, so a refusal changes nothing."""
+        path = self._written(tmp_path / "strain.hdf5", x0=100.0, t0=200.0, dx=0.5, dt=0.5)
+
+        with pytest.raises(ValueError, match="disagree"):
+            declare_strain_schema(path)
+
+        assert read_strain_schema(path) is None
+        with h5py.File(path, "r") as handle:
+            assert "xunit" not in handle["H1:MOCK_NOISE"].attrs
+
+    def test_an_epoch_conflict_is_refused_at_require_time(self, tmp_path: Path) -> None:
+        path = self._declared_then_edited(tmp_path / "strain.hdf5", t0=612.0)
+
+        assert conflicting_grid_attributes(path) == {"H1:MOCK_NOISE": ["x0=100.0 but t0=612.0"]}
+        with pytest.raises(ValueError, match="grid contradicts itself"):
+            require_strain_schema(path)
+
+    def test_an_interval_conflict_is_refused_at_require_time(self, tmp_path: Path) -> None:
+        path = self._declared_then_edited(tmp_path / "strain.hdf5", dt=0.5)
+
+        assert conflicting_grid_attributes(path) == {"H1:MOCK_NOISE": ["dx=0.125 but dt=0.5"]}
+        with pytest.raises(ValueError, match="grid contradicts itself"):
+            require_strain_schema(path)
+
+    def test_a_consistent_duplicate_is_not_a_conflict(self, tmp_path: Path) -> None:
+        """The ordinary case: the pair gwmock itself derives, and the pair a writer records twice."""
+        path = self._written(tmp_path / "strain.hdf5", x0=100.0, t0=100.0, dx=0.5, dt=0.5)
+
+        declare_strain_schema(path)
+
+        assert conflicting_grid_attributes(path) == {}
+        assert require_strain_schema(path).version == STRAIN_SCHEMA_VERSION
+
+    def test_one_spelling_alone_is_not_a_conflict(self, tmp_path: Path) -> None:
+        """Nothing to disagree with. Both single-spelling shapes go through the ordinary path."""
+        aliased = self._written(tmp_path / "aliased.hdf5", t0=100.0, dt=0.125)
+        canonical = self._written(tmp_path / "canonical.hdf5", x0=100.0, dx=0.125)
+
+        for path in (aliased, canonical):
+            declare_strain_schema(path)
+            assert conflicting_grid_attributes(path) == {}
+
+    def test_the_conflict_is_reported_for_the_dataset_that_has_it(self, tmp_path: Path) -> None:
+        """A multichannel file: one bad dataset must not be hidden by its well-formed neighbours."""
+        path = tmp_path / "strain.hdf5"
+        with h5py.File(path, "w") as handle:
+            for channel in ("H1:MOCK", "L1:MOCK"):
+                dataset = handle.create_dataset(channel, data=np.arange(4, dtype=float))
+                dataset.attrs["x0"] = START
+                dataset.attrs["t0"] = START
+                dataset.attrs["dx"] = 1.0 / RATE
+                dataset.attrs["dt"] = 1.0 / RATE
+            handle["L1:MOCK"].attrs["t0"] = 612.0
+
+        assert sorted(conflicting_grid_attributes(path)) == ["L1:MOCK"]
+        with pytest.raises(ValueError, match="L1:MOCK"):
+            declare_strain_schema(path)
 
 
 class TestReadingTheDeclaration:

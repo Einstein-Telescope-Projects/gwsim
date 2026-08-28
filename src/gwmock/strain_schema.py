@@ -27,9 +27,12 @@ Version 1.0.0 requires, of every dataset in the file:
 Anything else on the dataset is permitted and a consumer ignores it. Two such extras are written in
 practice: ``unit`` (``"strain"``, where the producer recorded one), and ``t0``/``dt``, which duplicate
 ``x0``/``dx`` and are how the multichannel writer in ``gwmock-signal`` spells the grid. The duplicate is
-not a second source of truth -- :func:`declare_strain_schema` derives one pair from the other at write
-time, so they cannot be set independently -- and it is kept because that writer's own reader requires
-it.
+kept because that writer's own reader requires it, and it is not a second source of truth: gwmock
+derives one pair from the other, and **refuses a file whose two spellings disagree** -- at declaration
+and again at validation. Enforcement rather than convention, because the two are read by different
+consumers: the content hash takes ``x0``/``dx`` and ``DetectorStrainStack.read`` takes ``t0``/``dt``, so
+a file allowed to carry both with different values is one artifact that two readers place at two
+different times.
 
 That last point is the reason declaring the schema is not only a matter of writing two root attributes.
 gwmock composes strain HDF5 through three different writers -- its own, gwpy's, and gwmock-signal's --
@@ -84,8 +87,9 @@ SCHEMA_VERSION_ATTRIBUTE = "schema_version"
 REQUIRED_DATASET_ATTRIBUTES = ("x0", "dx", "xunit", "channel", "name")
 
 #: How ``gwmock-signal``'s multichannel writer spells the epoch and the sample interval. Read to derive
-#: ``x0``/``dx`` when they are absent, and left in place afterwards because that writer's reader needs
-#: them: deleting them makes ``DetectorStrainStack.read`` fail with ``can't locate attribute: 't0'``.
+#: ``x0``/``dx`` when they are absent, checked against them when both are there, and left in place
+#: afterwards because that writer's reader needs them: deleting them makes ``DetectorStrainStack.read``
+#: fail with ``can't locate attribute: 't0'``.
 _GRID_ALIASES = (("x0", "t0"), ("dx", "dt"))
 
 _HDF5_SUFFIXES = frozenset({".hdf5", ".h5"})
@@ -161,6 +165,11 @@ def declare_strain_schema(path: str | Path) -> bool:
     and no attribute is invented from nothing, so a dataset carrying no grid at all is an error rather
     than a file that declares a layout it does not have.
 
+    A dataset that already carries both spellings of the grid with *different* values is an error for
+    the same reason. Not overwriting one of them is right; declaring the file anyway is not, because the
+    two are read by different consumers and the artifact would then be one file placing its samples at
+    two different times. Refusing it is what "do not overwrite" leaves available.
+
     Args:
         path: The artifact to declare.
 
@@ -170,7 +179,8 @@ def declare_strain_schema(path: str | Path) -> bool:
     Raises:
         FileNotFoundError: If the artifact does not exist.
         ValueError: If a dataset carries no epoch or no sample interval under either spelling, so the
-            required layout cannot be completed.
+            required layout cannot be completed, or carries both spellings of one with values that
+            disagree.
     """
     artifact = Path(path)
     if not carries_strain_schema(artifact):
@@ -235,6 +245,27 @@ def missing_layout_attributes(path: str | Path) -> dict[str, list[str]]:
     return missing
 
 
+def conflicting_grid_attributes(path: str | Path) -> dict[str, list[str]]:
+    """Return, per dataset, each grid quantity whose two spellings disagree.
+
+    Args:
+        path: The artifact to inspect.
+
+    Returns:
+        A mapping of dataset name to a description of each disagreement; empty when the file is
+        self-consistent, which includes a file carrying only one spelling.
+    """
+    import h5py  # noqa: PLC0415  # deferred so importing the contract does not pull in the HDF5 stack
+
+    conflicts: dict[str, list[str]] = {}
+    with h5py.File(Path(path), "r") as handle:
+        for dataset in _datasets(handle):
+            disagreements = _grid_conflicts(dataset)
+            if disagreements:
+                conflicts[dataset.name.lstrip("/")] = disagreements
+    return conflicts
+
+
 def require_strain_schema(path: str | Path) -> StrainSchema:
     """Return the declared schema, refusing anything this gwmock cannot read.
 
@@ -252,7 +283,8 @@ def require_strain_schema(path: str | Path) -> StrainSchema:
 
     Raises:
         ValueError: If the artifact declares no schema, declares a different one, declares a major
-            version this gwmock does not know how to read, or does not carry the layout it declares.
+            version this gwmock does not know how to read, does not carry the layout it declares, or
+            carries a grid that contradicts itself.
     """
     declared = read_strain_schema(path)
     if declared is None:
@@ -274,6 +306,13 @@ def require_strain_schema(path: str | Path) -> StrainSchema:
         raise ValueError(
             f"{Path(path)} declares strain schema {declared.version} but does not carry its layout: {detail}."
         )
+    conflicts = conflicting_grid_attributes(path)
+    if conflicts:
+        detail = "; ".join(f"{name}: {', '.join(items)}" for name, items in sorted(conflicts.items()))
+        raise ValueError(
+            f"{Path(path)} declares strain schema {declared.version} but its grid contradicts itself: "
+            f"{detail}. A file gwmock declared cannot reach this state; it has been edited since."
+        )
     return declared
 
 
@@ -293,17 +332,49 @@ def _datasets(handle: Any) -> list[Any]:
     return found
 
 
+def _grid_conflicts(dataset: Any) -> list[str]:
+    """Return a description of each grid quantity the dataset records twice, differently.
+
+    Compared exactly rather than within a tolerance. The pair is either derived -- one written from the
+    other, so bit-identical -- or written twice by one producer that had a single value in hand. There
+    is no third case in which two epochs a hair apart would be the same epoch, so there is no bound to
+    pick, and picking one would only decide how large a contradiction may be before it is reported.
+
+    Args:
+        dataset: The dataset to inspect.
+
+    Returns:
+        One entry per disagreement, empty when the dataset records each quantity once or consistently.
+    """
+    conflicts: list[str] = []
+    for required, alias in _GRID_ALIASES:
+        if required not in dataset.attrs or alias not in dataset.attrs:
+            continue
+        recorded, aliased = float(dataset.attrs[required]), float(dataset.attrs[alias])
+        if recorded != aliased:
+            conflicts.append(f"{required}={recorded!r} but {alias}={aliased!r}")
+    return conflicts
+
+
 def _conform_dataset(dataset: Any, *, artifact: Path) -> None:
     """Fill in the attributes version 1.0.0 requires, from what the writer already recorded.
 
     Args:
         dataset: The dataset to complete.
-        artifact: The file it belongs to, named in the error below.
+        artifact: The file it belongs to, named in the errors below.
 
     Raises:
         ValueError: If the epoch or the sample interval is absent under both spellings, leaving nothing
-            to derive the required grid from.
+            to derive the required grid from, or is present under both with values that disagree.
     """
+    disagreements = _grid_conflicts(dataset)
+    if disagreements:
+        raise ValueError(
+            f"Cannot declare the strain schema on {artifact}: dataset '{dataset.name.lstrip('/')}' "
+            f"records its grid twice and the two disagree ({'; '.join(disagreements)}). The content "
+            "hash reads the first spelling and the multichannel reader the second, so declaring this "
+            "file would put one artifact at two different times."
+        )
     for required, alias in _GRID_ALIASES:
         if required in dataset.attrs:
             continue

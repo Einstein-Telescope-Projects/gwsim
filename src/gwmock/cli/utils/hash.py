@@ -64,6 +64,10 @@ def _first_attribute(dataset: object, names: tuple[str, ...]) -> float | None:
     Two writers spell the same quantity differently, so the digest has to accept either -- but only one
     of them can contribute, or the same number would be folded in twice under two keys and the two
     spellings would hash differently while describing the same grid.
+
+    Taking the first is not choosing between two answers: a file gwmock declared to its strain schema
+    carries the two spellings consistently or is refused, both when it is declared and when a consumer
+    validates it. For an undeclared file this is a best effort, as the rest of this branch is.
     """
     attributes = dataset.attrs  # type: ignore[attr-defined]
     for name in names:
