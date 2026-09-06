@@ -830,7 +830,7 @@ dev = [
 ]
 docs = [
     { name = "mkdocstrings-python", specifier = ">=2.0.8" },
-    { name = "zensical", specifier = ">=0.0.58" },
+    { name = "zensical", specifier = ">=0.0.59" },
 ]
 release = [{ name = "git-cliff", specifier = ">=2.13.1" }]
 
