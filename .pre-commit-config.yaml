@@ -69,7 +69,7 @@ repos:
           # Update the uv lockfile
           - id: uv-lock
 
-    - repo: https://github.com/gitleaks/gitleaks
-      rev: v8.30.1
+    - repo: https://github.com/betterleaks/betterleaks
+      rev: v1.8.1
       hooks:
-          - id: gitleaks
+          - id: betterleaks
